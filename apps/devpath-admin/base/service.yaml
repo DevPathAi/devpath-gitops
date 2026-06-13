@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: devpath-admin
+  labels:
+    app: devpath-admin
+spec:
+  selector:
+    app: devpath-admin
+  ports:
+    - port: 80
+      targetPort: 8080

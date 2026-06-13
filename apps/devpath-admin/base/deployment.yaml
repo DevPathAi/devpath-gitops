@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devpath-admin
+  labels:
+    app: devpath-admin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: devpath-admin
+  template:
+    metadata:
+      labels:
+        app: devpath-admin
+    spec:
+      containers:
+        - name: devpath-admin
+          # 이미지 태그는 ArgoCD Image Updater 또는 CI가 교체한다.
+          image: ghcr.io/devpathai/devpath-admin:main
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
