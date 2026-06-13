@@ -1,8 +1,9 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - deployment.yaml
-  - service.yaml
+- deployment.yaml
+- service.yaml
 images:
-  - name: ghcr.io/devpathai/devpath-gateway
-    newTag: main
+- name: ghcr.io/devpathai/devpath-gateway
+  newName: ghcr.io/devpathai/devpath-gateway
+  newTag: 006e938b506f4a46e141526e389bb0663315f00a
