@@ -6,4 +6,4 @@ resources:
 images:
 - name: ghcr.io/devpathai/devpath-admin
   newName: ghcr.io/devpathai/devpath-admin
-  newTag: 5ec6e3ab73a88320507b374ffc4aaa5ea4db75ee
+  newTag: 7633705d30ca7c8b60c46a76ccb0eff2c5ac671a
