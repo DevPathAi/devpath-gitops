@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  kustomize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: azure/setup-kubectl@v4
+      - name: Validate all kustomize bases
+        run: |
+          set -e
+          shopt -s nullglob
+          for dir in apps/*/base; do
+            echo "== $dir =="
+            kubectl kustomize "$dir" > /dev/null
+          done
+          echo "all kustomize bases rendered OK"
