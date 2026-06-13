@@ -1,0 +1,34 @@
+# apps/* 디렉터리를 자동 발견해 각 서비스를 ArgoCD Application으로 배포한다.
+# 새 서비스를 apps/ 아래에 추가하면 자동으로 동기화 대상이 된다.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: devpath-services
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: https://github.com/DevPathAi/devpath-gitops.git
+        revision: main
+        directories:
+          - path: apps/*
+  template:
+    metadata:
+      name: "{{.path.basename}}"
+    spec:
+      project: devpath
+      source:
+        repoURL: https://github.com/DevPathAi/devpath-gitops.git
+        targetRevision: main
+        path: "{{.path.path}}/base"
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: devpath
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true

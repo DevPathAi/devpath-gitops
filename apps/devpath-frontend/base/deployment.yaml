@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devpath-frontend
+  labels:
+    app: devpath-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: devpath-frontend
+  template:
+    metadata:
+      labels:
+        app: devpath-frontend
+    spec:
+      containers:
+        - name: devpath-frontend
+          # web SPA를 nginx로 서빙한다. 이미지 태그는 CI가 교체.
+          image: ghcr.io/devpathai/devpath-frontend:latest
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi

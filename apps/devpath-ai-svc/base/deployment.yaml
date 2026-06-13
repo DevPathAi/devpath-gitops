@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devpath-ai-svc
+  labels:
+    app: devpath-ai-svc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: devpath-ai-svc
+  template:
+    metadata:
+      labels:
+        app: devpath-ai-svc
+    spec:
+      containers:
+        - name: devpath-ai-svc
+          # 이미지 태그는 ArgoCD Image Updater 또는 CI가 교체한다.
+          image: ghcr.io/devpathai/
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            initialDelaySeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi

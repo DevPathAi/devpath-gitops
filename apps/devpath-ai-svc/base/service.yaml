@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: devpath-ai-svc
+  labels:
+    app: devpath-ai-svc
+spec:
+  selector:
+    app: devpath-ai-svc
+  ports:
+    - port: 8080
+      targetPort: 8080

@@ -1,0 +1,18 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: devpath
+  namespace: argocd
+spec:
+  description: DevPath AI 서비스 배포 프로젝트
+  sourceRepos:
+    - https://github.com/DevPathAi/devpath-gitops.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: devpath
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
