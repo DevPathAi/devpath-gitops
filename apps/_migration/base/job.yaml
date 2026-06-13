@@ -11,7 +11,7 @@ spec:
         - name: flyway
           # 중앙 스키마(devpath-shared)의 마이그레이션을 단일 DB에 적용한다.
           # 서비스 부팅과 분리된 Job — 서비스는 ddl-auto: validate로 매핑만 검증.
-          image: flyway/flyway:11-alpine
+          image: ghcr.io/devpathai/devpath-migration:main
           securityContext:
             runAsNonRoot: true
             allowPrivilegeEscalation: false
