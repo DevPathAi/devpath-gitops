@@ -17,7 +17,7 @@ spec:
       containers:
         - name: devpath-ai-svc
           # 이미지 태그는 ArgoCD Image Updater 또는 CI가 교체한다.
-          image: ghcr.io/devpathai/
+          image: ghcr.io/devpathai/devpath-ai-svc:main
           ports:
             - containerPort: 8080
           readinessProbe:
