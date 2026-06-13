@@ -1,0 +1,27 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: devpath-flyway-migrate
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: flyway
+          # 중앙 스키마(devpath-shared)의 마이그레이션을 단일 DB에 적용한다.
+          # 서비스 부팅과 분리된 Job — 서비스는 ddl-auto: validate로 매핑만 검증.
+          image: flyway/flyway:11-alpine
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          args:
+            - -url=jdbc:postgresql://postgres:5432/devpath
+            - -user=devpath
+            - -locations=filesystem:/flyway/sql
+            - migrate
+          # 마이그레이션 SQL(/flyway/sql)은 devpath-shared의 db/migration을
+          # ConfigMap 또는 빌드 산출물로 마운트한다 (배포 파이프라인에서 주입).
+          # DB 자격증명은 Secret(External Secrets)으로 주입한다.
