@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: devpath-web
+  labels:
+    app: devpath-web
+spec:
+  selector:
+    app: devpath-web
+  ports:
+    - port: 80
+      targetPort: 8080

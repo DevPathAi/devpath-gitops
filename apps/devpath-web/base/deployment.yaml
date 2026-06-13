@@ -1,34 +1,34 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: devpath-frontend
+  name: devpath-web
   labels:
-    app: devpath-frontend
+    app: devpath-web
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: devpath-frontend
+      app: devpath-web
   template:
     metadata:
       labels:
-        app: devpath-frontend
+        app: devpath-web
     spec:
       containers:
-        - name: devpath-frontend
-          # web SPA를 nginx로 서빙한다. 이미지 태그는 CI가 교체.
-          image: ghcr.io/devpathai/devpath-frontend:latest
+        - name: devpath-web
+          # 이미지 태그는 ArgoCD Image Updater 또는 CI가 교체한다.
+          image: ghcr.io/devpathai/devpath-web:main
           ports:
-            - containerPort: 80
+            - containerPort: 8080
           readinessProbe:
             httpGet:
               path: /
-              port: 80
+              port: 8080
             initialDelaySeconds: 5
           livenessProbe:
             httpGet:
               path: /
-              port: 80
+              port: 8080
             initialDelaySeconds: 10
           resources:
             requests:
