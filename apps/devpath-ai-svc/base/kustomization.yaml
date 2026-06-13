@@ -1,8 +1,9 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - deployment.yaml
-  - service.yaml
+- deployment.yaml
+- service.yaml
 images:
-  - name: ghcr.io/devpathai/devpath-ai-svc
-    newTag: main
+- name: ghcr.io/devpathai/devpath-ai-svc
+  newName: ghcr.io/devpathai/devpath-ai-svc
+  newTag: 43d2f91997500f3bcb48cf2059c256f25da2dff4
