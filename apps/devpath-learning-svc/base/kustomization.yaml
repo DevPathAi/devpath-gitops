@@ -6,4 +6,4 @@ resources:
 images:
 - name: ghcr.io/devpathai/devpath-learning-svc
   newName: ghcr.io/devpathai/devpath-learning-svc
-  newTag: f3b90e00ff8851b52b1fcd8c74fc89ee27b0ab02
+  newTag: 0e46caec6fbb8c7a575db382637386a529e3a03e
