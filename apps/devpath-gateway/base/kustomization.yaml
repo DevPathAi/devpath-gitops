@@ -6,4 +6,4 @@ resources:
 images:
 - name: ghcr.io/devpathai/devpath-gateway
   newName: ghcr.io/devpathai/devpath-gateway
-  newTag: 163c9bb02cf2c1aed3ea88c4c3f9095e7e00d86e
+  newTag: b792bd436c2a90d335c6135f4d1944c5606d1a65
