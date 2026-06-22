@@ -6,4 +6,4 @@ resources:
 images:
 - name: ghcr.io/devpathai/devpath-platform-svc
   newName: ghcr.io/devpathai/devpath-platform-svc
-  newTag: b26c162b90df7ba30d3740a4fd2a1e85fb73cc03
+  newTag: 955d012441870e5481170724e1ba5881f93e49c7
