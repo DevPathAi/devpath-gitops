@@ -6,4 +6,4 @@ resources:
 images:
 - name: ghcr.io/devpathai/devpath-sandbox-svc
   newName: ghcr.io/devpathai/devpath-sandbox-svc
-  newTag: dc00b4be9f20bed93a9b88d48e63660abed91927
+  newTag: 637ff3cc4b09219eb780578be393553ddc43c2ca
