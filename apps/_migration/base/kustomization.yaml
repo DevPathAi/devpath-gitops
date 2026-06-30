@@ -5,4 +5,4 @@ resources:
 images:
 - name: ghcr.io/devpathai/devpath-migration
   newName: ghcr.io/devpathai/devpath-migration
-  newTag: eabdf633b58ffc9b1a6a18d47437fe40178634fe
+  newTag: 32b9dade44bfb8ae062f3f03bced1c45a0ecc9ec
