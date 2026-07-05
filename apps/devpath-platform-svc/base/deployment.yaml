@@ -20,6 +20,34 @@ spec:
           image: ghcr.io/devpathai/devpath-platform-svc:main
           ports:
             - containerPort: 8080
+          # OAuth 클라이언트 자격증명: SealedSecret이 복호화한 Secret `platform-oauth`를 참조.
+          # optional: true — Secret 미설정 시에도 pod가 기동(앱은 application.yml dummy 기본값).
+          # 실제 값은 docs/sealed-secrets-oauth.md 절차로 SealedSecret 커밋 후 주입된다.
+          env:
+            - name: GITHUB_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: platform-oauth
+                  key: github-client-id
+                  optional: true
+            - name: GITHUB_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: platform-oauth
+                  key: github-client-secret
+                  optional: true
+            - name: GOOGLE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: platform-oauth
+                  key: google-client-id
+                  optional: true
+            - name: GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: platform-oauth
+                  key: google-client-secret
+                  optional: true
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness
