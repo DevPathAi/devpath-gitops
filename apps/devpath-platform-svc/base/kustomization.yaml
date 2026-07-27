@@ -5,6 +5,7 @@ resources:
 - service.yaml
 - sealedsecret-db.yaml
 - sealedsecret-jwt.yaml
+- sealedsecret-oauth.yaml
 images:
 - name: ghcr.io/devpathai/devpath-platform-svc
   newName: ghcr.io/devpathai/devpath-platform-svc
