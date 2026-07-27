@@ -27,6 +27,12 @@ spec:
                 secretKeyRef:
                   name: devpath-jwt
                   key: jwt-secret
+            # 원 Host(api.leva.ai.kr)를 다운스트림에 보존 + X-Forwarded 전파 — platform이
+            # 프록시 뒤에서 OAuth redirect_uri baseUrl을 올바르게 생성하기 위함
+            - name: SPRING_CLOUD_GATEWAY_SERVER_WEBFLUX_DEFAULT_FILTERS_0
+              value: "PreserveHostHeader"
+            - name: SPRING_CLOUD_GATEWAY_SERVER_WEBFLUX_XFORWARDED_ENABLED
+              value: "true"
             - name: PLATFORM_URI
               value: "http://devpath-platform-svc.devpath.svc:8080"
             - name: LEARNING_URI
