@@ -20,6 +20,26 @@ spec:
           image: ghcr.io/devpathai/devpath-gateway:main
           ports:
             - containerPort: 8080
+          env:
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: devpath-jwt
+                  key: jwt-secret
+            - name: PLATFORM_URI
+              value: "http://devpath-platform-svc.devpath.svc:8080"
+            - name: LEARNING_URI
+              value: "http://devpath-learning-svc.devpath.svc:8080"
+            - name: SANDBOX_URI
+              value: "http://devpath-sandbox-svc.devpath.svc:8080"
+            - name: AI_SVC_URI
+              value: "http://devpath-ai-svc.devpath.svc:8080"
+            - name: COMMUNITY_SVC_URI
+              value: "http://devpath-community-svc.devpath.svc:8080"
+            - name: NOTIFICATION_URI
+              value: "http://devpath-notification-svc.devpath.svc:8080"
+            - name: LCS_SVC_URI
+              value: "http://devpath-lcs-svc.devpath.svc:8080"
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness
