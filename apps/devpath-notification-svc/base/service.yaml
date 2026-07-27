@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: devpath-notification-svc
+  labels:
+    app: devpath-notification-svc
+spec:
+  selector:
+    app: devpath-notification-svc
+  ports:
+    - port: 8080
+      targetPort: 8080
