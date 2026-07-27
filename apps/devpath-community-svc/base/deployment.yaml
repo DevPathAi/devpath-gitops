@@ -14,6 +14,7 @@ spec:
       labels:
         app: devpath-community-svc
     spec:
+      enableServiceLinks: false
       containers:
         - name: devpath-community-svc
           # 이미지 태그는 ArgoCD Image Updater 또는 CI가 교체한다.
