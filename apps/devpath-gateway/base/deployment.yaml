@@ -35,6 +35,10 @@ spec:
             # 그대로 platform에 전달되어야 baseUrl 스킴이 https로 생성됨
             - name: SPRING_CLOUD_GATEWAY_SERVER_WEBFLUX_XFORWARDED_ENABLED
               value: "false"
+            # SCG 신버전은 trusted-proxies 미설정 시 수신 X-Forwarded/Forwarded를 제거 —
+            # Traefik(pod CIDR 10.42.0.0/16)을 신뢰해 원본 헤더를 통과시킴
+            - name: SPRING_CLOUD_GATEWAY_SERVER_WEBFLUX_TRUSTED_PROXIES
+              value: "10\\..*|127\\.0\\.0\\.1"
             - name: PLATFORM_URI
               value: "http://devpath-platform-svc.devpath.svc:8080"
             - name: LEARNING_URI
