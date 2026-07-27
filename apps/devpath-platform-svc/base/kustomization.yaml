@@ -3,6 +3,7 @@ kind: Kustomization
 resources:
 - deployment.yaml
 - service.yaml
+- sealedsecret-db.yaml
 images:
 - name: ghcr.io/devpathai/devpath-platform-svc
   newName: ghcr.io/devpathai/devpath-platform-svc
