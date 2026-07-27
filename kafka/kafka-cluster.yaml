@@ -1,0 +1,45 @@
+# 베타 단일 브로커 Kafka (Strimzi 1.x = KRaft 전용·API kafka.strimzi.io/v1, ZooKeeper 없음).
+# AppProject devpath는 devpath ns 한정이라 이 파일은 ArgoCD 밖에서 직접 적용한다:
+#   kubectl apply -f kafka/kafka-cluster.yaml
+# 부트스트랩 DNS: devpath-kafka-bootstrap.kafka.svc:9092
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: dual-role
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: devpath
+spec:
+  replicas: 1
+  roles:
+    - controller
+    - broker
+  storage:
+    type: persistent-claim
+    size: 10Gi
+    deleteClaim: false
+---
+apiVersion: kafka.strimzi.io/v1
+kind: Kafka
+metadata:
+  name: devpath
+  namespace: kafka
+  annotations:
+    strimzi.io/node-pools: enabled
+    strimzi.io/kraft: enabled
+spec:
+  kafka:
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+    config:
+      offsets.topic.replication.factor: 1
+      transaction.state.log.replication.factor: 1
+      transaction.state.log.min.isr: 1
+      default.replication.factor: 1
+      min.insync.replicas: 1
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}
