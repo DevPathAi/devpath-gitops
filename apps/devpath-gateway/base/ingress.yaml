@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: devpath-gateway
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: api.leva.ai.kr
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: devpath-gateway
+                port:
+                  number: 8080
+  tls:
+    - hosts:
+        - api.leva.ai.kr
+      secretName: devpath-gateway-tls

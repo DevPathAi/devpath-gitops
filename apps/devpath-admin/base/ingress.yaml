@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: devpath-admin
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: admin.leva.ai.kr
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: devpath-admin
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - admin.leva.ai.kr
+      secretName: devpath-admin-tls

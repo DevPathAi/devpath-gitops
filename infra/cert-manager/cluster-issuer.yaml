@@ -1,0 +1,17 @@
+# Let's Encrypt ClusterIssuer (HTTP-01, Traefik).
+# cluster 리소스라 AppProject devpath 밖 — EC2에서 직접 적용:
+#   kubectl apply -f infra/cert-manager/cluster-issuer.yaml
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: deepestdark@gmail.com
+    privateKeySecretRef:
+      name: letsencrypt-key
+    solvers:
+      - http01:
+          ingress:
+            class: traefik
