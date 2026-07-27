@@ -61,6 +61,8 @@
 | OAuth redirect_uri가 내부 svc DNS/http | ①platform 프록시 헤더 미반영 ②gateway Host 재작성 ③SCG 신버전 trusted-proxies 미설정 시 X-Forwarded 제거 | platform `SERVER_FORWARD_HEADERS_STRATEGY=framework` + gateway `PreserveHostHeader`·`TRUSTED_PROXIES=10\..*` + (이중보장) `SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_{GITHUB,GOOGLE}_REDIRECTURI` 절대값 |
 | 브라우저 CORS 차단 (`No Access-Control-Allow-Origin`) | gateway `CORS_ALLOWED_ORIGINS` 기본값(localhost)뿐 | env에 `https://app.leva.ai.kr,https://admin.leva.ai.kr` 주입 |
 | 로그인 후 `/beta-pending`+401 두 건 | 베타 미승인 분기는 토큰·쿠키 없이 리다이렉트(설계) | `beta_allowlist`에 email INSERT(또는 admin UI 승인) 후 **재로그인** |
+| 로그인 후 동의 화면 401 (`/auth/refresh`·`/dashboard/me`) | platform 비원자 단일-사용 회전 × 웹 동시 refresh → 뒤따른 요청 401 → 인터셉터 store.clear()로 세션 파괴 | platform 회전 유예창 30s(`devpath.auth.refresh-rotate-grace`, PR #40·릴리스 #41) |
+| 무인증(무쿠키) 부팅 시 `/#/login` 미도달 무한 스피너 | 앱이 refresh/retry를 같은 dio로 재진입 → QueuedInterceptor 에러 큐 순환 대기(교착) → AuthLoading 영구 고착 | frontend authFlow 전용 클라이언트 분리(무-AuthInterceptor, PR #82·릴리스 #83) |
 
 ## E2E 준비 절차 (실측 기록)
 
@@ -69,25 +71,37 @@
 - 주의: 실제 가입 이메일은 GitHub 계정 이메일(이번 실측: `deepestdark@outlook.kr` — gmail 아님). `BETA_ADMIN_EMAILS`도 이 값과 일치시켜야 함.
 - psql 접속: EC2에서 `PGPASSWORD=$(cat ~/.secrets/rds-pw.txt) psql "host=<RDS> user=devpath dbname=devpath"`
 
-## 🔴 미해결 (OPEN) — 다음 세션 착수 지점
+## ✅ 해소 (2026-07-27 저녁) — 로그인 후 동의 화면 401 (구 🔴 OPEN)
 
-**증상**: 베타 allowlist 등록 후에도 웹 로그인 → **가입 동의 화면에서 진행 불가**. 콘솔에 `/dashboard/me` 401·`/auth/refresh` 401 (CORS는 해소된 상태 — 401이 서버 응답으로 도달).
+**원인은 두 겹**이었다 (증상: 동의 화면 진행 불가 + `/auth/refresh`·`/dashboard/me` 401):
 
-**검증된 사실** (재조사 불필요):
-- OAuth authorize 요청 정상: `redirect_uri=https://api.leva.ai.kr/login/oauth2/code/github`, client_id CR 없음
-- gateway CORS: `allowCredentials(true)` + 운영 origin 허용, preflight 200
-- 웹·admin dio: `options.extra['withCredentials'] = true` 설정돼 있음 (api_providers.dart)
-- RefreshCookies: `refresh_token` HttpOnly, `Domain=.leva.ai.kr`(COOKIE_DOMAIN), `Secure`(COOKIE_SECURE=true), `SameSite=Lax` — env 반영 확인
-- allowlist 등록·role=ADMIN 완료(id=1, deepestdark@outlook.kr). Redis beta-status 캐시는 정리했음(부작용: 열려 있던 pending 탭의 statusToken이 무효화 → 그 탭은 승인 감지 불가, **새 로그인 필요**)
+1. **서버 — refresh 회전 경쟁**: `RefreshTokenStore.rotate()`가 validate→DEL→issue **비원자
+   단일-사용**이라, 웹의 동시 refresh(콜백 이중 부트스트랩·401 인터셉터 재시도·멀티탭)에서
+   뒤따른 요청이 반드시 401 → `AuthInterceptor` 실패 경로의 `store.clear()`가 세션 파괴.
+   운영 실측: 동일 토큰 동시 2회 `{200,401}` 및 이중 발급 `{200,200}` 재현(8/8 라운드 비원자성).
+   → **수정**: 회전 유예창 30s(`devpath.auth.refresh-rotate-grace`, 0=비활성 — platform PR #40·
+   릴리스 #41). 수정 후 실측: 순차 스테일 재사용 200→200, 동시 8라운드 401 제로.
+2. **클라 — AuthInterceptor 재진입 교착**: 앱 배선(web·admin·mobile)이 refresh/retry를 **같은
+   dio**로 호출 → refresh 자신이 401이면 QueuedInterceptor 에러 큐가 자기 자신을 대기(교착) →
+   무쿠키/무효쿠키 부팅에서 bootstrapSession 영구 미완결 → AuthLoading 고착 → **`/#/login`
+   미도달 무한 스피너**(로그인 시도 자체가 불가 — 서버에 OAuth 흔적이 전무했던 이유).
+   → **수정**: 앱 3종에 authFlow 전용 클라이언트(무-AuthInterceptor) 분리 + dp_core 회전 가드
+   보강(frontend PR #82·릴리스 #83). 수정 후 실측(헤드리스, 신규 번들): 무쿠키 부팅 →
+   `/#/login` 정상 도달, 유효 쿠키 부팅 → `/#/consent` 도달(refresh 200·dashboard 재시도 200).
+   동의 제출 → `/#/diagnostic` 완주는 서버 수정 직후 실측(같은 서버·이전 번들, 콘솔 에러 0 —
+   제출 경로는 클라 수정과 무관).
 
-**미확인 — 다음 진단 순서**:
-1. 사용자가 **완전한 재로그인**(pending 탭 아님, 새로 GitHub 로그인)을 거쳤는지 — 승인 후 재로그인해야 SuccessHandler 113행(웹 분기)에서 refresh 쿠키가 발급됨
-2. 재로그인 시 브라우저 DevTools Network: `/auth/callback` 복귀 응답(302)에 `Set-Cookie: refresh_token=...; Domain=.leva.ai.kr; Secure; SameSite=Lax` 존재 확인
-3. 이어지는 `/auth/refresh` 요청 헤더에 `Cookie: refresh_token=...` 포함 확인 — 미포함이면 쿠키 저장/전송 문제(가능성: `ai.kr` Public Suffix 판정으로 `Domain=.leva.ai.kr` 거부 여부 — DevTools Application→Cookies에서 실측), 포함인데 401이면 platform refreshStore(Redis) 검증 로그 확인
-4. platform 로그 레벨 상향(`LOGGING_LEVEL_AI_DEVPATH=DEBUG` env) 후 로그인 1회 재현 — SuccessHandler 어느 분기로 갔는지 확정
-5. 동의 화면 제출 API 경로·요구 토큰 확인 (frontend consent feature ↔ platform /consents)
+**기각된 가설(재조사 불필요)**: PSL 쿠키 거부(`ai.kr`은 PSL **단독 항목**이라 `leva.ai.kr`이
+등록 가능 도메인 → `Domain=.leva.ai.kr` 유효. `*.ai.kr` 항목 없음)·CORS credentials·재로그인
+미수행·SuccessHandler 85행 미승인 분기(id=1은 role=ADMIN이라 `admit()` 무조건 true).
 
-**보조 단서**: OAuth2LoginSuccessHandler 분기 — 85행(베타 미승인, 쿠키 없음)·113행(웹 정상, refresh 쿠키+`/auth/callback`). 401 두 건은 85행 분기의 예상 로그. allowlist 등록 "후"에도 같은 401이면 admit()이 여전히 false거나(캐시/조회 문제) 재로그인 미수행.
+**부수 사실**: users 2계정(id=1 outlook.kr=GitHub / id=2 gmail.com=Google — 이메일 상이로 계정
+분리, 정상 동작)·루트 `leva.ai.kr`은 A레코드 없음(주소창 직접 진입 실패는 현재 정상 — WS-A에서
+처리)·`BetaGate.admit()`의 ADMIN 조기 return은 status를 BETA_PENDING으로 방치(기능 영향 미확인).
+
+**남은 후속(백로그)**: ① frontend refresh single-flight(부트스트랩 이중 호출·첫 로드 무토큰
+선발사 401 콘솔 잔상 1건 정리) ② 유예창 밖 재사용 감지(reuse detection) ③ BetaGate ADMIN
+status 승격 정리 ④ Redis 영속성(재시작 시 전 세션 로그아웃) 검토.
 
 ## 정리(리소스 폐기) — 비용 중단 시
 
