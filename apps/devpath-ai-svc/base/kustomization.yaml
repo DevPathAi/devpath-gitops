@@ -3,6 +3,7 @@ kind: Kustomization
 resources:
 - deployment.yaml
 - service.yaml
+- sealedsecret-claude.yaml
 images:
 - name: ghcr.io/devpathai/devpath-ai-svc
   newName: ghcr.io/devpathai/devpath-ai-svc

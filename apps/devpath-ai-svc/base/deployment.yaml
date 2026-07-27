@@ -47,13 +47,19 @@ spec:
               value: "http://devpath-sandbox-svc.devpath.svc:8080"
             - name: LEARNING_URI
               value: "http://devpath-learning-svc.devpath.svc:8080"
-            # 실 AI 전환 시 ai-claude SealedSecret 주입 + *_PROVIDER=claude (키 확보 게이트)
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: ai-claude
                   key: anthropic-api-key
-                  optional: true
+            - name: REVIEW_PROVIDER
+              value: "claude"
+            - name: MENTOR_PROVIDER
+              value: "claude"
+            - name: COMMUNITY_SEED_PROVIDER
+              value: "claude"
+            - name: RETENTION_PROVIDER
+              value: "claude"
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness
