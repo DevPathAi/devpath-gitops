@@ -46,6 +46,8 @@ spec:
               value: "devpath-kafka-bootstrap.kafka.svc:9092"
             - name: REDIS_HOST
               value: "redis.devpath.svc"
+            - name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+              value: "5"
             - name: AI_SVC_BASE_URL
               value: "http://devpath-ai-svc.devpath.svc:8080"
             - name: NOTIFICATION_SVC_BASE_URL

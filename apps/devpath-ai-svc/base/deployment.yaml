@@ -45,6 +45,8 @@ spec:
                   key: jwt-secret
             - name: KAFKA_BOOTSTRAP
               value: "devpath-kafka-bootstrap.kafka.svc:9092"
+            - name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+              value: "5"
             - name: SANDBOX_URI
               value: "http://devpath-sandbox-svc.devpath.svc:8080"
             - name: LEARNING_URI
