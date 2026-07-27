@@ -82,7 +82,7 @@ spec:
             - name: COOKIE_SECURE
               value: "true"
             - name: BETA_ADMIN_EMAILS
-              value: "deepestdark@gmail.com"
+              value: "deepestdark@outlook.kr"
             # 프록시(Traefik→gateway) 뒤에서 X-Forwarded-*로 baseUrl 생성 — OAuth redirect_uri가
             # 내부 svc DNS로 만들어져 GitHub 콜백 불일치(404) 나던 문제의 해소
             - name: SERVER_FORWARD_HEADERS_STRATEGY
