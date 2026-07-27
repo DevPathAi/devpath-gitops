@@ -44,6 +44,8 @@ spec:
                   key: jwt-secret
             - name: REDIS_HOST
               value: "redis.devpath.svc"
+            - name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+              value: "5"
             - name: LEARNING_URI
               value: "http://devpath-learning-svc.devpath.svc:8080"
             - name: SANDBOX_URI
