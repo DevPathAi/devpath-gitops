@@ -87,6 +87,11 @@ spec:
             # 내부 svc DNS로 만들어져 GitHub 콜백 불일치(404) 나던 문제의 해소
             - name: SERVER_FORWARD_HEADERS_STRATEGY
               value: "framework"
+            # OAuth redirect_uri를 절대값으로 확정(이중 보장 — 프록시 헤더 체인과 무관하게 동작)
+            - name: SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GITHUB_REDIRECTURI
+              value: "https://api.leva.ai.kr/login/oauth2/code/github"
+            - name: SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_REDIRECTURI
+              value: "https://api.leva.ai.kr/login/oauth2/code/google"
             # RDS db.t4g.micro max_connections(~85) 보호: 7 svc × 기본 풀 10이면 롤링 시 슬롯 고갈
             - name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
               value: "5"
