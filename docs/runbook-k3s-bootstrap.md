@@ -63,6 +63,7 @@
 | 로그인 후 `/beta-pending`+401 두 건 | 베타 미승인 분기는 토큰·쿠키 없이 리다이렉트(설계) | `beta_allowlist`에 email INSERT(또는 admin UI 승인) 후 **재로그인** |
 | 로그인 후 동의 화면 401 (`/auth/refresh`·`/dashboard/me`) | platform 비원자 단일-사용 회전 × 웹 동시 refresh → 뒤따른 요청 401 → 인터셉터 store.clear()로 세션 파괴 | platform 회전 유예창 30s(`devpath.auth.refresh-rotate-grace`, PR #40·릴리스 #41) |
 | 무인증(무쿠키) 부팅 시 `/#/login` 미도달 무한 스피너 | 앱이 refresh/retry를 같은 dio로 재진입 → QueuedInterceptor 에러 큐 순환 대기(교착) → AuthLoading 영구 고착 | frontend authFlow 전용 클라이언트 분리(무-AuthInterceptor, PR #82·릴리스 #83) |
+| 동의 화면에서 제출 버튼이 회색으로만 남아 진행 불가 | 출생 연도 미등록(IME 조합·전각 숫자를 digitsOnly가 조용히 삼킴 포함) + 조용한-비활성 버튼(안내 부재) | 버튼 상시 활성 + 제출 시 검증·에러 안내 + 전각 정규화(frontend PR #84·릴리스 #85) |
 
 ## E2E 준비 절차 (실측 기록)
 
@@ -90,6 +91,15 @@
    `/#/login` 정상 도달, 유효 쿠키 부팅 → `/#/consent` 도달(refresh 200·dashboard 재시도 200).
    동의 제출 → `/#/diagnostic` 완주는 서버 수정 직후 실측(같은 서버·이전 번들, 콘솔 에러 0 —
    제출 경로는 클라 수정과 무관).
+3. **클라 — 동의 화면 조용한-비활성 버튼**(위 두 수정 후 드러난 세 번째 결함): 출생 연도가
+   등록되지 않으면(미입력 또는 IME 조합·전각 숫자를 `digitsOnly` 라이브 필터가 조용히 삼킴)
+   제출 버튼이 **아무 안내 없이 회색**으로만 남아 사용자가 원인을 모른 채 갇힘(실사용 재현:
+   체크 5종 완료 + 연도 빈 값 + 회색 버튼). 클린 브라우저 원시 입력(포인터+키)은 정상 등록 —
+   환경(IME) 의존.
+   → **수정**: 버튼 상시 활성 + 제출 시 검증(필수 미체크/연도 미입력을 명시적 에러 텍스트로
+   안내, 연도 필드 포커스 이동), `digitsOnly` 제거 후 제출 시 파싱 검증, 전각 숫자 반각
+   정규화(frontend PR #84·릴리스 #85). 수정 후 실측(헤드리스, fa5eb91 번들): 빈 연도 제출 →
+   에러 문구 노출·필드 포커스, 입력 후 제출 → `POST /consents` 200 → `/#/diagnostic` 완주.
 
 **기각된 가설(재조사 불필요)**: PSL 쿠키 거부(`ai.kr`은 PSL **단독 항목**이라 `leva.ai.kr`이
 등록 가능 도메인 → `Domain=.leva.ai.kr` 유효. `*.ai.kr` 항목 없음)·CORS credentials·재로그인
