@@ -13,11 +13,13 @@ platform-svc의 OAuth 클라이언트 자격증명(GitHub·Google)을 **SealedSe
 
 ### 1. SealedSecret 컨트롤러 설치 (cluster-wide)
 
-AppProject `devpath`는 namespace `devpath`로 제한되어 cluster 리소스를 배포할 수 없다. 컨트롤러는 별도로 설치한다:
+AppProject `devpath`는 namespace `devpath`로 제한되어 cluster 리소스를 배포할 수 없다. 컨트롤러는 별도로 설치한다.
+
+> **2026-07-27 실측 정정**: helm 차트 저장소(`https://bitnami-labs.github.io/sealed-secrets`)가 404를 반환한다. **release manifest 직접 적용**으로 설치하며, 이때 컨트롤러 이름은 `sealed-secrets`가 아니라 **`sealed-secrets-controller`**다(아래 kubeseal 명령의 `--controller-name`도 동일하게).
 
 ```bash
-helm repo add sealed-secrets https://bitnami-labs.github.io/sealed-secrets
-helm install sealed-secrets sealed-secrets/sealed-secrets -n kube-system
+kubectl apply -f https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.27.3/controller.yaml
+kubectl -n kube-system rollout status deploy/sealed-secrets-controller
 ```
 
 ### 2. kubeseal CLI
@@ -44,8 +46,8 @@ kubectl create secret generic platform-oauth -n devpath \
   --from-literal=google-client-secret=<GOOGLE_SECRET> \
   --dry-run=client -o yaml > /tmp/platform-oauth.yaml
 
-# 2) kubeseal로 암호화 (컨트롤러 공개키 사용)
-kubeseal --controller-namespace kube-system --controller-name sealed-secrets \
+# 2) kubeseal로 암호화 (컨트롤러 공개키 사용 — 이름은 sealed-secrets-controller)
+kubeseal --controller-namespace kube-system --controller-name sealed-secrets-controller \
   -f /tmp/platform-oauth.yaml -o yaml \
   > apps/devpath-platform-svc/base/sealedsecret-oauth.yaml
 rm -f /tmp/platform-oauth.yaml   # 평문 즉시 삭제
