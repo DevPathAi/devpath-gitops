@@ -14,6 +14,8 @@ spec:
       labels:
         app: devpath-ai-svc
     spec:
+      # K8s service link env 자동주입 차단 (redis Service가 REDIS_PORT=tcp://... 주입 → Spring int 변환 붕괴)
+      enableServiceLinks: false
       containers:
         - name: devpath-ai-svc
           # 이미지 태그는 ArgoCD Image Updater 또는 CI가 교체한다.
