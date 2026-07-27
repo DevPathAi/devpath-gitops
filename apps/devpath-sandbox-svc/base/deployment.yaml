@@ -44,6 +44,8 @@ spec:
                   key: jwt-secret
             - name: KAFKA_BOOTSTRAP
               value: "devpath-kafka-bootstrap.kafka.svc:9092"
+            - name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+              value: "5"
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness
