@@ -20,6 +20,40 @@ spec:
           image: ghcr.io/devpathai/devpath-ai-svc:main
           ports:
             - containerPort: 8080
+          env:
+            - name: DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: platform-db
+                  key: db-url
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: platform-db
+                  key: db-user
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: platform-db
+                  key: db-password
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: devpath-jwt
+                  key: jwt-secret
+            - name: KAFKA_BOOTSTRAP
+              value: "devpath-kafka-bootstrap.kafka.svc:9092"
+            - name: SANDBOX_URI
+              value: "http://devpath-sandbox-svc.devpath.svc:8080"
+            - name: LEARNING_URI
+              value: "http://devpath-learning-svc.devpath.svc:8080"
+            # 실 AI 전환 시 ai-claude SealedSecret 주입 + *_PROVIDER=claude (키 확보 게이트)
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-claude
+                  key: anthropic-api-key
+                  optional: true
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness
