@@ -16,6 +16,8 @@ spec:
           image: ghcr.io/devpathai/devpath-migration:main
           securityContext:
             runAsNonRoot: true
+            # flyway 공식 이미지의 기본 유저가 root라 kubelet이 거부 — 비루트 UID 명시(CLI는 임의 UID 실행 가능)
+            runAsUser: 1000
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
