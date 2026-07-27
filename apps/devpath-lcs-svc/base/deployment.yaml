@@ -20,6 +20,33 @@ spec:
           image: ghcr.io/devpathai/devpath-lcs-svc:main
           ports:
             - containerPort: 8080
+          env:
+            - name: DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: platform-db
+                  key: db-url
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: platform-db
+                  key: db-user
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: platform-db
+                  key: db-password
+            - name: DEVPATH_AUTH_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: devpath-jwt
+                  key: jwt-secret
+            - name: REDIS_HOST
+              value: "redis.devpath.svc"
+            - name: LEARNING_URI
+              value: "http://devpath-learning-svc.devpath.svc:8080"
+            - name: SANDBOX_URI
+              value: "http://devpath-sandbox-svc.devpath.svc:8080"
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness

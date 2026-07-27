@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: devpath-flyway-migrate
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: flyway
+          # 중앙 스키마(devpath-shared)의 마이그레이션을 RDS에 적용한다.
+          # SQL은 이미지에 내장(shared Dockerfile.migration: /flyway/sql), 서비스는 ddl-auto: validate.
+          # 자격은 platform-db SealedSecret(Flyway 표준 env FLYWAY_URL/USER/PASSWORD).
+          # Job은 immutable — 이미지 태그 교체 시 sync 실패하면 Job 삭제 후 재sync(runbook 참조).
+          image: ghcr.io/devpathai/devpath-migration:main
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: FLYWAY_URL
+              valueFrom:
+                secretKeyRef:
+                  name: platform-db
+                  key: db-url
+            - name: FLYWAY_USER
+              valueFrom:
+                secretKeyRef:
+                  name: platform-db
+                  key: db-user
+            - name: FLYWAY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: platform-db
+                  key: db-password
+          args:
+            - -locations=filesystem:/flyway/sql
+            - migrate

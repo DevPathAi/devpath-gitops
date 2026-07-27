@@ -48,6 +48,40 @@ spec:
                   name: platform-oauth
                   key: google-client-secret
                   optional: true
+            - name: DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: platform-db
+                  key: db-url
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: platform-db
+                  key: db-user
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: platform-db
+                  key: db-password
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: devpath-jwt
+                  key: jwt-secret
+            - name: KAFKA_BOOTSTRAP
+              value: "devpath-kafka-bootstrap.kafka.svc:9092"
+            - name: REDIS_HOST
+              value: "redis.devpath.svc"
+            - name: APP_WEB_URL
+              value: "https://app.leva.ai.kr"
+            - name: APP_ADMIN_URL
+              value: "https://admin.leva.ai.kr"
+            - name: COOKIE_DOMAIN
+              value: ".leva.ai.kr"
+            - name: COOKIE_SECURE
+              value: "true"
+            - name: BETA_ADMIN_EMAILS
+              value: "deepestdark@gmail.com"
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness
