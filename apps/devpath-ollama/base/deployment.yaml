@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  labels:
+    app: ollama
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      containers:
+        - name: ollama
+          image: ollama/ollama:0.32.5
+          ports:
+            - containerPort: 11434
+          env:
+            # Ollama는 기본 127.0.0.1에만 바인딩 → 파드 간 접근 위해 0.0.0.0 필수
+            - name: OLLAMA_HOST
+              value: "0.0.0.0:11434"
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama
+          lifecycle:
+            postStart:
+              exec:
+                # 백그라운드(&) pull — 컨테이너 시작을 막지 않음(pull 실패로 인한 SIGKILL 회피).
+                # 트레이드오프: pull 완료 전 짧은 시간 모델 미탑재로 요청 실패 가능 → 배포 게이트에서 pull 완료 확인 후 e2e.
+                # pull 반복 실패 시 별도 pull Job으로 전환.
+                command:
+                  - /bin/sh
+                  - -c
+                  - "(until ollama list >/dev/null 2>&1; do sleep 2; done; ollama pull qwen2.5:3b; ollama pull nomic-embed-text) &"
+          readinessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 250m
+              memory: 3Gi
+            limits:
+              memory: 5Gi
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: ollama-models
