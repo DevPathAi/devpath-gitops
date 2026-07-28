@@ -50,12 +50,6 @@ spec:
               value: "5"
             - name: AI_SVC_BASE_URL
               value: "http://devpath-ai-svc.devpath.svc:8080"
-            # 스톱갭(2026-07-28): CPU Ollama path 생성 ~수백초 → 기본 AI_SVC_TIMEOUT(PT8S)·SSE(180s)로 실패.
-            # 베타 SLO 완화 — SSE는 생성 상한보다 길게. 근본 해소는 GPU(Phase B).
-            - name: AI_SVC_TIMEOUT
-              value: "PT600S"
-            - name: DEVPATH_PATH_SSE_TIMEOUT_MS
-              value: "630000"
             - name: NOTIFICATION_SVC_BASE_URL
               value: "http://devpath-notification-svc.devpath.svc:8080"
             - name: COMMUNITY_SVC_BASE_URL
