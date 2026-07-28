@@ -69,10 +69,6 @@ spec:
               value: "http://ollama.devpath.svc:11434"
             - name: OLLAMA_GEN_MODEL
               value: "qwen2.5:3b"
-            # 스톱갭(2026-07-28): CPU qwen2.5:3b path 생성이 ~수백초 → 기본 PT8S read timeout으로 503.
-            # 베타 SLO 완화로 완료 대기(ceiling — 빨리 끝나면 그만큼만 대기). 근본 해소는 GPU(Phase B).
-            - name: OLLAMA_TIMEOUT
-              value: "PT600S"
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness
