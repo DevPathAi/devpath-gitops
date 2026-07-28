@@ -64,6 +64,11 @@ spec:
               value: "claude"
             - name: RETENTION_PROVIDER
               value: "claude"
+            # 클러스터 내 Ollama 게이트웨이 — path 생성·임베딩 라우팅(코드 기본 localhost:11434는 파드 내 없음)
+            - name: OLLAMA_BASE_URL
+              value: "http://ollama.devpath.svc:11434"
+            - name: OLLAMA_GEN_MODEL
+              value: "qwen2.5:3b"
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness
