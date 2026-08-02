@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: elasticsearch-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      # 베타 규모(글 수백 건)에는 과하지만, 색인은 재생성 가능해도 볼륨 확장은 번거롭다.
+      # EBS gp3 50GB 중 ollama 모델(10Gi)과 함께 쓰는 것을 감안한 값.
+      storage: 5Gi

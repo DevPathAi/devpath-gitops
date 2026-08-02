@@ -48,6 +48,10 @@ spec:
               value: "5"
             - name: AI_SVC_URI
               value: "http://devpath-ai-svc.devpath.svc:8080"
+            # 커뮤니티 검색 인덱스. ES 가 없거나 죽어 있어도 앱은 기동하고 목록·글쓰기는
+            # 계속 동작한다(검색만 실패). 키 이름은 application.yml 의 ${ES_URIS} 와 일치.
+            - name: ES_URIS
+              value: "http://elasticsearch.devpath.svc:9200"
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness
