@@ -20,7 +20,7 @@ spec:
         app: devpath-sandbox-svc
     spec:
       enableServiceLinks: false
-      terminationGracePeriodSeconds: 100
+      terminationGracePeriodSeconds: 120
       containers:
         - name: devpath-sandbox-svc
           # 이미지 태그는 ArgoCD Image Updater 또는 CI가 교체한다.
@@ -68,7 +68,11 @@ spec:
             - name: SANDBOX_REQUIRE_ISOLATION
               value: "true"
             - name: SANDBOX_DRAIN_TIMEOUT_MS
-              value: "90000"
+              value: "75000"
+            - name: SANDBOX_ACTIVE_CUTOFF_MS
+              value: "60000"
+            - name: SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE
+              value: "90s"
             - name: SANDBOX_LEASE_DURATION_MS
               value: "20000"
             - name: SANDBOX_LEASE_HEARTBEAT_MS

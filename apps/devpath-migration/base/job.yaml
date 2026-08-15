@@ -7,6 +7,58 @@ spec:
   template:
     spec:
       restartPolicy: Never
+      initContainers:
+        - name: sandbox-low-lock-preflight
+          image: postgres:17-alpine@sha256:979c4379dd698aba0b890599a6104e082035f98ef31d9b9291ec22f2b13059ca
+          command: ["/bin/sh", "/opt/devpath/preflight.sh"]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 70
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: FLYWAY_URL
+              valueFrom:
+                secretKeyRef:
+                  name: platform-db
+                  key: db-url
+            - name: FLYWAY_USER
+              valueFrom:
+                secretKeyRef:
+                  name: platform-db
+                  key: db-user
+            - name: FLYWAY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: platform-db
+                  key: db-password
+            - name: EXPECTED_ET8_SHARED_COMMIT
+              value: "2b03c38934fdd19332da59107e4330a3af92d078"
+            - name: EXPECTED_SHARED_COMMIT
+              value: "d3cf41faf21d00b815b398a7492af5506390151a"
+            - name: ET8_FLYWAY_VERSION
+              value: "202608161008"
+            - name: TARGET_FLYWAY_VERSION
+              value: "202608161011"
+            - name: MAINTENANCE_APPROVED
+              valueFrom:
+                configMapKeyRef:
+                  name: sandbox-migration-gate
+                  key: maintenance-approved
+            - name: MAX_SANDBOX_SESSIONS_BYTES
+              valueFrom:
+                configMapKeyRef:
+                  name: sandbox-migration-gate
+                  key: max-sandbox-sessions-bytes
+            - name: LOCK_TIMEOUT_MS
+              value: "2000"
+            - name: STATEMENT_TIMEOUT_MS
+              value: "30000"
+          volumeMounts:
+            - name: sandbox-migration-preflight
+              mountPath: /opt/devpath
+              readOnly: true
       containers:
         - name: flyway
           # 중앙 스키마(devpath-shared)의 마이그레이션을 RDS에 적용한다.
@@ -39,6 +91,27 @@ spec:
                   key: db-password
             - name: FLYWAY_POSTGRESQL_TRANSACTIONAL_LOCK
               value: "false"
+            - name: EXPECTED_ET8_SHARED_COMMIT
+              value: "2b03c38934fdd19332da59107e4330a3af92d078"
+            - name: EXPECTED_SHARED_COMMIT
+              value: "d3cf41faf21d00b815b398a7492af5506390151a"
+            - name: ET8_FLYWAY_VERSION
+              value: "202608161008"
+            - name: TARGET_FLYWAY_VERSION
+              value: "202608161011"
+          command: ["/bin/sh", "-ec"]
           args:
-            - -locations=filesystem:/flyway/sql
-            - migrate
+            - |
+              test "$EXPECTED_ET8_SHARED_COMMIT" = "2b03c38934fdd19332da59107e4330a3af92d078"
+              test "$EXPECTED_SHARED_COMMIT" = "d3cf41faf21d00b815b398a7492af5506390151a"
+              test "$ET8_FLYWAY_VERSION" = "202608161008"
+              test "$TARGET_FLYWAY_VERSION" = "202608161011"
+              test -f /flyway/sql/V202608161008__validate_sandbox_terminal_reconciliation_fence.sql
+              test -f /flyway/sql/V202608161011__validate_lcs_mentor_snapshot_contract.sql
+              flyway -locations=filesystem:/flyway/sql -target="$TARGET_FLYWAY_VERSION" migrate
+              flyway -locations=filesystem:/flyway/sql validate
+      volumes:
+        - name: sandbox-migration-preflight
+          configMap:
+            name: sandbox-migration-preflight
+            defaultMode: 365
