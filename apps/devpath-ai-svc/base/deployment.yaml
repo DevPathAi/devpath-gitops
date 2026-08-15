@@ -49,6 +49,11 @@ spec:
               value: "5"
             - name: SANDBOX_URI
               value: "http://devpath-sandbox-svc.devpath.svc:8080"
+            - name: INTERNAL_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: devpath-internal-auth
+                  key: sandbox-token
             - name: LEARNING_URI
               value: "http://devpath-learning-svc.devpath.svc:8080"
             - name: ANTHROPIC_API_KEY

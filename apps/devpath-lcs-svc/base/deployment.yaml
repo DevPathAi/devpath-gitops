@@ -50,6 +50,11 @@ spec:
               value: "http://devpath-learning-svc.devpath.svc:8080"
             - name: SANDBOX_URI
               value: "http://devpath-sandbox-svc.devpath.svc:8080"
+            - name: INTERNAL_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: devpath-internal-auth
+                  key: sandbox-token
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness

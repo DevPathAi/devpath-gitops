@@ -37,6 +37,8 @@ spec:
                 secretKeyRef:
                   name: platform-db
                   key: db-password
+            - name: FLYWAY_POSTGRESQL_TRANSACTIONAL_LOCK
+              value: "false"
           args:
             - -locations=filesystem:/flyway/sql
             - migrate
