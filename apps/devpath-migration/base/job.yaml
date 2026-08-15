@@ -36,7 +36,7 @@ spec:
             - name: EXPECTED_ET8_SHARED_COMMIT
               value: "2b03c38934fdd19332da59107e4330a3af92d078"
             - name: EXPECTED_SHARED_COMMIT
-              value: "d3cf41faf21d00b815b398a7492af5506390151a"
+              value: "96a5cdb9d95689759afb229b4d1e29b9bd221793"
             - name: ET8_FLYWAY_VERSION
               value: "202608161008"
             - name: TARGET_FLYWAY_VERSION
@@ -62,7 +62,8 @@ spec:
       containers:
         - name: flyway
           # 중앙 스키마(devpath-shared)의 마이그레이션을 RDS에 적용한다.
-          # SQL은 이미지에 내장(shared Dockerfile.migration: /flyway/sql), 서비스는 ddl-auto: validate.
+          # SQL과 nontransactional Java runner는 이미지에 내장된다
+          # (shared Dockerfile.migration: /flyway/sql + /flyway/drivers).
           # 자격은 platform-db SealedSecret(Flyway 표준 env FLYWAY_URL/USER/PASSWORD).
           # Job은 immutable — 이미지 태그 교체 시 sync 실패하면 Job 삭제 후 재sync(runbook 참조).
           image: ghcr.io/devpathai/devpath-migration:main
@@ -94,7 +95,7 @@ spec:
             - name: EXPECTED_ET8_SHARED_COMMIT
               value: "2b03c38934fdd19332da59107e4330a3af92d078"
             - name: EXPECTED_SHARED_COMMIT
-              value: "d3cf41faf21d00b815b398a7492af5506390151a"
+              value: "96a5cdb9d95689759afb229b4d1e29b9bd221793"
             - name: ET8_FLYWAY_VERSION
               value: "202608161008"
             - name: TARGET_FLYWAY_VERSION
@@ -103,13 +104,16 @@ spec:
           args:
             - |
               test "$EXPECTED_ET8_SHARED_COMMIT" = "2b03c38934fdd19332da59107e4330a3af92d078"
-              test "$EXPECTED_SHARED_COMMIT" = "d3cf41faf21d00b815b398a7492af5506390151a"
+              test "$EXPECTED_SHARED_COMMIT" = "96a5cdb9d95689759afb229b4d1e29b9bd221793"
               test "$ET8_FLYWAY_VERSION" = "202608161008"
               test "$TARGET_FLYWAY_VERSION" = "202608161011"
               test -f /flyway/sql/V202608161008__validate_sandbox_terminal_reconciliation_fence.sql
               test -f /flyway/sql/V202608161011__validate_lcs_mentor_snapshot_contract.sql
-              flyway -locations=filesystem:/flyway/sql -target="$TARGET_FLYWAY_VERSION" migrate
-              flyway -locations=filesystem:/flyway/sql validate
+              runner_jar="$(find /flyway/drivers -maxdepth 1 -type f -name '*-migration-runner.jar' -print -quit)"
+              test -n "$runner_jar"
+              migration_locations="filesystem:/flyway/sql,classpath:db/migration"
+              flyway -locations="$migration_locations" -target="$TARGET_FLYWAY_VERSION" migrate
+              flyway -locations="$migration_locations" validate
       volumes:
         - name: sandbox-migration-preflight
           configMap:

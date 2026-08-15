@@ -76,6 +76,8 @@ if ($sandbox -match "/var/run/docker\.sock" -or $sandbox -match "hostPath:") {
 
 Assert-Contains $ai "name:\s+INTERNAL_API_TOKEN[\s\S]*key:\s+sandbox-token" `
   "ai workload must receive the sandbox internal credential"
+Assert-Contains $ai 'name:\s+LCS_URI[\s\S]*value:\s+"?http://devpath-lcs-svc\.devpath\.svc:8080"?' `
+  "ai workload must use the in-cluster LCS service instead of localhost"
 Assert-Contains $lcs "name:\s+INTERNAL_API_TOKEN[\s\S]*key:\s+sandbox-token" `
   "lcs workload must receive the sandbox internal credential"
 Assert-Contains $migration 'name:\s+FLYWAY_POSTGRESQL_TRANSACTIONAL_LOCK[\s\S]*value:\s+"false"' `
@@ -84,10 +86,14 @@ Assert-Contains $migration "name:\s+sandbox-migration-preflight" `
   "migration Job must render the fail-closed Sandbox preflight"
 Assert-Contains $migration "EXPECTED_ET8_SHARED_COMMIT[\s\S]*2b03c38934fdd19332da59107e4330a3af92d078" `
   "migration preflight must preserve the exact ET8 shared checkpoint"
-Assert-Contains $migration "EXPECTED_SHARED_COMMIT[\s\S]*d3cf41faf21d00b815b398a7492af5506390151a" `
+Assert-Contains $migration "EXPECTED_SHARED_COMMIT[\s\S]*96a5cdb9d95689759afb229b4d1e29b9bd221793" `
   "migration preflight must name the exact final shared lineage"
-Assert-Contains $migration "ghcr\.io/devpathai/devpath-migration:d3cf41faf21d00b815b398a7492af5506390151a" `
+Assert-Contains $migration "ghcr\.io/devpathai/devpath-migration:96a5cdb9d95689759afb229b4d1e29b9bd221793" `
   "migration Job image must be the exact final shared commit"
+Assert-Contains $migration "filesystem:/flyway/sql,classpath:db/migration" `
+  "migration Job must discover both SQL and nontransactional Java migrations"
+Assert-Contains $migration "migration-runner\.jar" `
+  "migration Job must fail closed when the Java migration runner is absent"
 Assert-Contains $migration "postgres:17-alpine@sha256:979c4379dd698aba0b890599a6104e082035f98ef31d9b9291ec22f2b13059ca" `
   "migration preflight client image must be pinned by digest"
 Assert-Contains $migration "ET8_FLYWAY_VERSION[\s\S]*202608161008" `
@@ -112,7 +118,7 @@ Assert-Contains $runbook "V202608161011" `
   "Sandbox runbook must require the final shared migration"
 Assert-Contains $runbook "2b03c38934fdd19332da59107e4330a3af92d078" `
   "Sandbox runbook must name the exact ET8 shared checkpoint"
-Assert-Contains $runbook "d3cf41faf21d00b815b398a7492af5506390151a" `
+Assert-Contains $runbook "96a5cdb9d95689759afb229b4d1e29b9bd221793" `
   "Sandbox runbook must name the exact final shared lineage"
 Assert-Contains $runbook "sandbox\.runs\.expired_active" `
   "Sandbox runbook must define the sustained expired-lease alert"
