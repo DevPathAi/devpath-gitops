@@ -7,68 +7,71 @@
   "gitops": {
     "repository": "DevPathAi/devpath-gitops",
     "base_sha": "1111111111111111111111111111111111111111",
+    "base_web_tag": "2400fb4ece8dd250e5b29109bc8e28686c7edc03",
     "base_web_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
     "web_kustomization": "apps/devpath-web/base/kustomization.yaml"
   },
   "services": {
     "devpath-admin": {
       "repository": "DevPathAi/devpath-frontend",
-      "source_sha": "2222222222222222222222222222222222222222",
+      "source_sha": "a18aee3d31e61dcd393517ef68125224eeb76c7a",
       "image_repository": "ghcr.io/devpathai/devpath-admin",
       "image_digest": "sha256:1010101010101010101010101010101010101010101010101010101010101010"
     },
     "devpath-ai-svc": {
       "repository": "DevPathAi/devpath-ai-svc",
-      "source_sha": "3333333333333333333333333333333333333333",
+      "source_sha": "47adf75283a9a8ba75a93a51bf76113a1d8315a1",
       "image_repository": "ghcr.io/devpathai/devpath-ai-svc",
       "image_digest": "sha256:2020202020202020202020202020202020202020202020202020202020202020"
     },
     "devpath-community-svc": {
       "repository": "DevPathAi/devpath-community-svc",
-      "source_sha": "4444444444444444444444444444444444444444",
+      "source_sha": "d8bdff0df558e212a4974731d4614c4b626e3264",
       "image_repository": "ghcr.io/devpathai/devpath-community-svc",
       "image_digest": "sha256:3030303030303030303030303030303030303030303030303030303030303030"
     },
     "devpath-gateway": {
       "repository": "DevPathAi/devpath-gateway",
-      "source_sha": "5555555555555555555555555555555555555555",
+      "source_sha": "f55add639992fbe45fcc17adc210eb8e92277885",
       "image_repository": "ghcr.io/devpathai/devpath-gateway",
       "image_digest": "sha256:4040404040404040404040404040404040404040404040404040404040404040"
     },
     "devpath-lcs-svc": {
       "repository": "DevPathAi/devpath-lcs-svc",
-      "source_sha": "6666666666666666666666666666666666666666",
+      "source_sha": "077a34a5aa0a8e09a0932887b1444fd725f32824",
       "image_repository": "ghcr.io/devpathai/devpath-lcs-svc",
       "image_digest": "sha256:5050505050505050505050505050505050505050505050505050505050505050"
     },
     "devpath-learning-svc": {
       "repository": "DevPathAi/devpath-learning-svc",
-      "source_sha": "7777777777777777777777777777777777777777",
+      "source_sha": "c36840e980fe8dee8a80cdca318ab6ca5162cae6",
       "image_repository": "ghcr.io/devpathai/devpath-learning-svc",
       "image_digest": "sha256:6060606060606060606060606060606060606060606060606060606060606060"
     },
     "devpath-notification-svc": {
       "repository": "DevPathAi/devpath-notification-svc",
-      "source_sha": "8888888888888888888888888888888888888888",
+      "source_sha": "91bc1fc8179116d5a660aa3043ad2a10cc13ae3e",
       "image_repository": "ghcr.io/devpathai/devpath-notification-svc",
       "image_digest": "sha256:7070707070707070707070707070707070707070707070707070707070707070"
     },
     "devpath-platform-svc": {
       "repository": "DevPathAi/devpath-platform-svc",
-      "source_sha": "9999999999999999999999999999999999999999",
+      "source_sha": "5c32686814599b2530629fc41ab5e62e805e3442",
       "image_repository": "ghcr.io/devpathai/devpath-platform-svc",
       "image_digest": "sha256:8080808080808080808080808080808080808080808080808080808080808080"
     },
     "devpath-sandbox-svc": {
       "repository": "DevPathAi/devpath-sandbox-svc",
-      "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "source_sha": "a0d440d7ca9250234f681f075ea191275a525139",
       "image_repository": "ghcr.io/devpathai/devpath-sandbox-svc",
       "image_digest": "sha256:9090909090909090909090909090909090909090909090909090909090909090"
     }
   },
   "shared_migration": {
     "repository": "DevPathAi/devpath-shared",
-    "source_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "source_sha": "c96996b89e113664d37cd607cae21d4f267393f4",
+    "shared_version": "0.0.1-et9.20260816",
+    "shared_jar_sha256": "94e2adb769790d813a872163347ede20ad4c75ae88e5811df2ec6625a340f21f",
     "image_repository": "ghcr.io/devpathai/devpath-migration",
     "image_digest": "sha256:abababababababababababababababababababababababababababababababab",
     "flyway_target": "202608161011",
@@ -77,16 +80,16 @@
   },
   "frontend": {
     "repository": "DevPathAi/devpath-frontend",
-    "source_sha": "2222222222222222222222222222222222222222",
+    "source_sha": "a18aee3d31e61dcd393517ef68125224eeb76c7a",
     "app_version": "ms-20990101-contract-fixture",
     "analytics_contract_version": "mission-spine.analytics.v1",
     "flag_contract_version": "mission-spine.flag.v1",
     "mission_off": {
-      "tag": "2222222222222222222222222222222222222222-mission-off",
+      "tag": "a18aee3d31e61dcd393517ef68125224eeb76c7a-mission-off",
       "image_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     },
     "mission_on": {
-      "tag": "2222222222222222222222222222222222222222-mission-on",
+      "tag": "a18aee3d31e61dcd393517ef68125224eeb76c7a-mission-on",
       "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     },
     "selected_on_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -107,6 +110,7 @@
   },
   "analytics_privacy": {
     "collection_mode": "explicit-consent",
+    "approval_source_sha": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
     "region": "EU",
     "project_identity": "posthog-eu-mission-spine",
     "retention_days": 90,
@@ -161,6 +165,7 @@
     "sync_timeout_seconds": 300,
     "canary_seconds": 900,
     "rollback_budget_seconds": 600,
+    "synthetic_probe_path": "/internal/release/ready",
     "production_order": [
       "shared-migration",
       "additive-services",

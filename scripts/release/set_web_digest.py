@@ -91,6 +91,10 @@ def render_kustomization(
             )
     elif expected_current != "base":
         raise ValueError(f"current digest is a tag; expected {expected_current} digest {expected_digest}")
+    else:
+        current_tag = tags[0].strip().split("newTag:", 1)[1].strip()
+        if current_tag != manifest["gitops"]["base_web_tag"]:
+            raise ValueError("current tag is not the sealed trusted base tag")
 
     target_digest = _lookup(manifest, TARGET_FIELDS[target])
     child_indent = " " * (indent + 2)

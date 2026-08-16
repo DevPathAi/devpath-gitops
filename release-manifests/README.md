@@ -15,9 +15,9 @@ No production candidate is checked in by this change because the real immutable 
 
 The candidate-spec binds:
 
-- GitOps repository and exact `base_sha`, prior web digest, and the one mutable path `apps/devpath-web/base/kustomization.yaml`;
+- GitOps repository and exact `base_sha`, the one trusted legacy web tag plus its prior digest, and the one mutable path `apps/devpath-web/base/kustomization.yaml`;
 - source SHA plus immutable OCI digest for every application service;
-- Shared source, migration image, Flyway target `202608161011`, required V1011 validation, and the additive-retained rollback policy;
+- Shared source, immutable version/JAR SHA-256, migration image, Flyway target `202608161011`, required V1011 validation, and the additive-retained rollback policy;
 - frontend source, compiled app/config contract versions, distinct mission-OFF and mission-ON tag/digest pairs, selected ON digest, OFF rollback digest, and prior digest;
 - Home source, deterministic `dist.tar.gz` SHA-256, Cloudflare preview candidate ID, and current prior production ID;
 - analytics privacy mode/region/retention/access/deletion inputs;
@@ -25,11 +25,11 @@ The candidate-spec binds:
 - distinct staging/production identity, plus production-like journey origins and explicit Landing/app DNS overrides;
 - exact producer-first order, 300-second sync detection, 900-second canary, Landing-last, 600-second reverse rollback budget, and retained backend/schema policy.
 
-The browser harness receives the candidate file by absolute path and its SHA-256 out of band. It must parse those exact bytes. Journey evidence is `<artifact>/<journey>/evidence.json`, a non-empty JSON array whose rows contain exactly `route`, `step`, `result`, `duration_ms`, and `candidate_spec_sha256`.
+The browser harness receives the candidate file by absolute path and its SHA-256 out of band. It must parse those exact bytes. Journey evidence is `<artifact>/<journey>/evidence.json`, a non-empty JSON array whose rows contain exactly `route`, `step`, `result`, `duration_ms`, and `candidate_spec_sha256`. Both row order and the route/step pairs are allowlisted for the two approved journeys; free-form detail fields are rejected.
 
 ## Final manifest and artifacts
 
-All referenced GitHub artifacts must be unexpired, produced by the recorded successful workflow run, and scoped to the release ID. The release gate downloads them with `RELEASE_EVIDENCE_TOKEN` and verifies the exact `evidence.json` hash. Journey evidence uses the minimal row contract above. Other evidence is a sanitized JSON object with `status: "passed"` and the exact candidate SHA. Because a document cannot contain its own hash, the successful validator run also emits `<release_id>-sealed-validation`; that out-of-band envelope binds the final manifest's raw SHA-256, candidate SHA, validator run/attempt, and completed staging reverse duration. Promotion and rollback recompute the final raw hash and require that exact successful-run envelope.
+All referenced GitHub artifacts must be unexpired, produced by an exact successful `workflow_dispatch` run, and scoped to the release ID. Each reference binds the producer head SHA, run attempt, canonical workflow path, and full workflow-blob SHA-256; suffix/path lookalikes and branch-name-only provenance are rejected. Since GitHub artifact metadata exposes the run ID but not the producing rerun attempt, every non-journey `evidence.json` also carries exact positive-integer `producer_run_id` and `producer_run_attempt` fields that must match the live run record. GitOps-owned journey and sealed-validation artifact names include `-attempt-<github.run_attempt>`, and sealing fails unless the read-only journey job ran in the current attempt. The validator also proves the allowed `base → candidate-only → final-only` Git tree. The release gate downloads artifacts with `RELEASE_EVIDENCE_TOKEN` and verifies the exact `evidence.json` hash. Journey evidence uses the minimal row contract above. Home, privacy, AI, visual, and accessibility evidence each have an exact key/type/value schema. Because a document cannot contain its own hash, the successful validator run emits `<release_id>-sealed-validation-attempt-<run_attempt>`; that out-of-band envelope binds the final manifest's raw SHA-256, candidate SHA, validator head/workflow/run/attempt, and completed staging reverse duration. Promotion and rollback recompute the final raw hash and require that exact successful-run envelope.
 
 The Home artifact is the only artifact allowed a second file: deterministic `dist.tar.gz`, whose hash must equal `home.dist_sha256`. It is extracted with traversal/link/device rejection and deployed without rebuilding. Release evidence must never contain user-authored code, runtime output, error text, prompts, context snapshots, diagnostic answers, email, OAuth material, guest IDs, or credentials.
 
@@ -39,22 +39,22 @@ Configure required reviewers (and prevent self-review) for every environment bel
 
 | Environment | Purpose | Required secrets |
 |---|---|---|
-| `mission-spine-staging` | exact OFF→ON staging validation and reverse rehearsal | `STAGING_KUBECONFIG_B64`, `RELEASE_EVIDENCE_TOKEN` |
-| `mission-spine-production-off` | verify successful validation/artifacts, then approved OFF digest CAS promotion | `RELEASE_EVIDENCE_TOKEN`, `PRODUCTION_KUBECONFIG_B64` |
-| `mission-spine-production-on` | separate manual ON approval, ≤5m sync, 15m canary | `PRODUCTION_KUBECONFIG_B64` |
+| `mission-spine-staging` | read-only Home journeys, trusted seal, exact OFF→ON validation, reverse rehearsal | `MISSION_RELEASE_CONTROL_TOKEN`, `MISSION_SYNTHETIC_PROBE_TOKEN`, `STAGING_KUBECONFIG_B64`, `RELEASE_EVIDENCE_TOKEN` |
+| `mission-spine-production-off` | verify successful validation/artifacts and live prior CAS, then approved OFF digest promotion | `RELEASE_EVIDENCE_TOKEN`, `PRODUCTION_KUBECONFIG_B64`, `MISSION_SYNTHETIC_PROBE_TOKEN` |
+| `mission-spine-production-on` | separate manual ON approval, ≤5m sync, 15m canary | `PRODUCTION_KUBECONFIG_B64`, `MISSION_SYNTHETIC_PROBE_TOKEN` |
 | `mission-spine-production-landing` | verify completed ON canary, then deploy Home dist last | `RELEASE_EVIDENCE_TOKEN`, `CLOUDFLARE_API_TOKEN` |
 | `mission-spine-production-rollback` | Landing prior first, web OFF, then web prior | `RELEASE_EVIDENCE_TOKEN`, `PRODUCTION_KUBECONFIG_B64`, `CLOUDFLARE_API_TOKEN` |
 
-`RELEASE_EVIDENCE_TOKEN` needs read access to each recorded private Actions artifact. `CLOUDFLARE_API_TOKEN` needs Pages Write. Missing secrets, artifacts, model results, environment protection, cluster state, or deployment identity fail closed.
+`RELEASE_EVIDENCE_TOKEN` needs read access to each recorded private Actions artifact and read-only checkout access to Home. `MISSION_SYNTHETIC_PROBE_TOKEN` authenticates the release-specific readiness endpoint. `CLOUDFLARE_API_TOKEN` needs Pages Write. Missing secrets, artifacts, model results, environment protection, cluster state, or deployment identity fail closed.
 
 ### Order
 
-1. `mission-spine-validate.yml` validates the candidate-spec and GitOps base CAS, checks out the exact sealed Home SHA, runs `npm ci`, installs pinned Chromium support, and runs exactly Home's two release journeys against the candidate bytes/hash. It validates and byte-copies the two five-field arrays, uploads them separately, discovers the remaining successful source-pinned artifacts, and seals a final manifest with the current GitOps run/attempt attestation. Only that new final manifest is committed to the release branch. The same protected run then validates the final bundle, stages exact OFF/ON digests, rehearses ON→OFF→prior within 600 seconds, and leaves staging on the recorded prior digest. If the run fails after cluster setup, a best-effort fail-safe restore targets that same recorded prior digest.
-2. `mission-spine-promote.yml` makes a normal fast-forward commit changing only the web Kustomization to OFF. After its environment approval and ≤5-minute sync, a second protected job selects the manifest's exact ON digest, waits for sync, and holds a full 900-second canary. It never rebuilds an image.
-3. `mission-spine-landing-last.yml` requires the completed trusted promotion/canary artifact and the exact `base → OFF → ON` commit chain. It verifies the Cloudflare preview candidate and current prior-production CAS, then uploads the sealed Home dist to the production branch without rebuilding.
-4. `mission-spine-rollback.yml` first invokes the Cloudflare Pages rollback endpoint for the recorded prior deployment, then changes only web to mission-OFF and finally the recorded prior digest. Additive service APIs and V1011 remain in place.
+1. `mission-spine-validate.yml` validates the candidate-spec and GitOps base CAS in a read-only job, checks out the exact sealed Home SHA without persisted credentials, and runs exactly Home's two release journeys against the candidate bytes/hash. The external Home code never runs with `contents: write`. A separate trusted job downloads those two artifacts by exact ID, discovers the remaining successful source-pinned artifacts, seals and commits only the final manifest, then validates live staging prior identity, OFF/ON, and ON→OFF→prior within 600 seconds.
+2. `mission-spine-promote.yml` first proves both the sealed legacy tag binding and actual ready Pod `imageID` equal the prior digest. It then makes a normal fast-forward commit changing only the web Kustomization to OFF. Every sync poll verifies desired/updated/ready/available replica counts, nonterminating ready Pods, exact runtime digest, stable Pod/restart baseline, and release-specific synthetic identity. A separately approved job selects the exact ON digest and holds a full 900-second canary under the same checks.
+3. `mission-spine-landing-last.yml` requires the completed trusted promotion/canary artifact and exact `base → OFF → ON` chain. A secret-free job installs Wrangler 4.123.0 from the committed npm integrity lock and transfers that exact installation to the protected job; there is no runtime `npx` install. The protected job verifies Cloudflare prior CAS, adds a content-addressed public dist marker, deploys without rebuilding, captures the newly created deployment ID, and verifies both exact-current CAS and marker bytes.
+4. `mission-spine-rollback.yml` shares the production lease and sets `cancel-in-progress: true`, so it preempts promotion or Landing. It safely resumes from this release's exact prior, OFF, or ON Git phase; rolls Landing prior first; changes web through OFF when necessary and then prior; and finally rechecks that Landing prior is still current. Additive service APIs and V1011 remain in place.
 
-Normal non-force pushes provide the final branch CAS: any `main` drift makes the release commit non-fast-forward and fails. The scripts additionally compare `origin/main` to `gitops.base_sha` before the first mutation and verify the exact promotion chain before Landing or rollback. Staging uses one global concurrency lock, while promotion and Landing-last share one production lock across release IDs. Emergency rollback has its own serialized lock so it cannot be trapped behind the 15-minute canary; its exact Git/Cloudflare/deployment CAS fails closed if the promoted ON chain is not current, and the canary continuously rechecks the exact ON digest so a rollback invalidates the promotion run.
+Normal non-force pushes provide the final branch CAS: any `main` drift makes the release commit non-fast-forward and fails. The scripts additionally compare `origin/main` to `gitops.base_sha` before the first mutation and verify the exact promotion chain before Landing or rollback. Staging has one global concurrency lock. Promotion, Landing-last, and rollback share one production lock across release IDs; rollback preempts it and then re-establishes exact Git, Kubernetes, and Cloudflare CAS before each mutation.
 
 ## Local validation
 
@@ -77,6 +77,6 @@ images:
 
 ## Pending integration seam
 
-This lane deliberately does not update existing Shared/migration or AI service pins. A real candidate-spec must carry the final merged Shared and AI source/image digests, and its `gitops.base_sha` must name the later GitOps commit that contains those pins. Until those artifacts and the V1011 operational approval exist, no candidate can pass resolution.
+The contract fixture now binds the composed source commits for Shared, AI, Learning, Gateway, Platform, Community, Notification, LCS, Sandbox, and frontend. It deliberately remains a synthetic `ms-2099` document: its image digests and evidence IDs are not release artifacts. A real candidate-spec may be created only after immutable images, Home/approval/evaluation/visual artifacts, operational V1011 approval, and the later GitOps `base_sha` containing the corresponding configuration pins exist.
 
 Cloudflare rollback uses the documented `POST /accounts/{account_id}/pages/projects/{project_name}/deployments/{deployment_id}/rollback` API. Only a successful production deployment recorded as `prior_production_deployment_id` is accepted.

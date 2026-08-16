@@ -9,18 +9,18 @@ jobs:
   mission-spine-release-contract:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.13"
-      - uses: azure/setup-kubectl@v5
+      - uses: azure/setup-kubectl@829323503d1be3d00ca8346e5391ca0b07a9ab0d # v5.1.0
       - name: Validate release schema, fixtures, mutator, and workflow contract
         run: |
           set -euo pipefail
           python -m pip install --disable-pip-version-check jsonschema==4.25.1
           python -m unittest discover -s tests/release -p 'test_*.py' -v
           python -m json.tool release-manifests/schema-v1.json >/dev/null
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version: "1.25.x"
       - name: Lint GitHub Actions workflows
@@ -34,8 +34,8 @@ jobs:
   kustomize:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: azure/setup-kubectl@v5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: azure/setup-kubectl@829323503d1be3d00ca8346e5391ca0b07a9ab0d # v5.1.0
       - name: Validate all kustomize bases
         run: |
           set -e

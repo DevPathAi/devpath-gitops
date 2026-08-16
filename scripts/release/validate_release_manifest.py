@@ -26,6 +26,17 @@ DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 SAFE_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{1,127}$")
 CF_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+WORKFLOW_PATH = re.compile(r"^\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml$")
+
+PRODUCER_WORKFLOWS = {
+    "home-dist": ".github/workflows/mission-spine-home-dist.yml",
+    "privacy-approval": ".github/workflows/mission-spine-privacy-approval.yml",
+    "ai-release-eval": ".github/workflows/mission-spine-release-eval.yml",
+    "journey-activation": ".github/workflows/mission-spine-validate.yml",
+    "journey-contextual-practice": ".github/workflows/mission-spine-validate.yml",
+    "visual": ".github/workflows/mission-spine-visual-evidence.yml",
+    "accessibility": ".github/workflows/mission-spine-accessibility-evidence.yml",
+}
 
 REQUIRED_SERVICES = {
     "devpath-admin",
@@ -179,11 +190,17 @@ def _require_artifact_identity(
     path: str,
     repository: str,
     artifact_name: str,
+    workflow_path: str,
+    head_sha: str,
 ) -> None:
     if artifact["repository"] != repository:
         _fail(f"{path}.repository", f"must be {repository}")
     if artifact["artifact_name"] != artifact_name:
         _fail(f"{path}.artifact_name", f"must be {artifact_name}")
+    if artifact["workflow_path"] != workflow_path:
+        _fail(f"{path}.workflow_path", f"must be {workflow_path}")
+    if artifact["head_sha"] != head_sha:
+        _fail(f"{path}.head_sha", "must bind the exact producer source SHA")
 
 
 def _validate_sanitized(value: Any, path: str = "$") -> None:
@@ -211,6 +228,11 @@ def _validate_artifact(value: Any, path: str, release_id: str, candidate_sha256:
         {
             "candidate_spec_sha256",
             "repository",
+            "event",
+            "head_sha",
+            "run_attempt",
+            "workflow_path",
+            "workflow_sha256",
             "workflow_run_id",
             "artifact_id",
             "artifact_name",
@@ -223,6 +245,12 @@ def _validate_artifact(value: Any, path: str, release_id: str, candidate_sha256:
     if bound_sha != candidate_sha256:
         _fail(f"{path}.candidate_spec_sha256", "must exactly bind the immutable candidate-spec bytes")
     _string(obj["repository"], f"{path}.repository", REPOSITORY)
+    if obj["event"] != "workflow_dispatch":
+        _fail(f"{path}.event", "must be workflow_dispatch")
+    _string(obj["head_sha"], f"{path}.head_sha", SHA40)
+    _positive_int(obj["run_attempt"], f"{path}.run_attempt")
+    _string(obj["workflow_path"], f"{path}.workflow_path", WORKFLOW_PATH)
+    _string(obj["workflow_sha256"], f"{path}.workflow_sha256", SHA64)
     _positive_int(obj["workflow_run_id"], f"{path}.workflow_run_id")
     _positive_int(obj["artifact_id"], f"{path}.artifact_id")
     name = _string(obj["artifact_name"], f"{path}.artifact_name", SAFE_IDENTIFIER)
@@ -246,6 +274,11 @@ def _validate_home_artifact(
         {
             "candidate_spec_sha256",
             "repository",
+            "event",
+            "head_sha",
+            "run_attempt",
+            "workflow_path",
+            "workflow_sha256",
             "workflow_run_id",
             "artifact_id",
             "artifact_name",
@@ -371,10 +404,15 @@ def validate_candidate_spec(data: Any, source: Path | None = None) -> dict[str, 
     _timestamp(root["created_at"], "$.created_at")
 
     gitops = _object(root["gitops"], "$.gitops")
-    _exact_keys(gitops, {"repository", "base_sha", "base_web_digest", "web_kustomization"}, "$.gitops")
+    _exact_keys(
+        gitops,
+        {"repository", "base_sha", "base_web_tag", "base_web_digest", "web_kustomization"},
+        "$.gitops",
+    )
     if gitops["repository"] != "DevPathAi/devpath-gitops":
         _fail("$.gitops.repository", "must be DevPathAi/devpath-gitops")
     _string(gitops["base_sha"], "$.gitops.base_sha", SHA40)
+    _string(gitops["base_web_tag"], "$.gitops.base_web_tag", SHA40)
     _string(gitops["base_web_digest"], "$.gitops.base_web_digest", DIGEST)
     if gitops["web_kustomization"] != "apps/devpath-web/base/kustomization.yaml":
         _fail("$.gitops.web_kustomization", "must target only the web base kustomization")
@@ -390,12 +428,23 @@ def validate_candidate_spec(data: Any, source: Path | None = None) -> dict[str, 
     migration = _object(root["shared_migration"], "$.shared_migration")
     _exact_keys(
         migration,
-        {"repository", "source_sha", "image_repository", "image_digest", "flyway_target", "required_migration", "rollback_policy"},
+        {
+            "repository", "source_sha", "shared_version", "shared_jar_sha256",
+            "image_repository", "image_digest", "flyway_target", "required_migration",
+            "rollback_policy",
+        },
         "$.shared_migration",
     )
     if migration["repository"] != "DevPathAi/devpath-shared":
         _fail("$.shared_migration.repository", "must be DevPathAi/devpath-shared")
     _string(migration["source_sha"], "$.shared_migration.source_sha", SHA40)
+    if migration["shared_version"] != "0.0.1-et9.20260816":
+        _fail("$.shared_migration.shared_version", "must bind the immutable ET9 Shared version")
+    shared_jar_hash = _string(
+        migration["shared_jar_sha256"], "$.shared_migration.shared_jar_sha256", SHA64
+    )
+    if shared_jar_hash != "94e2adb769790d813a872163347ede20ad4c75ae88e5811df2ec6625a340f21f":
+        _fail("$.shared_migration.shared_jar_sha256", "must bind the verified immutable Shared jar")
     if migration["image_repository"] != "ghcr.io/devpathai/devpath-migration":
         _fail("$.shared_migration.image_repository", "must be ghcr.io/devpathai/devpath-migration")
     _string(migration["image_digest"], "$.shared_migration.image_digest", DIGEST)
@@ -484,6 +533,7 @@ def validate_candidate_spec(data: Any, source: Path | None = None) -> dict[str, 
         privacy,
         {
             "collection_mode",
+            "approval_source_sha",
             "region",
             "project_identity",
             "retention_days",
@@ -494,6 +544,7 @@ def validate_candidate_spec(data: Any, source: Path | None = None) -> dict[str, 
     )
     if privacy["collection_mode"] not in {"explicit-consent", "approved-cookieless"}:
         _fail("$.analytics_privacy.collection_mode", "must be an approved collection mode")
+    _string(privacy["approval_source_sha"], "$.analytics_privacy.approval_source_sha", SHA40)
     if privacy["region"] != "EU":
         _fail("$.analytics_privacy.region", "must be EU")
     for field in ("project_identity", "access_owner", "deletion_runbook"):
@@ -542,7 +593,14 @@ def validate_candidate_spec(data: Any, source: Path | None = None) -> dict[str, 
     rollout = _object(root["rollout"], "$.rollout")
     _exact_keys(
         rollout,
-        {"sync_timeout_seconds", "canary_seconds", "rollback_budget_seconds", "production_order", "rollback_order"},
+        {
+            "sync_timeout_seconds",
+            "canary_seconds",
+            "rollback_budget_seconds",
+            "synthetic_probe_path",
+            "production_order",
+            "rollback_order",
+        },
         "$.rollout",
     )
     if rollout["sync_timeout_seconds"] != 300:
@@ -551,6 +609,8 @@ def validate_candidate_spec(data: Any, source: Path | None = None) -> dict[str, 
         _fail("$.rollout.canary_seconds", "must be exactly 900")
     if rollout["rollback_budget_seconds"] != 600:
         _fail("$.rollout.rollback_budget_seconds", "must be exactly 600")
+    if rollout["synthetic_probe_path"] != "/internal/release/ready":
+        _fail("$.rollout.synthetic_probe_path", "must be the canonical release identity endpoint")
     if rollout["production_order"] != PRODUCTION_ORDER:
         _fail("$.rollout.production_order", "must encode producer/OFF/ON/canary/Landing-last order")
     if rollout["rollback_order"] != ROLLBACK_ORDER:
@@ -605,6 +665,8 @@ def validate_release_manifest(
         "$.home_dist_artifact",
         candidate["home"]["repository"],
         f"{release_id}-home-dist",
+        PRODUCER_WORKFLOWS["home-dist"],
+        candidate["home"]["source_sha"],
     )
 
     approval = _object(root["analytics_privacy_approval"], "$.analytics_privacy_approval")
@@ -621,6 +683,8 @@ def validate_release_manifest(
         "$.analytics_privacy_approval.evidence",
         "DevPathAi/documents",
         f"{release_id}-privacy-approval",
+        PRODUCER_WORKFLOWS["privacy-approval"],
+        candidate["analytics_privacy"]["approval_source_sha"],
     )
 
     evaluation = _object(root["ai_release_eval"], "$.ai_release_eval")
@@ -641,6 +705,8 @@ def validate_release_manifest(
         "$.ai_release_eval.evidence",
         candidate["services"]["devpath-ai-svc"]["repository"],
         f"{release_id}-ai-eval",
+        PRODUCER_WORKFLOWS["ai-release-eval"],
+        candidate["services"]["devpath-ai-svc"]["source_sha"],
     )
 
     journeys = _object(root["journeys"], "$.journeys")
@@ -656,13 +722,20 @@ def validate_release_manifest(
         journeys["activation"],
         "$.journeys.activation",
         "DevPathAi/devpath-gitops",
-        f"{release_id}-journey-activation",
+        f"{release_id}-journey-activation-attempt-{journeys['activation']['run_attempt']}",
+        PRODUCER_WORKFLOWS["journey-activation"],
+        journeys["activation"]["head_sha"],
     )
     _require_artifact_identity(
         journeys["contextual_practice"],
         "$.journeys.contextual_practice",
         "DevPathAi/devpath-gitops",
-        f"{release_id}-journey-contextual-practice",
+        (
+            f"{release_id}-journey-contextual-practice-attempt-"
+            f"{journeys['contextual_practice']['run_attempt']}"
+        ),
+        PRODUCER_WORKFLOWS["journey-contextual-practice"],
+        journeys["contextual_practice"]["head_sha"],
     )
     if journeys["activation"]["sha256"] == journeys["contextual_practice"]["sha256"]:
         _fail("$.journeys", "the two journey evidence hashes must be distinct")
@@ -683,12 +756,16 @@ def validate_release_manifest(
         "$.quality_evidence.visual",
         candidate["frontend"]["repository"],
         f"{release_id}-visual",
+        PRODUCER_WORKFLOWS["visual"],
+        candidate["frontend"]["source_sha"],
     )
     _require_artifact_identity(
         quality["accessibility"],
         "$.quality_evidence.accessibility",
         candidate["frontend"]["repository"],
         f"{release_id}-accessibility",
+        PRODUCER_WORKFLOWS["accessibility"],
+        candidate["frontend"]["source_sha"],
     )
 
     attestation = _object(root["validation_attestation"], "$.validation_attestation")
@@ -698,6 +775,10 @@ def validate_release_manifest(
             "validator_repository",
             "validator_run_id",
             "validator_run_attempt",
+            "validator_event",
+            "validator_head_sha",
+            "validator_workflow_path",
+            "validator_workflow_sha256",
             "home_source_sha",
             "candidate_spec_sha256",
             "activation_sha256",
@@ -709,6 +790,16 @@ def validate_release_manifest(
         _fail("$.validation_attestation.validator_repository", "must be DevPathAi/devpath-gitops")
     _positive_int(attestation["validator_run_id"], "$.validation_attestation.validator_run_id")
     _positive_int(attestation["validator_run_attempt"], "$.validation_attestation.validator_run_attempt")
+    if attestation["validator_event"] != "workflow_dispatch":
+        _fail("$.validation_attestation.validator_event", "must be workflow_dispatch")
+    _string(attestation["validator_head_sha"], "$.validation_attestation.validator_head_sha", SHA40)
+    if attestation["validator_workflow_path"] != PRODUCER_WORKFLOWS["journey-activation"]:
+        _fail("$.validation_attestation.validator_workflow_path", "must be the exact validator workflow")
+    _string(
+        attestation["validator_workflow_sha256"],
+        "$.validation_attestation.validator_workflow_sha256",
+        SHA64,
+    )
     if attestation["home_source_sha"] != candidate["home"]["source_sha"]:
         _fail("$.validation_attestation.home_source_sha", "must bind the exact checked-out Home source")
     if attestation["candidate_spec_sha256"] != candidate_hash:
@@ -723,6 +814,16 @@ def validate_release_manifest(
             _fail(f"$.journeys.{name}.repository", "must be owned by the GitOps validator")
         if artifact["workflow_run_id"] != attestation["validator_run_id"]:
             _fail(f"$.journeys.{name}.workflow_run_id", "must match validation attestation run")
+        if artifact["run_attempt"] != attestation["validator_run_attempt"]:
+            _fail(f"$.journeys.{name}.run_attempt", "must match validation attestation attempt")
+        if artifact["event"] != attestation["validator_event"]:
+            _fail(f"$.journeys.{name}.event", "must match validation attestation event")
+        if artifact["head_sha"] != attestation["validator_head_sha"]:
+            _fail(f"$.journeys.{name}.head_sha", "must match validation attestation head")
+        if artifact["workflow_path"] != attestation["validator_workflow_path"]:
+            _fail(f"$.journeys.{name}.workflow_path", "must match validation workflow path")
+        if artifact["workflow_sha256"] != attestation["validator_workflow_sha256"]:
+            _fail(f"$.journeys.{name}.workflow_sha256", "must match validation workflow bytes")
     return root
 
 

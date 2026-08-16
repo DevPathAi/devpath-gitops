@@ -82,10 +82,11 @@
     },
     "gitops": {
       "type": "object",
-      "required": ["repository", "base_sha", "base_web_digest", "web_kustomization"],
+      "required": ["repository", "base_sha", "base_web_tag", "base_web_digest", "web_kustomization"],
       "properties": {
         "repository": {"const": "DevPathAi/devpath-gitops"},
         "base_sha": {"$ref": "#/$defs/sha40"},
+        "base_web_tag": {"$ref": "#/$defs/sha40"},
         "base_web_digest": {"$ref": "#/$defs/digest"},
         "web_kustomization": {"const": "apps/devpath-web/base/kustomization.yaml"}
       },
@@ -93,10 +94,12 @@
     },
     "sharedMigration": {
       "type": "object",
-      "required": ["repository", "source_sha", "image_repository", "image_digest", "flyway_target", "required_migration", "rollback_policy"],
+      "required": ["repository", "source_sha", "shared_version", "shared_jar_sha256", "image_repository", "image_digest", "flyway_target", "required_migration", "rollback_policy"],
       "properties": {
         "repository": {"const": "DevPathAi/devpath-shared"},
         "source_sha": {"$ref": "#/$defs/sha40"},
+        "shared_version": {"const": "0.0.1-et9.20260816"},
+        "shared_jar_sha256": {"$ref": "#/$defs/sha64"},
         "image_repository": {"const": "ghcr.io/devpathai/devpath-migration"},
         "image_digest": {"$ref": "#/$defs/digest"},
         "flyway_target": {"const": "202608161011"},
@@ -156,9 +159,10 @@
     },
     "analyticsPrivacy": {
       "type": "object",
-      "required": ["collection_mode", "region", "project_identity", "retention_days", "access_owner", "deletion_runbook"],
+      "required": ["collection_mode", "approval_source_sha", "region", "project_identity", "retention_days", "access_owner", "deletion_runbook"],
       "properties": {
         "collection_mode": {"enum": ["explicit-consent", "approved-cookieless"]},
+        "approval_source_sha": {"$ref": "#/$defs/sha40"},
         "region": {"const": "EU"},
         "project_identity": {"$ref": "#/$defs/safeId"},
         "retention_days": {"type": "integer", "minimum": 1, "maximum": 365},
@@ -226,11 +230,12 @@
     },
     "rollout": {
       "type": "object",
-      "required": ["sync_timeout_seconds", "canary_seconds", "rollback_budget_seconds", "production_order", "rollback_order"],
+      "required": ["sync_timeout_seconds", "canary_seconds", "rollback_budget_seconds", "synthetic_probe_path", "production_order", "rollback_order"],
       "properties": {
         "sync_timeout_seconds": {"const": 300},
         "canary_seconds": {"const": 900},
         "rollback_budget_seconds": {"const": 600},
+        "synthetic_probe_path": {"const": "/internal/release/ready"},
         "production_order": {
           "const": ["shared-migration", "additive-services", "frontend-mission-off", "compatibility-smoke", "frontend-mission-on", "canary", "landing-last"]
         },
@@ -242,10 +247,15 @@
     },
     "artifact": {
       "type": "object",
-      "required": ["candidate_spec_sha256", "repository", "workflow_run_id", "artifact_id", "artifact_name", "evidence_file", "sha256"],
+      "required": ["candidate_spec_sha256", "repository", "event", "head_sha", "run_attempt", "workflow_path", "workflow_sha256", "workflow_run_id", "artifact_id", "artifact_name", "evidence_file", "sha256"],
       "properties": {
         "candidate_spec_sha256": {"$ref": "#/$defs/sha64"},
         "repository": {"$ref": "#/$defs/repository"},
+        "event": {"const": "workflow_dispatch"},
+        "head_sha": {"$ref": "#/$defs/sha40"},
+        "run_attempt": {"type": "integer", "minimum": 1},
+        "workflow_path": {"type": "string", "pattern": "^\\.github/workflows/[A-Za-z0-9_.-]+\\.ya?ml$"},
+        "workflow_sha256": {"$ref": "#/$defs/sha64"},
         "workflow_run_id": {"type": "integer", "minimum": 1},
         "artifact_id": {"type": "integer", "minimum": 1},
         "artifact_name": {"$ref": "#/$defs/safeId"},
@@ -256,10 +266,15 @@
     },
     "homeArtifact": {
       "type": "object",
-      "required": ["candidate_spec_sha256", "repository", "workflow_run_id", "artifact_id", "artifact_name", "evidence_file", "sha256", "payload_file", "payload_sha256"],
+      "required": ["candidate_spec_sha256", "repository", "event", "head_sha", "run_attempt", "workflow_path", "workflow_sha256", "workflow_run_id", "artifact_id", "artifact_name", "evidence_file", "sha256", "payload_file", "payload_sha256"],
       "properties": {
         "candidate_spec_sha256": {"$ref": "#/$defs/sha64"},
         "repository": {"$ref": "#/$defs/repository"},
+        "event": {"const": "workflow_dispatch"},
+        "head_sha": {"$ref": "#/$defs/sha40"},
+        "run_attempt": {"type": "integer", "minimum": 1},
+        "workflow_path": {"type": "string", "pattern": "^\\.github/workflows/[A-Za-z0-9_.-]+\\.ya?ml$"},
+        "workflow_sha256": {"$ref": "#/$defs/sha64"},
         "workflow_run_id": {"type": "integer", "minimum": 1},
         "artifact_id": {"type": "integer", "minimum": 1},
         "artifact_name": {"$ref": "#/$defs/safeId"},
@@ -319,11 +334,15 @@
     },
     "validationAttestation": {
       "type": "object",
-      "required": ["validator_repository", "validator_run_id", "validator_run_attempt", "home_source_sha", "candidate_spec_sha256", "activation_sha256", "contextual_practice_sha256"],
+      "required": ["validator_repository", "validator_run_id", "validator_run_attempt", "validator_event", "validator_head_sha", "validator_workflow_path", "validator_workflow_sha256", "home_source_sha", "candidate_spec_sha256", "activation_sha256", "contextual_practice_sha256"],
       "properties": {
         "validator_repository": {"const": "DevPathAi/devpath-gitops"},
         "validator_run_id": {"type": "integer", "minimum": 1},
         "validator_run_attempt": {"type": "integer", "minimum": 1},
+        "validator_event": {"const": "workflow_dispatch"},
+        "validator_head_sha": {"$ref": "#/$defs/sha40"},
+        "validator_workflow_path": {"const": ".github/workflows/mission-spine-validate.yml"},
+        "validator_workflow_sha256": {"$ref": "#/$defs/sha64"},
         "home_source_sha": {"$ref": "#/$defs/sha40"},
         "candidate_spec_sha256": {"$ref": "#/$defs/sha64"},
         "activation_sha256": {"$ref": "#/$defs/sha64"},

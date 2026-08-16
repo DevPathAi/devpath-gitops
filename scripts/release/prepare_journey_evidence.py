@@ -15,13 +15,13 @@ from verify_release_artifacts import validate_evidence_payload
 
 
 JOURNEYS = {
-    "activation": "mission-spine-onboarding",
-    "contextual": "mission-spine-workspace",
+    "activation": ("mission-spine-onboarding", "journey-activation"),
+    "contextual": ("mission-spine-workspace", "journey-contextual-practice"),
 }
 
 
 def prepare(root: Path, release_id: str, evidence_dir: Path, output_dir: Path) -> dict[str, str]:
-    _, _, candidate_hash = resolve_candidate_spec(root, release_id)
+    _, candidate, candidate_hash = resolve_candidate_spec(root, release_id)
     evidence_dir = evidence_dir.resolve()
     output_dir = output_dir.resolve()
     if not evidence_dir.is_dir():
@@ -31,17 +31,20 @@ def prepare(root: Path, release_id: str, evidence_dir: Path, output_dir: Path) -
         for path in evidence_dir.rglob("*")
     )
     expected_entries = sorted(
-        [*JOURNEYS.values(), *(f"{directory}/evidence.json" for directory in JOURNEYS.values())]
+        [
+            *(directory for directory, _ in JOURNEYS.values()),
+            *(f"{directory}/evidence.json" for directory, _ in JOURNEYS.values()),
+        ]
     )
     if actual_entries != expected_entries:
         raise ValueError("Home harness must produce exactly two canonical evidence files")
-    for directory in JOURNEYS.values():
+    for directory, _ in JOURNEYS.values():
         if not (evidence_dir / directory).is_dir() or (evidence_dir / directory).is_symlink():
             raise ValueError("Home journey evidence directories must be real directories")
     if output_dir.exists():
         raise ValueError("artifact preparation directory must be fresh")
     outputs: dict[str, str] = {}
-    for label, directory in JOURNEYS.items():
+    for label, (directory, evidence_kind) in JOURNEYS.items():
         source = evidence_dir / directory / "evidence.json"
         raw = source.read_bytes()
         if len(raw) > 256 * 1024:
@@ -50,7 +53,7 @@ def prepare(root: Path, release_id: str, evidence_dir: Path, output_dir: Path) -
             payload = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ValueError(f"{label} journey evidence is not UTF-8 JSON") from exc
-        validate_evidence_payload(payload, candidate_hash, journey=True)
+        validate_evidence_payload(evidence_kind, payload, candidate_hash, candidate)
         destination = output_dir / label
         destination.mkdir(parents=True)
         shutil.copyfile(source, destination / "evidence.json")

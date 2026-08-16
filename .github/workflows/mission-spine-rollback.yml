@@ -17,10 +17,10 @@ env:
   RELEASE_ID: ${{ inputs.release_id }}
 
 concurrency:
-  # Emergency rollback must not queue behind a running 15-minute canary.
-  # Exact main/deployment CAS makes a too-early or stale rollback fail closed.
-  group: mission-spine-production-rollback
-  cancel-in-progress: false
+  # A rollback preempts promotion/Landing under the same repository-wide lease.
+  # The phase-aware CAS below safely resumes from prior, OFF, or ON.
+  group: mission-spine-production
+  cancel-in-progress: true
 
 jobs:
   reverse-rollback:
@@ -28,10 +28,10 @@ jobs:
     timeout-minutes: 15
     environment: mission-spine-production-rollback
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.13"
       - name: Require an exact two-document release branch rooted at sealed base
@@ -73,14 +73,59 @@ jobs:
           set -euo pipefail
           git fetch origin main
           current="$(git rev-parse origin/main)"
-          off_commit="$(git rev-parse "$current^")"
-          base_sha="$(git rev-parse "$off_commit^")"
-          test "$base_sha" = "${{ steps.release.outputs.gitops_base_sha }}"
-          test "$(git show -s --format=%s "$current")" = "release(web): promote $RELEASE_ID mission-on"
-          test "$(git show -s --format=%s "$off_commit")" = "release(web): promote $RELEASE_ID mission-off"
-          git show "origin/main:apps/devpath-web/base/kustomization.yaml" \
-            | grep -Fx "  digest: ${{ steps.release.outputs.web_on_digest }}"
-          echo "on_commit=$current" >> "$GITHUB_OUTPUT"
+          base_sha="${{ steps.release.outputs.gitops_base_sha }}"
+          phase=""
+          if test "$current" = "$base_sha"; then
+            phase="prior"
+          elif test "$(git show -s --format=%s "$current")" = "release(web): promote $RELEASE_ID mission-off" \
+            && test "$(git rev-parse "$current^")" = "$base_sha"; then
+            phase="mission-off"
+            git show "origin/main:apps/devpath-web/base/kustomization.yaml" \
+              | grep -Fx "  digest: ${{ steps.release.outputs.web_off_digest }}"
+          elif test "$(git show -s --format=%s "$current")" = "release(web): promote $RELEASE_ID mission-on"; then
+            off_commit="$(git rev-parse "$current^")"
+            test "$(git show -s --format=%s "$off_commit")" = "release(web): promote $RELEASE_ID mission-off"
+            test "$(git rev-parse "$off_commit^")" = "$base_sha"
+            phase="mission-on"
+            git show "origin/main:apps/devpath-web/base/kustomization.yaml" \
+              | grep -Fx "  digest: ${{ steps.release.outputs.web_on_digest }}"
+          elif test "$(git show -s --format=%s "$current")" = "rollback(web): $RELEASE_ID frontend-mission-off"; then
+            on_commit="$(git rev-parse "$current^")"
+            off_commit="$(git rev-parse "$on_commit^")"
+            test "$(git show -s --format=%s "$on_commit")" = "release(web): promote $RELEASE_ID mission-on"
+            test "$(git show -s --format=%s "$off_commit")" = "release(web): promote $RELEASE_ID mission-off"
+            test "$(git rev-parse "$off_commit^")" = "$base_sha"
+            phase="mission-off"
+            git show "origin/main:apps/devpath-web/base/kustomization.yaml" \
+              | grep -Fx "  digest: ${{ steps.release.outputs.web_off_digest }}"
+          elif test "$(git show -s --format=%s "$current")" = "rollback(web): $RELEASE_ID frontend-prior"; then
+            parent="$(git rev-parse "$current^")"
+            parent_subject="$(git show -s --format=%s "$parent")"
+            if test "$parent_subject" = "release(web): promote $RELEASE_ID mission-off"; then
+              test "$(git rev-parse "$parent^")" = "$base_sha"
+            elif test "$parent_subject" = "rollback(web): $RELEASE_ID frontend-mission-off"; then
+              on_commit="$(git rev-parse "$parent^")"
+              off_commit="$(git rev-parse "$on_commit^")"
+              test "$(git show -s --format=%s "$on_commit")" = "release(web): promote $RELEASE_ID mission-on"
+              test "$(git show -s --format=%s "$off_commit")" = "release(web): promote $RELEASE_ID mission-off"
+              test "$(git rev-parse "$off_commit^")" = "$base_sha"
+            else
+              echo "prior rollback parent is not an allowed release phase" >&2
+              exit 1
+            fi
+            phase="prior"
+            git show "origin/main:apps/devpath-web/base/kustomization.yaml" \
+              | grep -Fx "  digest: ${{ steps.release.outputs.web_prior_digest }}"
+          else
+            echo "main is not an allowed prior/OFF/ON phase for this release" >&2
+            exit 1
+          fi
+          if test "$current" != "$base_sha"; then
+            test "$(git diff --name-only "$base_sha"..."$current")" = \
+              "apps/devpath-web/base/kustomization.yaml"
+          fi
+          echo "current_commit=$current" >> "$GITHUB_OUTPUT"
+          echo "current_phase=$phase" >> "$GITHUB_OUTPUT"
       - name: Configure production cluster
         env:
           PRODUCTION_KUBECONFIG_B64: ${{ secrets.PRODUCTION_KUBECONFIG_B64 }}
@@ -104,48 +149,68 @@ jobs:
       - name: Roll web to frontend-mission-off then frontend-prior
         id: web_rollback
         env:
-          ON_COMMIT: ${{ steps.chain.outputs.on_commit }}
+          CURRENT_COMMIT: ${{ steps.chain.outputs.current_commit }}
+          CURRENT_PHASE: ${{ steps.chain.outputs.current_phase }}
+          MISSION_SYNTHETIC_PROBE_TOKEN: ${{ secrets.MISSION_SYNTHETIC_PROBE_TOKEN }}
         run: |
           set -euo pipefail
           main_worktree="$RUNNER_TEMP/gitops-main-rollback"
-          git worktree add --detach "$main_worktree" "$ON_COMMIT"
+          git worktree add --detach "$main_worktree" "$CURRENT_COMMIT"
           git -C "$main_worktree" config user.name "devpath-release-bot"
           git -C "$main_worktree" config user.email "release-bot@users.noreply.github.com"
-          python scripts/release/set_web_digest.py --root "$main_worktree" \
-            --manifest-root "$GITHUB_WORKSPACE" --release-id "$RELEASE_ID" \
-            --target mission-off --expected-current mission-on
-          test "$(git -C "$main_worktree" diff --name-only)" = "apps/devpath-web/base/kustomization.yaml"
-          kubectl kustomize "$main_worktree/apps/devpath-web/base" >/dev/null
-          git -C "$main_worktree" add apps/devpath-web/base/kustomization.yaml
-          git -C "$main_worktree" commit -m "rollback(web): $RELEASE_ID frontend-mission-off"
-          git -C "$main_worktree" push origin HEAD:main
-          python scripts/release/wait_web_rollout.py --root "$GITHUB_WORKSPACE" \
-            --release-id "$RELEASE_ID" --environment production \
-            --phase mission-off --canary-seconds 0
-          python scripts/release/set_web_digest.py --root "$main_worktree" \
-            --manifest-root "$GITHUB_WORKSPACE" --release-id "$RELEASE_ID" \
-            --target prior --expected-current mission-off
-          test "$(git -C "$main_worktree" diff --name-only HEAD)" = "apps/devpath-web/base/kustomization.yaml"
-          kubectl kustomize "$main_worktree/apps/devpath-web/base" >/dev/null
-          git -C "$main_worktree" add apps/devpath-web/base/kustomization.yaml
-          git -C "$main_worktree" commit -m "rollback(web): $RELEASE_ID frontend-prior"
-          git -C "$main_worktree" push origin HEAD:main
+          if test "$CURRENT_PHASE" = "mission-on"; then
+            test -n "${MISSION_SYNTHETIC_PROBE_TOKEN:-}"
+            python scripts/release/set_web_digest.py --root "$main_worktree" \
+              --manifest-root "$GITHUB_WORKSPACE" --release-id "$RELEASE_ID" \
+              --target mission-off --expected-current mission-on
+            test "$(git -C "$main_worktree" diff --name-only)" = "apps/devpath-web/base/kustomization.yaml"
+            kubectl kustomize "$main_worktree/apps/devpath-web/base" >/dev/null
+            git -C "$main_worktree" add apps/devpath-web/base/kustomization.yaml
+            git -C "$main_worktree" commit -m "rollback(web): $RELEASE_ID frontend-mission-off"
+            git -C "$main_worktree" push origin HEAD:main
+            python scripts/release/wait_web_rollout.py --root "$GITHUB_WORKSPACE" \
+              --release-id "$RELEASE_ID" --environment production \
+              --phase mission-off --canary-seconds 0
+            CURRENT_PHASE="mission-off"
+          fi
+          if test "$CURRENT_PHASE" = "mission-off"; then
+            python scripts/release/set_web_digest.py --root "$main_worktree" \
+              --manifest-root "$GITHUB_WORKSPACE" --release-id "$RELEASE_ID" \
+              --target prior --expected-current mission-off
+            test "$(git -C "$main_worktree" diff --name-only HEAD)" = "apps/devpath-web/base/kustomization.yaml"
+            kubectl kustomize "$main_worktree/apps/devpath-web/base" >/dev/null
+            git -C "$main_worktree" add apps/devpath-web/base/kustomization.yaml
+            git -C "$main_worktree" commit -m "rollback(web): $RELEASE_ID frontend-prior"
+            git -C "$main_worktree" push origin HEAD:main
+          elif test "$CURRENT_PHASE" != "prior"; then
+            echo "unreachable rollback phase" >&2
+            exit 1
+          fi
           python scripts/release/wait_web_rollout.py --root "$GITHUB_WORKSPACE" \
             --release-id "$RELEASE_ID" --environment production \
             --phase prior --canary-seconds 0
+      - name: Recheck Landing prior CAS after web rollback
+        id: rollback_complete
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          python scripts/release/cloudflare_pages.py --root "$GITHUB_WORKSPACE" \
+            --release-id "$RELEASE_ID" --action verify-prior
           elapsed=$(( $(date +%s) - ROLLBACK_STARTED ))
           test "$elapsed" -le 600
           echo "rollback_seconds=$elapsed" >> "$GITHUB_OUTPUT"
       - name: Record sanitized rollback evidence; additive backend and schema remain unchanged
         env:
           CANDIDATE_SHA: ${{ steps.release.outputs.candidate_spec_sha256 }}
-          ROLLBACK_SECONDS: ${{ steps.web_rollback.outputs.rollback_seconds }}
+          ROLLBACK_SECONDS: ${{ steps.rollback_complete.outputs.rollback_seconds }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/rollback-evidence"
           printf '{"candidate_spec_sha256":"%s","status":"passed","rollback_seconds":%s,"landing-prior":true,"frontend-mission-off":true,"frontend-prior":true,"retain-additive-services-and-schema":true}\n' \
             "$CANDIDATE_SHA" "$ROLLBACK_SECONDS" > "$RUNNER_TEMP/rollback-evidence/evidence.json"
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: ${{ inputs.release_id }}-reverse-rollback
           path: ${{ runner.temp }}/rollback-evidence/evidence.json

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Wait for the exact manifest digest and run a bounded sanitized HTTP canary."""
+"""Observe exact runtime image identity and a release-bound synthetic probe."""
 
 from __future__ import annotations
 
@@ -10,12 +10,27 @@ from pathlib import Path
 import subprocess
 import sys
 import time
-from urllib.request import Request, urlopen
+from typing import Any
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from validate_release_manifest import resolve_release_bundle
 
 
-def _expected_digest(candidate: dict, phase: str) -> str:
+WEB_IMAGE = "ghcr.io/devpathai/devpath-web"
+SYNTHETIC_KEYS = {"release_id", "candidate_spec_sha256", "image_digest", "status"}
+
+
+class _NoRedirectHandler(HTTPRedirectHandler):
+    """Reject redirects so bearer credentials never cross the sealed origin."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        return None
+
+
+_NO_REDIRECT_OPENER = build_opener(_NoRedirectHandler())
+
+
+def _expected_digest(candidate: dict[str, Any], phase: str) -> str:
     if phase == "mission-off":
         return candidate["frontend"]["mission_off"]["image_digest"]
     if phase == "mission-on":
@@ -25,33 +40,219 @@ def _expected_digest(candidate: dict, phase: str) -> str:
     raise ValueError("unknown rollout phase")
 
 
-def _kubectl(args: list[str], context: str, namespace: str, capture: bool = False) -> str:
+def _allowed_spec_images(candidate: dict[str, Any], phase: str, expected_image: str) -> set[str]:
+    allowed = {expected_image}
+    if phase == "prior":
+        # The first production transition may start from the one sealed legacy
+        # source tag. Runtime imageID must still resolve to the prior digest.
+        allowed.add(f"{WEB_IMAGE}:{candidate['gitops']['base_web_tag']}")
+    return allowed
+
+
+def _kubectl(args: list[str], context: str, namespace: str) -> str:
     command = ["kubectl", "--context", context, "--namespace", namespace, *args]
     result = subprocess.run(command, capture_output=True, text=True, check=False)
     if result.returncode != 0:
         raise ValueError("kubectl rollout verification failed")
-    return result.stdout.strip() if capture else ""
+    return result.stdout
 
 
-def _current_deployment_image(
+def _single_container(items: Any, container: str, path: str) -> dict[str, Any]:
+    if not isinstance(items, list):
+        raise ValueError(f"{path} must be an array")
+    matches = [item for item in items if isinstance(item, dict) and item.get("name") == container]
+    if len(matches) != 1:
+        raise ValueError(f"{path} must contain exactly one {container} container")
+    return matches[0]
+
+
+def _runtime_image(image_id: Any) -> str:
+    if not isinstance(image_id, str) or not image_id:
+        raise ValueError("Pod imageID is missing")
+    for prefix in ("docker-pullable://", "containerd://"):
+        if image_id.startswith(prefix):
+            image_id = image_id[len(prefix):]
+            break
+    return image_id
+
+
+def validate_rollout_snapshot(
+    deployment: Any,
+    pods: Any,
+    container: str,
+    allowed_spec_images: set[str],
+    expected_runtime_image: str,
+    restart_baseline: dict[tuple[str, str], int],
+) -> None:
+    """Require a fully available Deployment and stable exact-digest Pods.
+
+    ``restart_baseline`` is populated on the first healthy poll, then both Pod
+    identity and restart counts are required to remain unchanged on every poll.
+    """
+    if not isinstance(deployment, dict) or not isinstance(pods, dict):
+        raise ValueError("Kubernetes rollout documents must be objects")
+    metadata = deployment.get("metadata") or {}
+    spec = deployment.get("spec") or {}
+    status = deployment.get("status") or {}
+    generation = metadata.get("generation")
+    desired = spec.get("replicas")
+    if isinstance(generation, bool) or not isinstance(generation, int) or generation <= 0:
+        raise ValueError("Deployment generation is invalid")
+    if isinstance(desired, bool) or not isinstance(desired, int) or desired <= 0:
+        raise ValueError("Deployment desired replicas must be positive")
+    spec_container = _single_container(
+        ((spec.get("template") or {}).get("spec") or {}).get("containers"),
+        container,
+        "Deployment containers",
+    )
+    if spec_container.get("image") not in allowed_spec_images:
+        raise ValueError("Deployment image is not an allowed sealed reference")
+    if status.get("observedGeneration") != generation:
+        raise ValueError("Deployment controller has not observed the desired generation")
+    for field, label in (
+        ("replicas", "desired"),
+        ("updatedReplicas", "updated"),
+        ("readyReplicas", "ready"),
+        ("availableReplicas", "available"),
+    ):
+        if status.get(field) != desired:
+            raise ValueError(f"Deployment {label} replicas do not equal desired replicas")
+    if status.get("unavailableReplicas", 0) not in (None, 0):
+        raise ValueError("Deployment has unavailable replicas")
+
+    items = pods.get("items")
+    if not isinstance(items, list) or len(items) != desired:
+        raise ValueError("Pod count does not equal desired replicas")
+    observed: dict[tuple[str, str], int] = {}
+    for pod in items:
+        if not isinstance(pod, dict):
+            raise ValueError("Pod entry must be an object")
+        pod_metadata = pod.get("metadata") or {}
+        uid = pod_metadata.get("uid")
+        if not isinstance(uid, str) or not uid:
+            raise ValueError("Pod UID is missing")
+        if pod_metadata.get("deletionTimestamp") is not None:
+            raise ValueError("terminating Pod cannot satisfy rollout readiness")
+        pod_status = pod.get("status") or {}
+        if pod_status.get("phase") != "Running":
+            raise ValueError("Pod must be Running")
+        ready_conditions = [
+            condition
+            for condition in pod_status.get("conditions", [])
+            if isinstance(condition, dict) and condition.get("type") == "Ready"
+        ]
+        if len(ready_conditions) != 1 or ready_conditions[0].get("status") != "True":
+            raise ValueError("Pod Ready condition must be True")
+        runtime = _single_container(
+            pod_status.get("containerStatuses"), container, "Pod containerStatuses"
+        )
+        if runtime.get("ready") is not True:
+            raise ValueError("Pod container readiness must be true")
+        state = runtime.get("state")
+        if not isinstance(state, dict) or set(state) != {"running"} or not isinstance(
+            state.get("running"), dict
+        ):
+            raise ValueError("Pod container must be in one nonterminating running state")
+        if _runtime_image(runtime.get("imageID")) != expected_runtime_image:
+            raise ValueError("Pod imageID does not equal the sealed runtime digest")
+        restart_count = runtime.get("restartCount")
+        if isinstance(restart_count, bool) or not isinstance(restart_count, int) or restart_count < 0:
+            raise ValueError("Pod restartCount is invalid")
+        key = (uid, container)
+        observed[key] = restart_count
+
+    if restart_baseline:
+        if set(observed) != set(restart_baseline):
+            raise ValueError("healthy Pod identity changed after restart baseline")
+        for key, count in observed.items():
+            if count != restart_baseline[key]:
+                raise ValueError("Pod restart count changed after baseline")
+    else:
+        restart_baseline.update(observed)
+
+
+def _selector(deployment: dict[str, Any]) -> str:
+    selector = (deployment.get("spec") or {}).get("selector")
+    if not isinstance(selector, dict) or set(selector) != {"matchLabels"}:
+        raise ValueError("Deployment selector must use only exact matchLabels")
+    labels = selector.get("matchLabels")
+    if not isinstance(labels, dict) or not labels:
+        raise ValueError("Deployment selector matchLabels are missing")
+    pairs: list[str] = []
+    for key, value in sorted(labels.items()):
+        if not isinstance(key, str) or not isinstance(value, str) or not key or not value:
+            raise ValueError("Deployment selector labels are invalid")
+        if any(character in key + value for character in ",=\n\r"):
+            raise ValueError("Deployment selector labels are unsafe")
+        pairs.append(f"{key}={value}")
+    return ",".join(pairs)
+
+
+def _snapshot(
     context: str,
     namespace: str,
-    deployment: str,
-    container: str,
-) -> str | None:
-    raw = _kubectl(
-        ["get", f"deployment/{deployment}", "-o", "json"],
-        context,
-        namespace,
-        capture=True,
+    deployment_name: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    deployment = json.loads(
+        _kubectl(["get", f"deployment/{deployment_name}", "-o", "json"], context, namespace)
     )
-    document = json.loads(raw)
-    images = [
-        item.get("image")
-        for item in document.get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
-        if item.get("name") == container
-    ]
-    return images[0] if len(images) == 1 else None
+    pods = json.loads(
+        _kubectl(["get", "pods", "-l", _selector(deployment), "-o", "json"], context, namespace)
+    )
+    return deployment, pods
+
+
+def validate_synthetic_identity(
+    payload: Any,
+    release_id: str,
+    candidate_hash: str,
+    expected_digest: str,
+) -> None:
+    if not isinstance(payload, dict) or set(payload) != SYNTHETIC_KEYS:
+        raise ValueError("synthetic identity has an invalid key set")
+    expected = {
+        "release_id": release_id,
+        "candidate_spec_sha256": candidate_hash,
+        "image_digest": expected_digest,
+        "status": "ready",
+    }
+    if payload != expected:
+        raise ValueError("synthetic identity does not bind this exact release digest")
+
+
+def _probe_synthetic(
+    origin: str,
+    path: str,
+    token: str,
+    release_id: str,
+    candidate_hash: str,
+    expected_digest: str,
+) -> None:
+    if not token:
+        raise ValueError("MISSION_SYNTHETIC_PROBE_TOKEN is required")
+    request = Request(
+        f"{origin.rstrip('/')}{path}",
+        headers={
+            "Accept": "application/json",
+            "Authorization": f"Bearer {token}",
+            "User-Agent": "devpath-release-canary/2",
+            "X-DevPath-Release-ID": release_id,
+        },
+    )
+    try:
+        with _NO_REDIRECT_OPENER.open(request, timeout=10) as response:
+            if response.status != 200:
+                raise ValueError("synthetic probe returned a non-200 status")
+            raw = response.read(16 * 1024 + 1)
+    except OSError as exc:
+        raise ValueError("synthetic probe request failed") from exc
+    if len(raw) > 16 * 1024:
+        raise ValueError("synthetic probe response is too large")
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("synthetic probe response is not UTF-8 JSON") from exc
+    validate_synthetic_identity(payload, release_id, candidate_hash, expected_digest)
 
 
 def wait_rollout(
@@ -68,50 +269,75 @@ def wait_rollout(
         raise ValueError("environment must be staging or production")
     if canary_seconds not in {0, 900} or (canary_seconds == 900 and phase != "mission-on"):
         raise ValueError("only the mission-ON phase may run the exact 900-second canary")
-    _, _, _, candidate, _ = resolve_release_bundle(root, release_id)
+    _, _, _, candidate, candidate_hash = resolve_release_bundle(root, release_id)
     identity = candidate["environments"][environment]
     context = identity["kubernetes_context"]
     namespace = identity["namespace"]
-    deployment = identity["web_deployment"]
+    deployment_name = identity["web_deployment"]
     container = identity["web_container"]
-    expected_image = f"ghcr.io/devpathai/devpath-web@{_expected_digest(candidate, phase)}"
+    expected_digest = _expected_digest(candidate, phase)
+    expected_image = f"{WEB_IMAGE}@{expected_digest}"
+    allowed_images = _allowed_spec_images(candidate, phase, expected_image)
+    restart_baseline: dict[tuple[str, str], int] = {}
 
     started = time.monotonic()
     deadline = started + candidate["rollout"]["sync_timeout_seconds"]
+    last_error = "rollout not yet observed"
     while True:
-        if _current_deployment_image(context, namespace, deployment, container) == expected_image:
+        try:
+            deployment, pods = _snapshot(context, namespace, deployment_name)
+            validate_rollout_snapshot(
+                deployment,
+                pods,
+                container,
+                allowed_images,
+                expected_image,
+                restart_baseline,
+            )
             break
+        except ValueError as exc:
+            last_error = str(exc)
         if time.monotonic() >= deadline:
-            raise ValueError("exact digest was not observed within 300 seconds")
+            raise ValueError(f"exact ready runtime digest was not observed within 300 seconds: {last_error}")
         time.sleep(10)
-    remaining = max(1, int(deadline - time.monotonic()))
-    _kubectl(
-        ["rollout", "status", f"deployment/{deployment}", f"--timeout={remaining}s"],
-        context,
-        namespace,
-    )
     detection_seconds = int(time.monotonic() - started)
     if detection_seconds > 300:
         raise ValueError("rollout detection exceeded 300 seconds")
 
-    probe_url = f"{identity['web_origin'].rstrip('/')}/"
+    token = os.environ.get("MISSION_SYNTHETIC_PROBE_TOKEN", "")
+    if phase != "prior" and not token:
+        raise ValueError("MISSION_SYNTHETIC_PROBE_TOKEN is required")
+    probe_path = candidate["rollout"]["synthetic_probe_path"]
     canary_started = time.monotonic()
     while True:
-        if _current_deployment_image(context, namespace, deployment, container) != expected_image:
-            raise ValueError("exact digest changed during the canary")
-        request = Request(probe_url, headers={"User-Agent": "devpath-release-canary/1"})
-        try:
-            with urlopen(request, timeout=10) as response:
-                if response.status < 200 or response.status >= 400:
-                    raise ValueError("canary returned a failing status")
-        except OSError as exc:
-            raise ValueError("canary request failed") from exc
-        if time.monotonic() - canary_started >= canary_seconds:
+        deployment, pods = _snapshot(context, namespace, deployment_name)
+        validate_rollout_snapshot(
+            deployment,
+            pods,
+            container,
+            allowed_images,
+            expected_image,
+            restart_baseline,
+        )
+        # The sealed legacy prior image predates release-aware identity support;
+        # its exact runtime imageID is the CAS gate. Candidate OFF/ON images must
+        # additionally prove a release-specific synthetic identity every poll.
+        if phase != "prior":
+            _probe_synthetic(
+                identity["web_origin"],
+                probe_path,
+                token,
+                release_id,
+                candidate_hash,
+                expected_digest,
+            )
+        elapsed = time.monotonic() - canary_started
+        if elapsed >= canary_seconds:
             break
-        time.sleep(min(30, max(1, canary_seconds - int(time.monotonic() - canary_started))))
+        time.sleep(min(30, max(1, canary_seconds - int(elapsed))))
     print(
-        f"verified {environment} {phase} digest; sync_detection_seconds={detection_seconds}; "
-        f"canary_seconds={canary_seconds}"
+        f"verified {environment} {phase} runtime digest and release identity; "
+        f"sync_detection_seconds={detection_seconds}; canary_seconds={canary_seconds}"
     )
     if github_output is not None:
         with github_output.open("a", encoding="utf-8", newline="\n") as output:

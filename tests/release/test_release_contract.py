@@ -154,6 +154,8 @@ class ReleaseManifestContractTest(unittest.TestCase):
             "rollback_seconds": 180,
             "validator_run_id": 104,
             "validator_run_attempt": 1,
+            "validator_head_sha": self.release["validation_attestation"]["validator_head_sha"],
+            "validator_workflow_sha256": self.release["validation_attestation"]["validator_workflow_sha256"],
         }
         self.artifacts.validate_validation_seal_payload(
             payload,
@@ -174,26 +176,30 @@ class ReleaseManifestContractTest(unittest.TestCase):
             )
 
     def test_journey_evidence_payload_is_minimal_sanitized_and_candidate_bound(self):
-        rows = [{
-            "route": "/diagnostic",
-            "step": "saved-preview",
-            "result": "passed",
-            "duration_ms": 125,
-            "candidate_spec_sha256": self.candidate_sha,
-        }]
-        self.artifacts.validate_evidence_payload(rows, self.candidate_sha, journey=True)
+        label = "journey-activation"
+        rows = [
+            {
+                "route": self.artifacts.JOURNEY_ALLOWLISTS[label][step][0],
+                "step": step,
+                "result": "passed",
+                "duration_ms": index + 1,
+                "candidate_spec_sha256": self.candidate_sha,
+            }
+            for index, step in enumerate(self.artifacts.JOURNEY_ALLOWLISTS[label])
+        ]
+        self.artifacts.validate_evidence_payload(label, rows, self.candidate_sha, self.candidate)
         invalid = copy.deepcopy(rows)
         invalid[0]["raw_output"] = "private"
         with self.assertRaisesRegex(ValueError, "raw_output|key set"):
-            self.artifacts.validate_evidence_payload(invalid, self.candidate_sha, journey=True)
+            self.artifacts.validate_evidence_payload(label, invalid, self.candidate_sha, self.candidate)
         invalid = copy.deepcopy(rows)
         invalid[0]["candidate_spec_sha256"] = "0" * 64
         with self.assertRaisesRegex(ValueError, "does not bind"):
-            self.artifacts.validate_evidence_payload(invalid, self.candidate_sha, journey=True)
+            self.artifacts.validate_evidence_payload(label, invalid, self.candidate_sha, self.candidate)
         invalid = copy.deepcopy(rows)
         invalid[0]["duration_ms"] = True
         with self.assertRaisesRegex(ValueError, "duration_ms"):
-            self.artifacts.validate_evidence_payload(invalid, self.candidate_sha, journey=True)
+            self.artifacts.validate_evidence_payload(label, invalid, self.candidate_sha, self.candidate)
 
     def test_sanitized_manifest_rejects_raw_user_material(self):
         invalid = copy.deepcopy(self.release)
@@ -259,7 +265,7 @@ resources:
 images:
 - name: ghcr.io/devpathai/devpath-web
   newName: ghcr.io/devpathai/devpath-web
-  newTag: old
+  newTag: 2400fb4ece8dd250e5b29109bc8e28686c7edc03
 """
         rendered = self.promoter.render_kustomization(source, self.candidate, "mission-on")
         self.assertIn("  digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", rendered)
@@ -302,22 +308,21 @@ images:
                 CANDIDATE_FIXTURE.read_bytes()
             )
             evidence_dir = root / "raw-evidence"
-            rows = {
-                "mission-spine-onboarding": [{
-                    "route": "/diagnostic",
-                    "step": "activation",
-                    "result": "passed",
-                    "duration_ms": 125,
-                    "candidate_spec_sha256": self.candidate_sha,
-                }],
-                "mission-spine-workspace": [{
-                    "route": "/workspace",
-                    "step": "contextual-practice",
-                    "result": "passed",
-                    "duration_ms": 250,
-                    "candidate_spec_sha256": self.candidate_sha,
-                }],
-            }
+            rows = {}
+            for directory, label in (
+                ("mission-spine-onboarding", "journey-activation"),
+                ("mission-spine-workspace", "journey-contextual-practice"),
+            ):
+                rows[directory] = [
+                    {
+                        "route": self.artifacts.JOURNEY_ALLOWLISTS[label][step][0],
+                        "step": step,
+                        "result": "passed",
+                        "duration_ms": index + 1,
+                        "candidate_spec_sha256": self.candidate_sha,
+                    }
+                    for index, step in enumerate(self.artifacts.JOURNEY_ALLOWLISTS[label])
+                ]
             raw_by_directory = {}
             for directory, payload in rows.items():
                 path = evidence_dir / directory / "evidence.json"
@@ -366,6 +371,8 @@ images:
             "DevPathAi/devpath-gitops",
             104,
             1,
+            self.release["validation_attestation"]["validator_head_sha"],
+            self.release["validation_attestation"]["validator_workflow_sha256"],
             204,
             "6" * 64,
             205,
@@ -410,7 +417,7 @@ images:
             "-journey-contextual-practice",
             "seal_release_manifest.py",
             "Validate sealed final bundle",
-            "Stage exact OFF then ON digest",
+            "stage exact OFF and ON digests",
             "Rehearse reverse rollback within 600 seconds",
             "-sealed-validation",
         ]
@@ -428,7 +435,8 @@ images:
             self.assertIn("group: mission-spine-production", text)
             self.assertNotIn("--force", text)
         rollback = (ROOT / ".github" / "workflows" / "mission-spine-rollback.yml").read_text(encoding="utf-8")
-        self.assertIn("group: mission-spine-production-rollback", rollback)
+        self.assertIn("group: mission-spine-production", rollback)
+        self.assertIn("cancel-in-progress: true", rollback)
         self.assertIn("verify_release_artifacts.py", rollback)
         self.assertNotIn("--force", rollback)
 

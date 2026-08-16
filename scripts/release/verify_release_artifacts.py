@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import hashlib
 import json
 import os
@@ -14,12 +15,44 @@ import sys
 import tempfile
 from typing import Any
 
-from validate_release_manifest import SHA64, _validate_sanitized, resolve_release_bundle
+from validate_release_manifest import (
+    PRODUCER_WORKFLOWS,
+    SHA40,
+    SHA64,
+    _validate_sanitized,
+    resolve_release_bundle,
+)
 
 
 MAX_EVIDENCE_BYTES = 256 * 1024
 MAX_HOME_PAYLOAD_BYTES = 100 * 1024 * 1024
 JOURNEY_ROW_KEYS = {"route", "step", "result", "duration_ms", "candidate_spec_sha256"}
+PRODUCER_EVIDENCE_KEYS = {"producer_run_id", "producer_run_attempt"}
+JOURNEY_ALLOWLISTS = {
+    "journey-activation": {
+        "landing-prepermission-zero": ("/",),
+        "opaque-journey-handoff": ("/diagnostic",),
+        "guest-diagnostic-fifteen": ("/diagnostic",),
+        "guest-preview-refresh": ("/diagnostic",),
+        "oauth-callback-replay": ("/consent",),
+        "required-consent-claim-replay": ("/diagnostic",),
+        "explicit-path-to-today": ("/dashboard",),
+        "content-linked-completion-replay": ("/dashboard",),
+        "contentless-completion-replay": ("/dashboard",),
+        "onboarding-analytics-ordered": ("/dashboard",),
+    },
+    "journey-contextual-practice": {
+        "authenticated-authoritative-today": ("/dashboard",),
+        "canonical-content-to-sandbox": ("/mission/1/sandbox",),
+        "immediate-disconnect-timeout-recovery": ("/mission/1/sandbox",),
+        "midstream-disconnect-truncated-recovery": ("/mission/1/sandbox",),
+        "stale-session-reconciliation": ("/mission/1/sandbox",),
+        "outbox-review-durable": ("/mission/1/sandbox",),
+        "private-context-preview-commit": ("/mission/1/mentor",),
+        "mentor-partial-retry-payload-parity": ("/mission/1/mentor",),
+        "workspace-analytics-and-boundaries": ("/mission/1/mentor",),
+    },
+}
 VALIDATION_SEAL_KEYS = {
     "release_id",
     "candidate_spec_sha256",
@@ -28,17 +61,68 @@ VALIDATION_SEAL_KEYS = {
     "rollback_seconds",
     "validator_run_id",
     "validator_run_attempt",
+    "validator_head_sha",
+    "validator_workflow_sha256",
 }
 
 
-def validate_evidence_payload(payload: Any, candidate_hash: str, journey: bool = False) -> None:
+def _route_allowed(label: str, step: str, route: str) -> bool:
+    if route in JOURNEY_ALLOWLISTS[label][step]:
+        return True
+    if label == "journey-activation" and step in {
+        "explicit-path-to-today",
+        "content-linked-completion-replay",
+        "contentless-completion-replay",
+        "onboarding-analytics-ordered",
+    }:
+        parts = route.split("/")
+        return len(parts) == 4 and parts[1] == "path" and parts[2].isdigit() and parts[3] == "today"
+    if label == "journey-contextual-practice":
+        parts = route.split("/")
+        if step == "authenticated-authoritative-today":
+            return len(parts) == 4 and parts[1] == "path" and parts[2].isdigit() and parts[3] == "today"
+        expected_tail = "mentor" if step in {
+            "private-context-preview-commit",
+            "mentor-partial-retry-payload-parity",
+            "workspace-analytics-and-boundaries",
+        } else "sandbox"
+        return len(parts) == 4 and parts[1] == "mission" and parts[2].isdigit() and parts[3] == expected_tail
+    return False
+
+
+def _exact_payload(payload: Any, keys: set[str], label: str) -> dict[str, Any]:
+    if not isinstance(payload, dict) or set(payload) != keys:
+        raise ValueError(f"{label} evidence has an invalid key set")
+    return payload
+
+
+def _bounded_number(value: Any, label: str, minimum: float, maximum: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{label} must be a number")
+    number = float(value)
+    if not minimum <= number <= maximum:
+        raise ValueError(f"{label} is outside its approved range")
+    return number
+
+
+def validate_evidence_payload(
+    label: str,
+    payload: Any,
+    candidate_hash: str,
+    candidate: dict[str, Any],
+    producer_run_id: int | None = None,
+    producer_run_attempt: int | None = None,
+) -> None:
     _validate_sanitized(payload, "evidence")
-    if journey:
+    if label in JOURNEY_ALLOWLISTS:
         if not isinstance(payload, list) or not payload:
             raise ValueError("journey evidence must be a non-empty JSON array")
+        expected_steps = list(JOURNEY_ALLOWLISTS[label])
+        actual_steps: list[str] = []
         for index, row in enumerate(payload):
             if not isinstance(row, dict) or set(row) != JOURNEY_ROW_KEYS:
                 raise ValueError(f"journey evidence row {index} has an invalid key set")
+            actual_steps.append(row.get("step"))
             if row["candidate_spec_sha256"] != candidate_hash:
                 raise ValueError(f"journey evidence row {index} does not bind candidate-spec")
             if row["result"] != "passed":
@@ -46,25 +130,131 @@ def validate_evidence_payload(payload: Any, candidate_hash: str, journey: bool =
             if (
                 isinstance(row["duration_ms"], bool)
                 or not isinstance(row["duration_ms"], int)
-                or row["duration_ms"] < 0
+                or not 0 <= row["duration_ms"] <= 600_000
             ):
                 raise ValueError(f"journey evidence row {index} has invalid duration_ms")
-            for field in ("route", "step"):
-                if (
-                    not isinstance(row[field], str)
-                    or not row[field]
-                    or len(row[field]) > 512
-                    or "\n" in row[field]
-                    or "\r" in row[field]
-                ):
-                    raise ValueError(f"journey evidence row {index} has invalid {field}")
+            if row["step"] not in JOURNEY_ALLOWLISTS[label]:
+                raise ValueError("journey evidence step sequence is not the approved allowlist")
+            if not isinstance(row["route"], str) or not _route_allowed(label, row["step"], row["route"]):
+                raise ValueError(f"journey evidence row {index} has a disallowed route")
+        if actual_steps != expected_steps:
+            raise ValueError("journey evidence step sequence is not the approved allowlist")
         return
-    if not isinstance(payload, dict):
-        raise ValueError("sanitized evidence must be a JSON object")
-    if payload.get("candidate_spec_sha256") != candidate_hash:
+    if not isinstance(payload, dict) or payload.get("candidate_spec_sha256") != candidate_hash:
         raise ValueError("evidence does not bind candidate-spec")
     if payload.get("status") != "passed":
         raise ValueError("evidence status must be passed")
+    for field, expected in (
+        ("producer_run_id", producer_run_id),
+        ("producer_run_attempt", producer_run_attempt),
+    ):
+        value = payload.get(field)
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError(f"evidence {field} must be a positive integer")
+        if expected is not None and value != expected:
+            label_text = field.replace("_", " ")
+            raise ValueError(f"evidence {label_text} mismatch")
+    if label == "home-dist":
+        value = _exact_payload(
+            payload,
+            {
+                "candidate_spec_sha256", "status", "home_source_sha", "dist_sha256",
+                *PRODUCER_EVIDENCE_KEYS,
+            },
+            label,
+        )
+        if value["home_source_sha"] != candidate["home"]["source_sha"]:
+            raise ValueError("home-dist source SHA mismatch")
+        if value["dist_sha256"] != candidate["home"]["dist_sha256"]:
+            raise ValueError("home-dist payload SHA mismatch")
+        return
+    if label == "privacy-approval":
+        keys = {
+            "candidate_spec_sha256", "status", "approved_at", "collection_mode", "region",
+            "project_identity", "retention_days", "access_owner", "deletion_runbook",
+            *PRODUCER_EVIDENCE_KEYS,
+        }
+        value = _exact_payload(payload, keys, label)
+        for field in keys - {
+            "candidate_spec_sha256", "status", "approved_at", *PRODUCER_EVIDENCE_KEYS,
+        }:
+            if value[field] != candidate["analytics_privacy"][field]:
+                raise ValueError(f"privacy-approval {field} mismatch")
+        if not isinstance(value["approved_at"], str) or not value["approved_at"].endswith("Z"):
+            raise ValueError("privacy-approval approved_at must be UTC")
+        try:
+            datetime.fromisoformat(value["approved_at"].replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("privacy-approval approved_at is invalid") from exc
+        return
+    if label == "ai-release-eval":
+        config = candidate["ai_release_eval_config"]
+        value = _exact_payload(
+            payload,
+            {
+                "candidate_spec_sha256", "status", "ai_source_sha", "primary_model",
+                "fallback_models", "prompt_sha256", "fixture_revision", "fixture_sha256",
+                "hard_invariants_percent", "usefulness_percent", "baseline_delta_points",
+                *PRODUCER_EVIDENCE_KEYS,
+            },
+            label,
+        )
+        expected = {
+            "ai_source_sha": candidate["services"]["devpath-ai-svc"]["source_sha"],
+            "primary_model": config["primary_model"],
+            "fallback_models": config["fallback_models"],
+            "prompt_sha256": config["prompt_sha256"],
+            "fixture_revision": config["fixture_revision"],
+            "fixture_sha256": config["fixture_sha256"],
+        }
+        for field, expected_value in expected.items():
+            if value[field] != expected_value:
+                raise ValueError(f"ai-release-eval {field} mismatch")
+        if _bounded_number(value["hard_invariants_percent"], "hard invariants", 100, 100) != 100:
+            raise ValueError("hard invariants must be 100")
+        _bounded_number(value["usefulness_percent"], "usefulness", 90, 100)
+        _bounded_number(value["baseline_delta_points"], "baseline delta", -5, 100)
+        return
+    if label == "visual":
+        value = _exact_payload(
+            payload,
+            {
+                "candidate_spec_sha256", "status", "frontend_source_sha", "viewport_profile",
+                "screenshot_count", "pixel_diff_percent",
+                *PRODUCER_EVIDENCE_KEYS,
+            },
+            label,
+        )
+        if value["frontend_source_sha"] != candidate["frontend"]["source_sha"]:
+            raise ValueError("visual frontend source mismatch")
+        if value["viewport_profile"] != "mission-spine.desktop-mobile.v1":
+            raise ValueError("visual viewport profile is not approved")
+        if isinstance(value["screenshot_count"], bool) or not isinstance(value["screenshot_count"], int):
+            raise ValueError("visual screenshot_count must be an integer")
+        if not 1 <= value["screenshot_count"] <= 64:
+            raise ValueError("visual screenshot_count is outside its approved range")
+        if _bounded_number(value["pixel_diff_percent"], "visual pixel diff", 0, 0) != 0:
+            raise ValueError("visual pixel diff must be zero")
+        return
+    if label == "accessibility":
+        value = _exact_payload(
+            payload,
+            {
+                "candidate_spec_sha256", "status", "frontend_source_sha", "standard",
+                "critical_violations", "serious_violations",
+                *PRODUCER_EVIDENCE_KEYS,
+            },
+            label,
+        )
+        if value["frontend_source_sha"] != candidate["frontend"]["source_sha"]:
+            raise ValueError("accessibility frontend source mismatch")
+        if value["standard"] != "WCAG2.2AA":
+            raise ValueError("accessibility standard must be WCAG2.2AA")
+        for field in ("critical_violations", "serious_violations"):
+            if isinstance(value[field], bool) or value[field] != 0:
+                raise ValueError(f"accessibility {field} must be integer zero")
+        return
+    raise ValueError(f"unknown evidence kind: {label}")
 
 
 def validate_sealed_metadata(label: str, payload: dict[str, Any], release: dict[str, Any]) -> None:
@@ -82,6 +272,96 @@ def validate_sealed_metadata(label: str, payload: dict[str, Any], release: dict[
         ):
             if payload.get(field) != sealed_eval[field]:
                 raise ValueError(f"ai-release-eval: {field} does not match the sealed manifest")
+
+
+def validate_run_provenance(
+    label: str,
+    run: dict[str, Any],
+    reference: dict[str, Any],
+    expected_head: str,
+    expected_workflow_path: str,
+    workflow_bytes: bytes,
+) -> None:
+    """Bind evidence to one successful manual run and its exact workflow blob."""
+    if run.get("status") != "completed" or run.get("conclusion") != "success":
+        raise ValueError(f"{label}: producer workflow did not complete successfully")
+    if run.get("event") != "workflow_dispatch" or reference.get("event") != "workflow_dispatch":
+        raise ValueError(f"{label}: producer event must be workflow_dispatch")
+    if run.get("head_sha") != expected_head or reference.get("head_sha") != expected_head:
+        raise ValueError(f"{label}: producer head SHA mismatch")
+    run_attempt = run.get("run_attempt")
+    if (
+        isinstance(run_attempt, bool)
+        or not isinstance(run_attempt, int)
+        or run_attempt <= 0
+        or reference.get("run_attempt") != run_attempt
+    ):
+        raise ValueError(f"{label}: producer run attempt mismatch")
+    if run.get("path") != expected_workflow_path:
+        raise ValueError(f"{label}: producer workflow path mismatch")
+    if reference.get("workflow_path") != expected_workflow_path:
+        raise ValueError(f"{label}: sealed workflow path mismatch")
+    actual_hash = hashlib.sha256(workflow_bytes).hexdigest()
+    if reference.get("workflow_sha256") != actual_hash:
+        raise ValueError(f"{label}: producer workflow bytes mismatch")
+
+
+def _workflow_bytes(
+    repository: str,
+    workflow_path: str,
+    head_sha: str,
+    env: dict[str, str],
+) -> bytes:
+    result = subprocess.run(
+        [
+            "gh",
+            "api",
+            "-H",
+            "Accept: application/vnd.github.raw+json",
+            f"repos/{repository}/contents/{workflow_path}?ref={head_sha}",
+        ],
+        capture_output=True,
+        env=env,
+        check=False,
+    )
+    if result.returncode != 0 or not result.stdout:
+        raise ValueError("producer workflow blob download failed")
+    return result.stdout
+
+
+def _git_output(root: Path, args: list[str]) -> str:
+    result = subprocess.run(
+        ["git", *args], cwd=root, capture_output=True, text=True, check=False
+    )
+    if result.returncode != 0:
+        raise ValueError("GitOps provenance git query failed")
+    return result.stdout.strip()
+
+
+def verify_validation_tree(
+    root: Path,
+    release_id: str,
+    base_sha: str,
+    validator_head_sha: str,
+) -> None:
+    """Reject a validation run from a look-alike branch or extra tree delta."""
+    current_head = _git_output(root, ["rev-parse", "HEAD"])
+    if _git_output(root, ["rev-parse", "HEAD^"]) != validator_head_sha:
+        raise ValueError("validator head is not the sole parent of the sealed release commit")
+    if _git_output(root, ["rev-parse", f"{validator_head_sha}^"]) != base_sha:
+        raise ValueError("validator head is not based directly on sealed GitOps base")
+    candidate_path = f"release-manifests/candidates/{release_id}.candidate-spec.json"
+    release_path = f"release-manifests/releases/{release_id}.json"
+    candidate_delta = _git_output(root, ["diff", "--name-only", f"{base_sha}...{validator_head_sha}"])
+    if candidate_delta.splitlines() != [candidate_path]:
+        raise ValueError("validator head has a disallowed candidate tree delta")
+    final_delta = _git_output(root, ["diff", "--name-only", f"{validator_head_sha}...{current_head}"])
+    if final_delta.splitlines() != [release_path]:
+        raise ValueError("sealed release commit has a disallowed tree delta")
+    if _git_output(root, ["show", f"{validator_head_sha}:{candidate_path}"]) != (
+        root / candidate_path
+    ).read_text(encoding="utf-8").strip():
+        raise ValueError("validator candidate blob differs from sealed branch bytes")
 
 
 def validate_validation_seal_payload(
@@ -113,6 +393,10 @@ def validate_validation_seal_payload(
         raise ValueError("sealed-validation validator run mismatch")
     if payload["validator_run_attempt"] != attestation["validator_run_attempt"]:
         raise ValueError("sealed-validation validator run attempt mismatch")
+    if payload["validator_head_sha"] != attestation["validator_head_sha"]:
+        raise ValueError("sealed-validation validator head mismatch")
+    if payload["validator_workflow_sha256"] != attestation["validator_workflow_sha256"]:
+        raise ValueError("sealed-validation validator workflow mismatch")
 
 
 def _run_json(command: list[str], env: dict[str, str]) -> dict[str, Any]:
@@ -146,11 +430,14 @@ def _verify_validation_seal(
     release_id: str,
     release: dict[str, Any],
     candidate_hash: str,
+    base_sha: str,
 ) -> None:
     attestation = release["validation_attestation"]
     repository = attestation["validator_repository"]
     run_id = attestation["validator_run_id"]
-    artifact_name = f"{release_id}-sealed-validation"
+    artifact_name = (
+        f"{release_id}-sealed-validation-attempt-{attestation['validator_run_attempt']}"
+    )
     listing = _run_json(
         ["gh", "api", f"repos/{repository}/actions/artifacts?name={artifact_name}&per_page=100"],
         command_env,
@@ -164,12 +451,32 @@ def _verify_validation_seal(
     if (metadata.get("workflow_run") or {}).get("id") != run_id:
         raise ValueError("sealed-validation: validator run mismatch")
     run = _run_json(["gh", "api", f"repos/{repository}/actions/runs/{run_id}"], command_env)
-    if run.get("status") != "completed" or run.get("conclusion") != "success":
-        raise ValueError("sealed-validation: validator workflow is not successful")
-    if run.get("run_attempt") != attestation["validator_run_attempt"]:
-        raise ValueError("sealed-validation: validator run attempt mismatch")
-    if not str(run.get("path", "")).endswith(".github/workflows/mission-spine-validate.yml"):
-        raise ValueError("sealed-validation: untrusted validator workflow")
+    workflow_bytes = _workflow_bytes(
+        repository,
+        attestation["validator_workflow_path"],
+        attestation["validator_head_sha"],
+        command_env,
+    )
+    validate_run_provenance(
+        "sealed-validation",
+        run,
+        {
+            "event": attestation["validator_event"],
+            "head_sha": attestation["validator_head_sha"],
+            "run_attempt": attestation["validator_run_attempt"],
+            "workflow_path": attestation["validator_workflow_path"],
+            "workflow_sha256": attestation["validator_workflow_sha256"],
+        },
+        attestation["validator_head_sha"],
+        PRODUCER_WORKFLOWS["journey-activation"],
+        workflow_bytes,
+    )
+    verify_validation_tree(
+        release_path.parents[2],
+        release_id,
+        base_sha,
+        attestation["validator_head_sha"],
+    )
     with tempfile.TemporaryDirectory(prefix="mission-spine-validation-seal-") as temp_dir:
         result = subprocess.run(
             [
@@ -225,7 +532,10 @@ def verify_artifacts(root: Path, release_id: str, materialize_home: Path | None 
 
     expected_head = {
         "home-dist": candidate["home"]["source_sha"],
+        "privacy-approval": candidate["analytics_privacy"]["approval_source_sha"],
         "ai-release-eval": candidate["services"]["devpath-ai-svc"]["source_sha"],
+        "journey-activation": release["validation_attestation"]["validator_head_sha"],
+        "journey-contextual-practice": release["validation_attestation"]["validator_head_sha"],
         "visual": candidate["frontend"]["source_sha"],
         "accessibility": candidate["frontend"]["source_sha"],
     }
@@ -250,8 +560,21 @@ def verify_artifacts(root: Path, release_id: str, materialize_home: Path | None 
                 ["gh", "api", f"repos/{repository}/actions/runs/{run_id}"],
                 command_env,
             )
-            if run.get("status") != "completed" or run.get("conclusion") != "success":
-                raise ValueError(f"{label}: producer workflow did not complete successfully")
+            workflow_path = PRODUCER_WORKFLOWS[label]
+            workflow_bytes = _workflow_bytes(
+                repository,
+                workflow_path,
+                expected_head[label],
+                command_env,
+            )
+            validate_run_provenance(
+                label,
+                run,
+                artifact,
+                expected_head[label],
+                workflow_path,
+                workflow_bytes,
+            )
             if journey:
                 attestation = release["validation_attestation"]
                 if repository != attestation["validator_repository"]:
@@ -260,12 +583,6 @@ def verify_artifacts(root: Path, release_id: str, materialize_home: Path | None 
                     raise ValueError(f"{label}: validator run mismatch")
                 if run.get("run_attempt") != attestation["validator_run_attempt"]:
                     raise ValueError(f"{label}: validator run attempt mismatch")
-                if not str(run.get("path", "")).endswith(
-                    ".github/workflows/mission-spine-validate.yml"
-                ):
-                    raise ValueError(f"{label}: untrusted validator workflow")
-            if label in expected_head and run.get("head_sha") != expected_head[label]:
-                raise ValueError(f"{label}: producer source SHA mismatch")
 
             destination = temp / label
             destination.mkdir()
@@ -310,7 +627,14 @@ def verify_artifacts(root: Path, release_id: str, materialize_home: Path | None 
                 payload = json.loads(raw.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
                 raise ValueError(f"{label}: evidence is not valid UTF-8 JSON") from exc
-            validate_evidence_payload(payload, candidate_hash, journey=journey)
+            validate_evidence_payload(
+                label,
+                payload,
+                candidate_hash,
+                candidate,
+                run_id,
+                run.get("run_attempt"),
+            )
             if not journey:
                 validate_sealed_metadata(label, payload, release)
             if has_payload:
@@ -322,7 +646,14 @@ def verify_artifacts(root: Path, release_id: str, materialize_home: Path | None 
                 if materialize_home is not None:
                     materialize_home.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(payload_path, materialize_home)
-    _verify_validation_seal(command_env, release_path, release_id, release, candidate_hash)
+    _verify_validation_seal(
+        command_env,
+        release_path,
+        release_id,
+        release,
+        candidate_hash,
+        candidate["gitops"]["base_sha"],
+    )
     print(f"verified seven sealed artifacts and final validation seal for {release_id}")
 
 

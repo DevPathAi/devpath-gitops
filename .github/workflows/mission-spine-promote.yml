@@ -27,16 +27,17 @@ jobs:
       base_sha: ${{ steps.release.outputs.gitops_base_sha }}
       candidate_sha: ${{ steps.release.outputs.candidate_spec_sha256 }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.13"
       - name: Resolve sealed release
         id: release
         run: |
           set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
           python scripts/release/validate_release_manifest.py --root "$GITHUB_WORKSPACE" \
             --release-id "$RELEASE_ID" --emit-github-output "$GITHUB_OUTPUT"
       - name: Compare-and-swap current main against sealed GitOps base
@@ -64,10 +65,10 @@ jobs:
     outputs:
       off_commit: ${{ steps.commit.outputs.off_commit }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.13"
       - name: Require protected OFF approval
@@ -86,6 +87,22 @@ jobs:
           test -n "${RELEASE_EVIDENCE_TOKEN:-}"
           python scripts/release/verify_release_artifacts.py --root "$GITHUB_WORKSPACE" \
             --release-id "$RELEASE_ID"
+      - name: Configure production cluster
+        env:
+          PRODUCTION_KUBECONFIG_B64: ${{ secrets.PRODUCTION_KUBECONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "${PRODUCTION_KUBECONFIG_B64:-}"
+          umask 077
+          printf '%s' "$PRODUCTION_KUBECONFIG_B64" | base64 --decode > "$RUNNER_TEMP/production-kubeconfig"
+          chmod 600 "$RUNNER_TEMP/production-kubeconfig"
+          echo "KUBECONFIG=$RUNNER_TEMP/production-kubeconfig" >> "$GITHUB_ENV"
+      - name: Require sealed legacy tag and exact live prior digest before OFF
+        run: |
+          set -euo pipefail
+          python scripts/release/wait_web_rollout.py --root "$GITHUB_WORKSPACE" \
+            --release-id "$RELEASE_ID" --environment production \
+            --phase prior --canary-seconds 0
       - name: Compare-and-swap exact mission-OFF digest
         id: commit
         env:
@@ -107,18 +124,12 @@ jobs:
           git -C "$main_worktree" commit -m "release(web): promote $RELEASE_ID mission-off"
           git -C "$main_worktree" push origin HEAD:main
           echo "off_commit=$(git -C "$main_worktree" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - name: Configure production cluster
+      - name: Detect OFF sync within 300 seconds
         env:
-          PRODUCTION_KUBECONFIG_B64: ${{ secrets.PRODUCTION_KUBECONFIG_B64 }}
+          MISSION_SYNTHETIC_PROBE_TOKEN: ${{ secrets.MISSION_SYNTHETIC_PROBE_TOKEN }}
         run: |
           set -euo pipefail
-          test -n "${PRODUCTION_KUBECONFIG_B64:-}"
-          umask 077
-          printf '%s' "$PRODUCTION_KUBECONFIG_B64" | base64 --decode > "$RUNNER_TEMP/production-kubeconfig"
-          chmod 600 "$RUNNER_TEMP/production-kubeconfig"
-          echo "KUBECONFIG=$RUNNER_TEMP/production-kubeconfig" >> "$GITHUB_ENV"
-      - name: Detect OFF sync within 300 seconds
-        run: |
+          test -n "${MISSION_SYNTHETIC_PROBE_TOKEN:-}"
           python scripts/release/wait_web_rollout.py --root "$GITHUB_WORKSPACE" \
             --release-id "$RELEASE_ID" --environment production \
             --phase mission-off --canary-seconds 0
@@ -133,10 +144,10 @@ jobs:
       contents: write
       deployments: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.13"
       - name: Require protected manual ON approval
@@ -180,7 +191,11 @@ jobs:
           echo "KUBECONFIG=$RUNNER_TEMP/production-kubeconfig" >> "$GITHUB_ENV"
       - name: Detect sync within 300 seconds and hold exact 900-second canary
         id: rollout
+        env:
+          MISSION_SYNTHETIC_PROBE_TOKEN: ${{ secrets.MISSION_SYNTHETIC_PROBE_TOKEN }}
         run: |
+          set -euo pipefail
+          test -n "${MISSION_SYNTHETIC_PROBE_TOKEN:-}"
           python scripts/release/wait_web_rollout.py --root "$GITHUB_WORKSPACE" \
             --release-id "$RELEASE_ID" --environment production \
             --phase mission-on --canary-seconds 900 --github-output "$GITHUB_OUTPUT"
@@ -192,11 +207,13 @@ jobs:
           CANARY_SECONDS: ${{ steps.rollout.outputs.canary_seconds }}
         run: |
           set -euo pipefail
+          promoter_workflow_sha="$(git show "$GITHUB_SHA:.github/workflows/mission-spine-promote.yml" | sha256sum | awk '{print $1}')"
           mkdir -p "$RUNNER_TEMP/production-canary"
-          printf '{"release_id":"%s","candidate_spec_sha256":"%s","status":"passed","on_commit":"%s","sync_detection_seconds":%s,"canary_seconds":%s}\n' \
+          printf '{"release_id":"%s","candidate_spec_sha256":"%s","status":"passed","on_commit":"%s","sync_detection_seconds":%s,"canary_seconds":%s,"promoter_run_id":%s,"promoter_run_attempt":%s,"promoter_head_sha":"%s","promoter_workflow_sha256":"%s"}\n' \
             "$RELEASE_ID" "$CANDIDATE_SHA" "$ON_COMMIT" "$SYNC_SECONDS" "$CANARY_SECONDS" \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" "$promoter_workflow_sha" \
             > "$RUNNER_TEMP/production-canary/evidence.json"
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: ${{ inputs.release_id }}-production-canary
           path: ${{ runner.temp }}/production-canary/evidence.json
