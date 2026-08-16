@@ -242,9 +242,32 @@
       },
       "additionalProperties": false
     },
+    "frontendProjectionContract": {
+      "type": "object",
+      "required": ["schema_version", "projection_contract_sha256", "projection_matrix"],
+      "properties": {
+        "schema_version": {"const": "leva.et13.projection-contract.v1"},
+        "projection_contract_sha256": {"const": "c66d08b6425628a06b27d07e08d648cfb3568d9db7c8d8aca2371172ccf4bde3"},
+        "projection_matrix": {"const": [
+          {"fixture_id": "web-today-available", "capture_scope": "body_projection", "source_widget": "TodayMissionSection", "substitutions": ["controller/provider state replaced by approved deterministic fixture"]},
+          {"fixture_id": "web-path-current-week", "capture_scope": "body_projection", "source_widget": "MissionPathPlanView", "substitutions": ["controller/provider state replaced by approved deterministic fixture"]},
+          {"fixture_id": "web-content-reading", "capture_scope": "body_projection", "source_widget": "WebContentProjection", "substitutions": ["AdSense slot replaced by explicit offline blocked-network evidence slot"]},
+          {"fixture_id": "web-workspace-idle", "capture_scope": "body_projection", "source_widget": "SandboxLayout", "substitutions": ["controller state replaced by approved deterministic fixture", "Monaco callbacks disabled except production readiness"]},
+          {"fixture_id": "web-review-loaded", "capture_scope": "component_projection", "source_widget": "WebReviewProjection", "substitutions": ["controller state replaced by approved deterministic fixture"]},
+          {"fixture_id": "web-mentor-context-preview", "capture_scope": "body_projection", "source_widget": "WebMentorContextProjection", "substitutions": ["controller/provider state replaced by approved deterministic fixture"]},
+          {"fixture_id": "admin-kpi-dashboard", "capture_scope": "body_projection", "source_widget": "AdminKpiDashboardProjection", "substitutions": ["controller/provider state replaced by approved deterministic fixture"]},
+          {"fixture_id": "admin-support-long-wire", "capture_scope": "component_projection", "source_widget": "AdminSupportDetailProjection", "substitutions": ["live provider and dialog shell replaced by deterministic AlertDialog host"]},
+          {"fixture_id": "mobile-today-available", "capture_scope": "body_projection", "source_widget": "MobileTodayProjection", "substitutions": ["native AppBar and route shell omitted", "controller/provider state replaced by approved deterministic fixture"]},
+          {"fixture_id": "mobile-content-reading", "capture_scope": "body_projection", "source_widget": "MobileContentProjection", "substitutions": ["native AppBar and route shell omitted", "periodic dwell timer frozen", "controller/provider state replaced by approved deterministic fixture"]},
+          {"fixture_id": "dp-design-mission-ledger", "capture_scope": "component_projection", "source_widget": "DpEt13MissionLedgerFixture", "substitutions": ["hosted by the Flutter Web production distribution"]},
+          {"fixture_id": "dp-design-context-payload-preview", "capture_scope": "component_projection", "source_widget": "DpEt13ContextPayloadPreviewFixture", "substitutions": ["hosted by the Flutter Web production distribution"]}
+        ]}
+      },
+      "additionalProperties": false
+    },
     "frontendVisualCatalog": {
       "type": "object",
-      "required": ["repository", "source_sha", "path", "sha256", "case_catalog_version", "case_catalog_schema_version", "fixture_ids", "case_count", "surface_case_counts", "capture_surface", "device_evidence", "evidence_mode", "input_provenance_sha256", "input_provenance_file_sha256", "baseline_status", "baseline_set_sha256", "baseline_approval_sha256"],
+      "required": ["repository", "source_sha", "path", "sha256", "case_catalog_version", "case_catalog_schema_version", "projection_contract_sha256", "fixture_ids", "case_count", "surface_case_counts", "capture_surface", "device_evidence", "evidence_mode", "input_provenance_sha256", "input_provenance_file_sha256", "baseline_status", "baseline_set_sha256", "baseline_approval_sha256"],
       "properties": {
         "repository": {"const": "DevPathAi/devpath-frontend"},
         "source_sha": {"$ref": "#/$defs/sha40"},
@@ -252,13 +275,14 @@
         "sha256": {"$ref": "#/$defs/sha64"},
         "case_catalog_version": {"const": "leva.et13.catalog.v1"},
         "case_catalog_schema_version": {"const": "leva.et13.visual-cases.v1"},
+        "projection_contract_sha256": {"const": "c66d08b6425628a06b27d07e08d648cfb3568d9db7c8d8aca2371172ccf4bde3"},
         "fixture_ids": {"const": ["web-today-available", "web-path-current-week", "web-content-reading", "web-workspace-idle", "web-review-loaded", "web-mentor-context-preview", "admin-kpi-dashboard", "admin-support-long-wire", "mobile-today-available", "mobile-content-reading", "dp-design-mission-ledger", "dp-design-context-payload-preview"]},
         "case_count": {"const": 96},
         "surface_case_counts": {"const": {"web": 48, "admin": 16, "mobile": 16, "dp_design": 16}},
         "capture_surface": {"const": "flutter_web_release_projection"},
         "device_evidence": {"const": false},
         "evidence_mode": {"const": "release_ready"},
-        "input_provenance_sha256": {"$ref": "#/$defs/sha64", "description": "Canonical SHA-256 of provenance.v1.json with provenance_sha256 excluded, using sorted-key compact JSON."},
+        "input_provenance_sha256": {"$ref": "#/$defs/sha64", "description": "Canonical SHA-256 of provenance.v1.json with input_provenance_sha256 excluded, using sorted-key compact JSON."},
         "input_provenance_file_sha256": {"$ref": "#/$defs/sha64", "description": "Raw-byte SHA-256 of the packaged provenance.v1.json file."},
         "baseline_status": {"const": "approved"},
         "baseline_set_sha256": {"$ref": "#/$defs/sha64"},
@@ -268,7 +292,7 @@
     },
     "frontendAutomatedA11yCatalog": {
       "type": "object",
-      "required": ["repository", "source_sha", "path", "sha256", "case_catalog_version", "case_catalog_schema_version", "fixture_ids", "case_count", "surface_case_counts", "capture_surface", "device_evidence", "evidence_mode", "input_provenance_sha256", "input_provenance_file_sha256"],
+      "required": ["repository", "source_sha", "path", "sha256", "case_catalog_version", "case_catalog_schema_version", "projection_contract_sha256", "fixture_ids", "case_count", "surface_case_counts", "capture_surface", "device_evidence", "evidence_mode", "input_provenance_sha256", "input_provenance_file_sha256"],
       "properties": {
         "repository": {"const": "DevPathAi/devpath-frontend"},
         "source_sha": {"$ref": "#/$defs/sha40"},
@@ -276,13 +300,14 @@
         "sha256": {"$ref": "#/$defs/sha64"},
         "case_catalog_version": {"const": "leva.et13.catalog.v1"},
         "case_catalog_schema_version": {"const": "leva.et13.a11y-cases.v1"},
+        "projection_contract_sha256": {"const": "c66d08b6425628a06b27d07e08d648cfb3568d9db7c8d8aca2371172ccf4bde3"},
         "fixture_ids": {"const": ["web-today-available", "web-path-current-week", "web-content-reading", "web-workspace-idle", "web-review-loaded", "web-mentor-context-preview", "admin-kpi-dashboard", "admin-support-long-wire", "mobile-today-available", "mobile-content-reading", "dp-design-mission-ledger", "dp-design-context-payload-preview"]},
         "case_count": {"const": 24},
         "surface_case_counts": {"const": {"web": 12, "admin": 4, "mobile": 4, "dp_design": 4}},
         "capture_surface": {"const": "flutter_web_release_projection"},
         "device_evidence": {"const": false},
         "evidence_mode": {"const": "release_ready"},
-        "input_provenance_sha256": {"$ref": "#/$defs/sha64", "description": "Canonical SHA-256 of provenance.v1.json with provenance_sha256 excluded, using sorted-key compact JSON."},
+        "input_provenance_sha256": {"$ref": "#/$defs/sha64", "description": "Canonical SHA-256 of provenance.v1.json with input_provenance_sha256 excluded, using sorted-key compact JSON."},
         "input_provenance_file_sha256": {"$ref": "#/$defs/sha64", "description": "Raw-byte SHA-256 of the packaged provenance.v1.json file."}
       },
       "additionalProperties": false
@@ -331,9 +356,10 @@
     },
     "qualityEvidenceInputs": {
       "type": "object",
-      "required": ["catalogs", "mobile_test_artifacts"],
+      "required": ["catalogs", "frontend_projection_contract", "mobile_test_artifacts"],
       "properties": {
         "catalogs": {"$ref": "#/$defs/qualityCatalogs"},
+        "frontend_projection_contract": {"$ref": "#/$defs/frontendProjectionContract"},
         "mobile_test_artifacts": {"$ref": "#/$defs/mobileTestArtifacts"}
       },
       "additionalProperties": false

@@ -320,6 +320,7 @@ class ReleaseHardeningTest(unittest.TestCase):
             "case_catalog_sha256": self.candidate["quality_evidence_inputs"]["catalogs"]["frontend-visual"]["sha256"],
             "case_catalog_version": self.candidate["quality_evidence_inputs"]["catalogs"]["frontend-visual"]["case_catalog_version"],
             "case_catalog_schema_version": self.candidate["quality_evidence_inputs"]["catalogs"]["frontend-visual"]["case_catalog_schema_version"],
+            "projection_contract_sha256": self.candidate["quality_evidence_inputs"]["catalogs"]["frontend-visual"]["projection_contract_sha256"],
             "fixture_ids": self.candidate["quality_evidence_inputs"]["catalogs"]["frontend-visual"]["fixture_ids"],
             "capture_surface": "flutter_web_release_projection",
             "device_evidence": False,
@@ -389,6 +390,9 @@ class ReleaseHardeningTest(unittest.TestCase):
                 "case_catalog_schema_version": self.candidate["quality_evidence_inputs"][
                     "catalogs"
                 ]["frontend-automated-a11y"]["case_catalog_schema_version"],
+                "projection_contract_sha256": self.candidate["quality_evidence_inputs"][
+                    "catalogs"
+                ]["frontend-automated-a11y"]["projection_contract_sha256"],
                 "fixture_ids": self.candidate["quality_evidence_inputs"]["catalogs"][
                     "frontend-automated-a11y"
                 ]["fixture_ids"],

@@ -20,6 +20,8 @@ from validate_release_manifest import (
     FRONTEND_CATALOG_CONTRACTS,
     FRONTEND_EVIDENCE_FILES,
     FRONTEND_FIXTURE_IDS,
+    FRONTEND_PROJECTION_CONTRACT_SHA256,
+    FRONTEND_PROJECTION_MATRIX,
     PRODUCER_WORKFLOWS,
     QUALITY_EVIDENCE,
     SHA64,
@@ -251,14 +253,21 @@ def validate_frontend_evidence_bundle(
     generated = _exact_payload(
         generated,
         {
-            "schema_version", "case_catalog_version", "catalog_sha256", "fixture_ids",
-            "case_count", "surface_case_counts", "cases",
+            "schema_version", "case_catalog_version", "catalog_sha256",
+            "projection_contract_sha256", "projection_matrix", "fixture_ids", "case_count",
+            "surface_case_counts", "cases",
         },
         f"{label} generated catalog",
     )
     if (
         generated["schema_version"] != lane["case_catalog_schema_version"]
         or generated["case_catalog_version"] != lane["case_catalog_version"]
+        or generated["projection_contract_sha256"] != FRONTEND_PROJECTION_CONTRACT_SHA256
+        or generated["projection_contract_sha256"]
+        != catalog_binding["projection_contract_sha256"]
+        or generated["projection_matrix"] != FRONTEND_PROJECTION_MATRIX
+        or _canonical_sha256(generated["projection_matrix"])
+        != generated["projection_contract_sha256"]
         or generated["fixture_ids"] != list(FRONTEND_FIXTURE_IDS)
         or generated["case_count"] != lane["case_count"]
         or generated["surface_case_counts"] != lane["surface_case_counts"]
@@ -276,8 +285,9 @@ def validate_frontend_evidence_bundle(
         raise ValueError(f"{label}: generated catalog does not contain the exact ordered cases")
     generated_case_keys = {
         "case_id", "fixture_id", "owner", "distribution", "route", "ready_semantics_label",
-        "surface_label", "width", "height", "device_pixel_ratio", "theme",
-        "text_scale_percent", "locale", "timezone", "reduced_motion", "artifact_path",
+        "surface_label", "capture_scope", "source_widget", "substitutions", "width", "height",
+        "device_pixel_ratio", "theme", "text_scale_percent", "locale", "timezone",
+        "reduced_motion", "artifact_path",
     }
     expected_width_theme = (
         [(width, theme, 100) for width in (320, 600, 840, 1240) for theme in ("light", "dark")]
@@ -290,6 +300,7 @@ def validate_frontend_evidence_bundle(
         width, theme, text_scale = expected_width_theme[index % len(expected_width_theme)]
         owner = _frontend_surface(fixture_id)
         distribution = "web" if owner == "dp_design" else owner
+        projection = FRONTEND_PROJECTION_MATRIX[index // len(expected_width_theme)]
         for field in ("width", "height", "device_pixel_ratio", "text_scale_percent"):
             _positive_int(row[field], f"{label} generated case {field}")
         if (
@@ -304,6 +315,9 @@ def validate_frontend_evidence_bundle(
             or row["route"] != f"/?fixture={fixture_id}"
             or row["ready_semantics_label"] != f"ET13_READY:{fixture_id}"
             or row["surface_label"] != fixture_id
+            or row["capture_scope"] != projection["capture_scope"]
+            or row["source_widget"] != projection["source_widget"]
+            or row["substitutions"] != projection["substitutions"]
             or row["height"] != 900
             or row["device_pixel_ratio"] != 1
             or row["locale"] != "ko-KR"
@@ -319,12 +333,16 @@ def validate_frontend_evidence_bundle(
         provenance,
         {
             "schema_version", "kind", "source_sha", "catalog_sha256", "case_catalog_sha256",
-            "assets_lock_sha256", "renderer_lock_sha256", "renderer_image_digest",
-            "build_marker_sha256", "provenance_sha256",
+            "projection_contract_sha256", "assets_lock_sha256", "renderer_lock_sha256",
+            "renderer_image_digest", "build_marker_sha256", "input_provenance_sha256",
         },
         f"{label} input provenance",
     )
-    provenance_inputs = {key: value for key, value in provenance.items() if key != "provenance_sha256"}
+    provenance_inputs = {
+        key: value
+        for key, value in provenance.items()
+        if key != "input_provenance_sha256"
+    }
     canonical_provenance = _canonical_sha256(provenance_inputs)
     if (
         provenance["schema_version"] != "leva.et13.input-provenance.v1"
@@ -332,7 +350,11 @@ def validate_frontend_evidence_bundle(
         or provenance["source_sha"] != candidate["frontend"]["source_sha"]
         or provenance["catalog_sha256"] != generated["catalog_sha256"]
         or provenance["case_catalog_sha256"] != catalog_binding["sha256"]
-        or provenance["provenance_sha256"] != canonical_provenance
+        or provenance["projection_contract_sha256"]
+        != FRONTEND_PROJECTION_CONTRACT_SHA256
+        or provenance["projection_contract_sha256"]
+        != generated["projection_contract_sha256"]
+        or provenance["input_provenance_sha256"] != canonical_provenance
         or canonical_provenance != catalog_binding["input_provenance_sha256"]
         or evidence["input_provenance_sha256"] != canonical_provenance
         or evidence["input_provenance_file_sha256"] != hashlib.sha256(provenance_raw).hexdigest()
@@ -350,8 +372,9 @@ def validate_frontend_evidence_bundle(
     if hashlib.sha256(manifest_raw).hexdigest() != evidence["result_manifest_sha256"]:
         raise ValueError(f"{label}: result manifest raw SHA mismatch")
     manifest_keys = {
-        "schema_version", "case_catalog_version", "fixture_ids", "source_sha",
-        "catalog_sha256", "case_catalog_sha256", "assets_lock_sha256",
+        "schema_version", "case_catalog_version", "case_catalog_schema_version", "fixture_ids",
+        "source_sha", "catalog_sha256", "case_catalog_sha256", "projection_contract_sha256",
+        "assets_lock_sha256",
         "renderer_lock_sha256", "input_provenance_sha256", "renderer_image",
         "renderer_image_digest", "capture_network", "unexpected_request_policy",
         "capture_surface", "device_evidence", "external_accessibility_status",
@@ -363,10 +386,12 @@ def validate_frontend_evidence_bundle(
     expected_manifest = {
         "schema_version": manifest_schema,
         "case_catalog_version": lane["case_catalog_version"],
+        "case_catalog_schema_version": lane["case_catalog_schema_version"],
         "fixture_ids": list(FRONTEND_FIXTURE_IDS),
         "source_sha": candidate["frontend"]["source_sha"],
         "catalog_sha256": generated["catalog_sha256"],
         "case_catalog_sha256": catalog_binding["sha256"],
+        "projection_contract_sha256": FRONTEND_PROJECTION_CONTRACT_SHA256,
         "assets_lock_sha256": provenance["assets_lock_sha256"],
         "renderer_lock_sha256": provenance["renderer_lock_sha256"],
         "input_provenance_sha256": canonical_provenance,
@@ -727,7 +752,8 @@ def validate_evidence_payload(
         extras: set[str]
         if label == "frontend-visual":
             extras = {
-                "case_catalog_version", "case_catalog_schema_version", "fixture_ids",
+                "case_catalog_version", "case_catalog_schema_version",
+                "projection_contract_sha256", "fixture_ids",
                 "surface_case_counts", "capture_surface", "device_evidence", "evidence_mode",
                 "input_provenance_sha256", "input_provenance_file_sha256",
                 "result_manifest_sha256", "baseline_status", "baseline_set_sha256",
@@ -735,7 +761,8 @@ def validate_evidence_payload(
             }
         elif label == "frontend-automated-a11y":
             extras = {
-                "case_catalog_version", "case_catalog_schema_version", "fixture_ids",
+                "case_catalog_version", "case_catalog_schema_version",
+                "projection_contract_sha256", "fixture_ids",
                 "surface_case_counts", "capture_surface", "device_evidence", "evidence_mode",
                 "input_provenance_sha256", "input_provenance_file_sha256",
                 "result_manifest_sha256", "standard",
@@ -769,6 +796,10 @@ def validate_evidence_payload(
             if (
                 value["case_catalog_version"] != catalog["case_catalog_version"]
                 or value["case_catalog_schema_version"] != catalog["case_catalog_schema_version"]
+                or value["projection_contract_sha256"]
+                != catalog["projection_contract_sha256"]
+                or value["projection_contract_sha256"]
+                != FRONTEND_PROJECTION_CONTRACT_SHA256
                 or value["fixture_ids"] != catalog["fixture_ids"]
                 or value["fixture_ids"] != list(FRONTEND_FIXTURE_IDS)
                 or value["evidence_mode"] != "release_ready"
@@ -787,6 +818,7 @@ def validate_evidence_payload(
                 raise ValueError(f"{label} result_manifest_sha256 must be SHA-256")
             prebound_digests = {
                 catalog["sha256"],
+                catalog["projection_contract_sha256"],
                 catalog["input_provenance_sha256"],
                 catalog["input_provenance_file_sha256"],
             }

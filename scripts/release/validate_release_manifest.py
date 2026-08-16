@@ -99,11 +99,115 @@ FRONTEND_FIXTURE_IDS = (
     "dp-design-context-payload-preview",
 )
 
+FRONTEND_PROJECTION_CONTRACT_VERSION = "leva.et13.projection-contract.v1"
+FRONTEND_PROJECTION_CONTRACT_SHA256 = (
+    "c66d08b6425628a06b27d07e08d648cfb3568d9db7c8d8aca2371172ccf4bde3"
+)
+FRONTEND_PROJECTION_MATRIX = [
+    {
+        "fixture_id": "web-today-available",
+        "capture_scope": "body_projection",
+        "source_widget": "TodayMissionSection",
+        "substitutions": [
+            "controller/provider state replaced by approved deterministic fixture"
+        ],
+    },
+    {
+        "fixture_id": "web-path-current-week",
+        "capture_scope": "body_projection",
+        "source_widget": "MissionPathPlanView",
+        "substitutions": [
+            "controller/provider state replaced by approved deterministic fixture"
+        ],
+    },
+    {
+        "fixture_id": "web-content-reading",
+        "capture_scope": "body_projection",
+        "source_widget": "WebContentProjection",
+        "substitutions": [
+            "AdSense slot replaced by explicit offline blocked-network evidence slot"
+        ],
+    },
+    {
+        "fixture_id": "web-workspace-idle",
+        "capture_scope": "body_projection",
+        "source_widget": "SandboxLayout",
+        "substitutions": [
+            "controller state replaced by approved deterministic fixture",
+            "Monaco callbacks disabled except production readiness",
+        ],
+    },
+    {
+        "fixture_id": "web-review-loaded",
+        "capture_scope": "component_projection",
+        "source_widget": "WebReviewProjection",
+        "substitutions": [
+            "controller state replaced by approved deterministic fixture"
+        ],
+    },
+    {
+        "fixture_id": "web-mentor-context-preview",
+        "capture_scope": "body_projection",
+        "source_widget": "WebMentorContextProjection",
+        "substitutions": [
+            "controller/provider state replaced by approved deterministic fixture"
+        ],
+    },
+    {
+        "fixture_id": "admin-kpi-dashboard",
+        "capture_scope": "body_projection",
+        "source_widget": "AdminKpiDashboardProjection",
+        "substitutions": [
+            "controller/provider state replaced by approved deterministic fixture"
+        ],
+    },
+    {
+        "fixture_id": "admin-support-long-wire",
+        "capture_scope": "component_projection",
+        "source_widget": "AdminSupportDetailProjection",
+        "substitutions": [
+            "live provider and dialog shell replaced by deterministic AlertDialog host"
+        ],
+    },
+    {
+        "fixture_id": "mobile-today-available",
+        "capture_scope": "body_projection",
+        "source_widget": "MobileTodayProjection",
+        "substitutions": [
+            "native AppBar and route shell omitted",
+            "controller/provider state replaced by approved deterministic fixture",
+        ],
+    },
+    {
+        "fixture_id": "mobile-content-reading",
+        "capture_scope": "body_projection",
+        "source_widget": "MobileContentProjection",
+        "substitutions": [
+            "native AppBar and route shell omitted",
+            "periodic dwell timer frozen",
+            "controller/provider state replaced by approved deterministic fixture",
+        ],
+    },
+    {
+        "fixture_id": "dp-design-mission-ledger",
+        "capture_scope": "component_projection",
+        "source_widget": "DpEt13MissionLedgerFixture",
+        "substitutions": ["hosted by the Flutter Web production distribution"],
+    },
+    {
+        "fixture_id": "dp-design-context-payload-preview",
+        "capture_scope": "component_projection",
+        "source_widget": "DpEt13ContextPayloadPreviewFixture",
+        "substitutions": ["hosted by the Flutter Web production distribution"],
+    },
+]
+
 FRONTEND_CATALOG_CONTRACTS = {
     "frontend-visual": {
         "path": "evidence/et13/generated/visual-cases.v1.json",
         "case_catalog_version": "leva.et13.catalog.v1",
         "case_catalog_schema_version": "leva.et13.visual-cases.v1",
+        "projection_contract_sha256": FRONTEND_PROJECTION_CONTRACT_SHA256,
         "case_count": 96,
         "surface_case_counts": {"web": 48, "admin": 16, "mobile": 16, "dp_design": 16},
         "capture_surface": "flutter_web_release_projection",
@@ -114,6 +218,7 @@ FRONTEND_CATALOG_CONTRACTS = {
         "path": "evidence/et13/generated/a11y-cases.v1.json",
         "case_catalog_version": "leva.et13.catalog.v1",
         "case_catalog_schema_version": "leva.et13.a11y-cases.v1",
+        "projection_contract_sha256": FRONTEND_PROJECTION_CONTRACT_SHA256,
         "case_count": 24,
         "surface_case_counts": {"web": 12, "admin": 4, "mobile": 4, "dp_design": 4},
         "capture_surface": "flutter_web_release_projection",
@@ -247,6 +352,16 @@ def _positive_int(value: Any, path: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         _fail(path, "must be a positive integer")
     return value
+
+
+def _canonical_sha256(value: Any) -> str:
+    encoded = json.dumps(
+        value,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _timestamp(value: Any, path: str) -> str:
@@ -518,7 +633,34 @@ def _validate_journey_harness(value: Any, path: str, environments: dict[str, Any
 def _validate_quality_evidence_inputs(value: Any, candidate: dict[str, Any]) -> None:
     path = "$.quality_evidence_inputs"
     obj = _object(value, path)
-    _exact_keys(obj, {"catalogs", "mobile_test_artifacts"}, path)
+    _exact_keys(
+        obj,
+        {"catalogs", "frontend_projection_contract", "mobile_test_artifacts"},
+        path,
+    )
+
+    projection_path = f"{path}.frontend_projection_contract"
+    projection = _object(obj["frontend_projection_contract"], projection_path)
+    _exact_keys(
+        projection,
+        {"schema_version", "projection_contract_sha256", "projection_matrix"},
+        projection_path,
+    )
+    if projection["schema_version"] != FRONTEND_PROJECTION_CONTRACT_VERSION:
+        _fail(projection_path, "projection contract schema version is not approved")
+    projection_sha = _string(
+        projection["projection_contract_sha256"],
+        f"{projection_path}.projection_contract_sha256",
+        SHA64,
+    )
+    matrix = projection["projection_matrix"]
+    if matrix != FRONTEND_PROJECTION_MATRIX:
+        _fail(projection_path, "projection contract must contain the exact ordered 12-row matrix")
+    if (
+        projection_sha != FRONTEND_PROJECTION_CONTRACT_SHA256
+        or _canonical_sha256(matrix) != projection_sha
+    ):
+        _fail(projection_path, "projection contract canonical SHA-256 mismatch")
 
     catalogs = _object(obj["catalogs"], f"{path}.catalogs")
     _exact_keys(catalogs, QUALITY_EVIDENCE_LABELS, f"{path}.catalogs")
@@ -536,6 +678,7 @@ def _validate_quality_evidence_inputs(value: Any, candidate: dict[str, Any]) -> 
             fields |= {
                 "case_catalog_version",
                 "case_catalog_schema_version",
+                "projection_contract_sha256",
                 "capture_surface",
                 "device_evidence",
                 "evidence_mode",
@@ -577,6 +720,7 @@ def _validate_quality_evidence_inputs(value: Any, candidate: dict[str, Any]) -> 
                 "path": catalog["path"],
                 "case_catalog_version": catalog["case_catalog_version"],
                 "case_catalog_schema_version": catalog["case_catalog_schema_version"],
+                "projection_contract_sha256": catalog["projection_contract_sha256"],
                 "capture_surface": catalog["capture_surface"],
                 "device_evidence": catalog["device_evidence"],
                 "evidence_mode": catalog["evidence_mode"],
@@ -588,6 +732,7 @@ def _validate_quality_evidence_inputs(value: Any, candidate: dict[str, Any]) -> 
                 "path": expected["path"],
                 "case_catalog_version": expected["case_catalog_version"],
                 "case_catalog_schema_version": expected["case_catalog_schema_version"],
+                "projection_contract_sha256": projection_sha,
                 "capture_surface": expected["capture_surface"],
                 "device_evidence": expected["device_evidence"],
                 "evidence_mode": expected["evidence_mode"],
@@ -629,7 +774,11 @@ def _validate_quality_evidence_inputs(value: Any, candidate: dict[str, Any]) -> 
         _string(catalog["sha256"], f"{catalog_path}.sha256", SHA64)
         _positive_int(catalog["case_count"], f"{catalog_path}.case_count")
         if label in FRONTEND_CATALOG_CONTRACTS:
-            for field in ("input_provenance_sha256", "input_provenance_file_sha256"):
+            for field in (
+                "projection_contract_sha256",
+                "input_provenance_sha256",
+                "input_provenance_file_sha256",
+            ):
                 _string(catalog[field], f"{catalog_path}.{field}", SHA64)
             if label == "frontend-visual":
                 for field in ("baseline_set_sha256", "baseline_approval_sha256"):
@@ -654,6 +803,7 @@ def _validate_quality_evidence_inputs(value: Any, candidate: dict[str, Any]) -> 
             catalog["input_provenance_file_sha256"],
         ])
     frontend_digests.extend([
+        projection_sha,
         catalogs["frontend-visual"]["baseline_set_sha256"],
         catalogs["frontend-visual"]["baseline_approval_sha256"],
     ])

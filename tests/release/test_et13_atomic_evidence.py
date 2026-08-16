@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -33,6 +34,106 @@ FIXTURE_IDS = [
     "dp-design-context-payload-preview",
 ]
 CATALOG_VERSION = "leva.et13.catalog.v1"
+PROJECTION_CONTRACT_VERSION = "leva.et13.projection-contract.v1"
+PROJECTION_MATRIX = [
+    {
+        "fixture_id": "web-today-available",
+        "capture_scope": "body_projection",
+        "source_widget": "TodayMissionSection",
+        "substitutions": [
+            "controller/provider state replaced by approved deterministic fixture"
+        ],
+    },
+    {
+        "fixture_id": "web-path-current-week",
+        "capture_scope": "body_projection",
+        "source_widget": "MissionPathPlanView",
+        "substitutions": [
+            "controller/provider state replaced by approved deterministic fixture"
+        ],
+    },
+    {
+        "fixture_id": "web-content-reading",
+        "capture_scope": "body_projection",
+        "source_widget": "WebContentProjection",
+        "substitutions": [
+            "AdSense slot replaced by explicit offline blocked-network evidence slot"
+        ],
+    },
+    {
+        "fixture_id": "web-workspace-idle",
+        "capture_scope": "body_projection",
+        "source_widget": "SandboxLayout",
+        "substitutions": [
+            "controller state replaced by approved deterministic fixture",
+            "Monaco callbacks disabled except production readiness",
+        ],
+    },
+    {
+        "fixture_id": "web-review-loaded",
+        "capture_scope": "component_projection",
+        "source_widget": "WebReviewProjection",
+        "substitutions": [
+            "controller state replaced by approved deterministic fixture"
+        ],
+    },
+    {
+        "fixture_id": "web-mentor-context-preview",
+        "capture_scope": "body_projection",
+        "source_widget": "WebMentorContextProjection",
+        "substitutions": [
+            "controller/provider state replaced by approved deterministic fixture"
+        ],
+    },
+    {
+        "fixture_id": "admin-kpi-dashboard",
+        "capture_scope": "body_projection",
+        "source_widget": "AdminKpiDashboardProjection",
+        "substitutions": [
+            "controller/provider state replaced by approved deterministic fixture"
+        ],
+    },
+    {
+        "fixture_id": "admin-support-long-wire",
+        "capture_scope": "component_projection",
+        "source_widget": "AdminSupportDetailProjection",
+        "substitutions": [
+            "live provider and dialog shell replaced by deterministic AlertDialog host"
+        ],
+    },
+    {
+        "fixture_id": "mobile-today-available",
+        "capture_scope": "body_projection",
+        "source_widget": "MobileTodayProjection",
+        "substitutions": [
+            "native AppBar and route shell omitted",
+            "controller/provider state replaced by approved deterministic fixture",
+        ],
+    },
+    {
+        "fixture_id": "mobile-content-reading",
+        "capture_scope": "body_projection",
+        "source_widget": "MobileContentProjection",
+        "substitutions": [
+            "native AppBar and route shell omitted",
+            "periodic dwell timer frozen",
+            "controller/provider state replaced by approved deterministic fixture",
+        ],
+    },
+    {
+        "fixture_id": "dp-design-mission-ledger",
+        "capture_scope": "component_projection",
+        "source_widget": "DpEt13MissionLedgerFixture",
+        "substitutions": ["hosted by the Flutter Web production distribution"],
+    },
+    {
+        "fixture_id": "dp-design-context-payload-preview",
+        "capture_scope": "component_projection",
+        "source_widget": "DpEt13ContextPayloadPreviewFixture",
+        "substitutions": ["hosted by the Flutter Web production distribution"],
+    },
+]
+PROJECTION_SHA256 = "c66d08b6425628a06b27d07e08d648cfb3568d9db7c8d8aca2371172ccf4bde3"
 LANES = {
     "frontend-visual": {
         "kind": "visual",
@@ -99,8 +200,10 @@ def generated_cases(label):
         else [(320, "light", 200), (1240, "dark", 200)]
     )
     cases = []
+    projection_by_fixture = {row["fixture_id"]: row for row in PROJECTION_MATRIX}
     for fixture_id in FIXTURE_IDS:
         surface = surface_for(fixture_id)
+        projection = projection_by_fixture[fixture_id]
         for width, theme, text_scale in profiles:
             suffix = (
                 f"visual--w{width}--{theme}"
@@ -117,6 +220,9 @@ def generated_cases(label):
                 "route": f"/?fixture={fixture_id}",
                 "ready_semantics_label": f"ET13_READY:{fixture_id}",
                 "surface_label": fixture_id,
+                "capture_scope": projection["capture_scope"],
+                "source_widget": projection["source_widget"],
+                "substitutions": projection["substitutions"],
                 "width": width,
                 "height": 900,
                 "device_pixel_ratio": 1,
@@ -148,6 +254,7 @@ class Et13AtomicEvidenceTest(unittest.TestCase):
         ):
             lane = LANES[label]
             catalog = self.candidate["quality_evidence_inputs"]["catalogs"][label]
+            self.assertEqual(catalog["projection_contract_sha256"], PROJECTION_SHA256)
             self.assertEqual(catalog["case_catalog_version"], CATALOG_VERSION)
             self.assertEqual(catalog["case_catalog_schema_version"], lane["schema_version"])
             self.assertRegex(catalog["input_provenance_sha256"], r"^[0-9a-f]{64}$")
@@ -157,12 +264,55 @@ class Et13AtomicEvidenceTest(unittest.TestCase):
             self.assertNotIn("result_manifest_sha256", catalog)
 
             properties = schema["$defs"][definition]["properties"]
+            self.assertEqual(
+                properties["projection_contract_sha256"],
+                {"const": PROJECTION_SHA256},
+            )
             self.assertEqual(properties["case_catalog_version"], {"const": CATALOG_VERSION})
             self.assertEqual(
                 properties["case_catalog_schema_version"],
                 {"const": lane["schema_version"]},
             )
             self.assertNotIn("result_manifest_sha256", properties)
+
+        projection = self.candidate["quality_evidence_inputs"][
+            "frontend_projection_contract"
+        ]
+        self.assertEqual(
+            projection,
+            {
+                "schema_version": PROJECTION_CONTRACT_VERSION,
+                "projection_contract_sha256": PROJECTION_SHA256,
+                "projection_matrix": PROJECTION_MATRIX,
+            },
+        )
+        self.assertEqual(canonical_sha(PROJECTION_MATRIX), PROJECTION_SHA256)
+        projection_schema = schema["$defs"]["frontendProjectionContract"]
+        self.assertFalse(projection_schema["additionalProperties"])
+        self.assertEqual(
+            projection_schema["properties"]["projection_matrix"],
+            {"const": PROJECTION_MATRIX},
+        )
+
+        for mutation in ("order", "source_widget", "substitution", "digest"):
+            with self.subTest(projection_mutation=mutation):
+                invalid = copy.deepcopy(self.candidate)
+                contract = invalid["quality_evidence_inputs"][
+                    "frontend_projection_contract"
+                ]
+                if mutation == "order":
+                    contract["projection_matrix"][0], contract["projection_matrix"][1] = (
+                        contract["projection_matrix"][1],
+                        contract["projection_matrix"][0],
+                    )
+                elif mutation == "source_widget":
+                    contract["projection_matrix"][0]["source_widget"] = "WrongWidget"
+                elif mutation == "substitution":
+                    contract["projection_matrix"][0]["substitutions"] = ["wrong"]
+                else:
+                    contract["projection_contract_sha256"] = "f" * 64
+                with self.assertRaisesRegex(ValueError, "projection contract"):
+                    self.validator.validate_candidate_spec(invalid, CANDIDATE_FIXTURE)
 
         visual = self.candidate["quality_evidence_inputs"]["catalogs"]["frontend-visual"]
         self.assertEqual(visual["baseline_status"], "approved")
@@ -286,6 +436,47 @@ class Et13AtomicEvidenceTest(unittest.TestCase):
                 self.candidate["frontend"]["source_sha"],
             )
 
+    def test_run_discovery_paginates_and_detects_page_two_competing_run(self):
+        expected_head = self.candidate["frontend"]["source_sha"]
+        base = {
+            "id": 501,
+            "status": "completed",
+            "conclusion": "success",
+            "event": "workflow_dispatch",
+            "head_sha": expected_head,
+            "path": ".github/workflows/et13-evidence.yml",
+            "run_attempt": 2,
+        }
+        page_one = [base] + [
+            {**base, "id": 600 + index, "path": ".github/workflows/other.yml"}
+            for index in range(99)
+        ]
+        page_two = [{**base, "id": 502, "run_attempt": 1}]
+
+        def fake_gh_json(arguments, _env):
+            endpoint = arguments[-1]
+            if endpoint.endswith("&page=1"):
+                return {"workflow_runs": page_one}
+            if endpoint.endswith("&page=2"):
+                return {"workflow_runs": page_two}
+            self.fail(f"unexpected pagination request: {endpoint}")
+
+        with mock.patch.object(self.sealer, "_gh_json", side_effect=fake_gh_json):
+            runs = self.sealer.list_frontend_evidence_runs(
+                {}, self.candidate["frontend"]["repository"], expected_head
+            )
+        self.assertEqual(len(runs), 101)
+        with self.assertRaisesRegex(ValueError, "exactly one frontend producer run"):
+            self.sealer.select_frontend_evidence_run(runs, expected_head)
+
+        page_two = [{**base, "id": 501, "run_attempt": 3}]
+        with mock.patch.object(self.sealer, "_gh_json", side_effect=fake_gh_json):
+            runs = self.sealer.list_frontend_evidence_runs(
+                {}, self.candidate["frontend"]["repository"], expected_head
+            )
+        selected = self.sealer.select_frontend_evidence_run(runs, expected_head)
+        self.assertEqual((selected["id"], selected["run_attempt"]), (501, 3))
+
     def _write_bundle(self, root, label):
         lane = LANES[label]
         candidate = copy.deepcopy(self.candidate)
@@ -295,6 +486,8 @@ class Et13AtomicEvidenceTest(unittest.TestCase):
             "schema_version": lane["schema_version"],
             "case_catalog_version": CATALOG_VERSION,
             "catalog_sha256": "7" * 64,
+            "projection_contract_sha256": PROJECTION_SHA256,
+            "projection_matrix": PROJECTION_MATRIX,
             "fixture_ids": FIXTURE_IDS,
             "case_count": lane["count"],
             "surface_case_counts": lane["surfaces"],
@@ -312,6 +505,7 @@ class Et13AtomicEvidenceTest(unittest.TestCase):
             "source_sha": candidate["frontend"]["source_sha"],
             "catalog_sha256": generated["catalog_sha256"],
             "case_catalog_sha256": catalog_binding["sha256"],
+            "projection_contract_sha256": PROJECTION_SHA256,
             "assets_lock_sha256": "8" * 64,
             "renderer_lock_sha256": "9" * 64,
             "renderer_image_digest": "sha256:" + "a" * 64,
@@ -319,13 +513,15 @@ class Et13AtomicEvidenceTest(unittest.TestCase):
         }
         provenance = {
             **provenance_inputs,
-            "provenance_sha256": canonical_sha(provenance_inputs),
+            "input_provenance_sha256": canonical_sha(provenance_inputs),
         }
         provenance_raw = raw_json(provenance)
         provenance_path = root / "artifacts/et13/provenance.v1.json"
         provenance_path.parent.mkdir(parents=True, exist_ok=True)
         provenance_path.write_bytes(provenance_raw)
-        catalog_binding["input_provenance_sha256"] = provenance["provenance_sha256"]
+        catalog_binding["input_provenance_sha256"] = provenance[
+            "input_provenance_sha256"
+        ]
         catalog_binding["input_provenance_file_sha256"] = sha256(provenance_raw)
 
         result_cases = []
@@ -350,13 +546,15 @@ class Et13AtomicEvidenceTest(unittest.TestCase):
         manifest = {
             "schema_version": lane["manifest_schema"],
             "case_catalog_version": CATALOG_VERSION,
+            "case_catalog_schema_version": lane["schema_version"],
             "fixture_ids": FIXTURE_IDS,
             "source_sha": candidate["frontend"]["source_sha"],
             "catalog_sha256": generated["catalog_sha256"],
             "case_catalog_sha256": catalog_binding["sha256"],
+            "projection_contract_sha256": PROJECTION_SHA256,
             "assets_lock_sha256": provenance["assets_lock_sha256"],
             "renderer_lock_sha256": provenance["renderer_lock_sha256"],
-            "input_provenance_sha256": provenance["provenance_sha256"],
+            "input_provenance_sha256": provenance["input_provenance_sha256"],
             "renderer_image": "renderer@example@" + provenance["renderer_image_digest"],
             "renderer_image_digest": provenance["renderer_image_digest"],
             "capture_network": "none",
@@ -386,6 +584,7 @@ class Et13AtomicEvidenceTest(unittest.TestCase):
             "repository": candidate["frontend"]["repository"],
             "source_sha": candidate["frontend"]["source_sha"],
             "case_catalog_sha256": catalog_binding["sha256"],
+            "projection_contract_sha256": PROJECTION_SHA256,
             "case_catalog_version": CATALOG_VERSION,
             "case_catalog_schema_version": lane["schema_version"],
             "fixture_ids": FIXTURE_IDS,
@@ -395,7 +594,7 @@ class Et13AtomicEvidenceTest(unittest.TestCase):
             "surface_case_counts": lane["surfaces"],
             "capture_surface": "flutter_web_release_projection",
             "device_evidence": False,
-            "input_provenance_sha256": provenance["provenance_sha256"],
+            "input_provenance_sha256": provenance["input_provenance_sha256"],
             "input_provenance_file_sha256": sha256(provenance_raw),
             "result_manifest_sha256": sha256(manifest_raw),
             "evidence_mode": "release_ready",
@@ -459,6 +658,9 @@ class Et13AtomicEvidenceTest(unittest.TestCase):
             ("route", "/arbitrary"),
             ("ready_semantics_label", "READY"),
             ("surface_label", "wrong-surface"),
+            ("capture_scope", "native_device"),
+            ("source_widget", "WrongWidget"),
+            ("substitutions", ["wrong"]),
         ):
             with self.subTest(generated_field=field), tempfile.TemporaryDirectory() as temp_dir:
                 root = Path(temp_dir)
@@ -492,6 +694,29 @@ class Et13AtomicEvidenceTest(unittest.TestCase):
                 self.verifier.validate_frontend_evidence_bundle(
                     "frontend-visual", root, payload, candidate
                 )
+
+        for field, value in (
+            ("projection_contract_sha256", "f" * 64),
+            (
+                "projection_matrix",
+                list(reversed(PROJECTION_MATRIX)),
+            ),
+        ):
+            with self.subTest(generated_projection_field=field), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                candidate, payload, generated, _, _ = self._write_bundle(
+                    root, "frontend-visual"
+                )
+                generated[field] = value
+                raw = raw_json(generated)
+                (root / "evidence/et13/generated/visual-cases.v1.json").write_bytes(raw)
+                candidate["quality_evidence_inputs"]["catalogs"]["frontend-visual"][
+                    "sha256"
+                ] = sha256(raw)
+                with self.assertRaisesRegex(ValueError, "identity or exact matrix"):
+                    self.verifier.validate_frontend_evidence_bundle(
+                        "frontend-visual", root, payload, candidate
+                    )
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -531,6 +756,25 @@ class Et13AtomicEvidenceTest(unittest.TestCase):
                 self.verifier.validate_frontend_evidence_bundle(
                     "frontend-visual", root, payload, candidate
                 )
+
+        for field, value in (
+            ("case_catalog_schema_version", "leva.et13.wrong-cases.v1"),
+            ("projection_contract_sha256", "f" * 64),
+        ):
+            with self.subTest(manifest_field=field), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                candidate, payload, _, _, manifest = self._write_bundle(
+                    root, "frontend-visual"
+                )
+                manifest[field] = value
+                raw = raw_json(manifest)
+                (root / "artifacts/et13/visual-manifest.v1.json").write_bytes(raw)
+                payload["result_manifest_sha256"] = sha256(raw)
+                (root / "evidence.json").write_bytes(raw_json(payload))
+                with self.assertRaisesRegex(ValueError, f"result manifest {field} mismatch"):
+                    self.verifier.validate_frontend_evidence_bundle(
+                        "frontend-visual", root, payload, candidate
+                    )
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

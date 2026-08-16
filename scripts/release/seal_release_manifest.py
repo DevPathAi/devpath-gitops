@@ -218,6 +218,34 @@ def select_frontend_evidence_run(
     return max(eligible, key=lambda run: run["run_attempt"])
 
 
+def list_frontend_evidence_runs(
+    env: dict[str, str],
+    repository: str,
+    expected_head: str,
+) -> list[dict[str, Any]]:
+    """Read every producer-run page so a later competing run cannot be hidden."""
+    runs: list[dict[str, Any]] = []
+    for page in range(1, 1001):
+        listing = _gh_json(
+            [
+                "api",
+                (
+                    f"repos/{repository}/actions/runs?head_sha={expected_head}"
+                    "&event=workflow_dispatch&status=success&per_page=100"
+                    f"&page={page}"
+                ),
+            ],
+            env,
+        )
+        page_runs = listing.get("workflow_runs", [])
+        if not isinstance(page_runs, list):
+            raise ValueError("frontend producer run query returned invalid JSON")
+        runs.extend(page_runs)
+        if len(page_runs) < 100:
+            return runs
+    raise ValueError("frontend producer run query exceeded the pagination safety limit")
+
+
 def _discover_frontend_pair(
     env: dict[str, str],
     release_id: str,
@@ -226,19 +254,7 @@ def _discover_frontend_pair(
 ) -> dict[str, dict[str, Any]]:
     repository = candidate["frontend"]["repository"]
     expected_head = candidate["frontend"]["source_sha"]
-    listing = _gh_json(
-        [
-            "api",
-            (
-                f"repos/{repository}/actions/runs?head_sha={expected_head}"
-                "&event=workflow_dispatch&status=success&per_page=100"
-            ),
-        ],
-        env,
-    )
-    runs = listing.get("workflow_runs", [])
-    if not isinstance(runs, list):
-        raise ValueError("frontend producer run query returned invalid JSON")
+    runs = list_frontend_evidence_runs(env, repository, expected_head)
     selected = select_frontend_evidence_run(runs, expected_head)
     run_id = selected["id"]
     run_attempt = selected["run_attempt"]

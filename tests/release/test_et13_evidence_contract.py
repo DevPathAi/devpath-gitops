@@ -41,11 +41,15 @@ FRONTEND_FIXTURE_IDS = [
     "dp-design-mission-ledger",
     "dp-design-context-payload-preview",
 ]
+FRONTEND_PROJECTION_SHA256 = (
+    "c66d08b6425628a06b27d07e08d648cfb3568d9db7c8d8aca2371172ccf4bde3"
+)
 FRONTEND_CATALOG_CONTRACTS = {
     "frontend-visual": {
         "path": "evidence/et13/generated/visual-cases.v1.json",
         "case_catalog_version": "leva.et13.catalog.v1",
         "case_catalog_schema_version": "leva.et13.visual-cases.v1",
+        "projection_contract_sha256": FRONTEND_PROJECTION_SHA256,
         "case_count": 96,
         "surface_case_counts": {"web": 48, "admin": 16, "mobile": 16, "dp_design": 16},
         "capture_surface": "flutter_web_release_projection",
@@ -56,6 +60,7 @@ FRONTEND_CATALOG_CONTRACTS = {
         "path": "evidence/et13/generated/a11y-cases.v1.json",
         "case_catalog_version": "leva.et13.catalog.v1",
         "case_catalog_schema_version": "leva.et13.a11y-cases.v1",
+        "projection_contract_sha256": FRONTEND_PROJECTION_SHA256,
         "case_count": 24,
         "surface_case_counts": {"web": 12, "admin": 4, "mobile": 4, "dp_design": 4},
         "capture_surface": "flutter_web_release_projection",
@@ -85,7 +90,14 @@ class Et13EvidenceContractTest(unittest.TestCase):
 
     def test_candidate_prebinds_exact_catalogs_and_signed_mobile_builds(self):
         inputs = self.candidate["quality_evidence_inputs"]
-        self.assertEqual(set(inputs), {"catalogs", "mobile_test_artifacts"})
+        self.assertEqual(
+            set(inputs),
+            {"catalogs", "frontend_projection_contract", "mobile_test_artifacts"},
+        )
+        self.assertEqual(
+            inputs["frontend_projection_contract"]["projection_contract_sha256"],
+            FRONTEND_PROJECTION_SHA256,
+        )
         self.assertEqual(set(inputs["catalogs"]), set(self.validator.QUALITY_EVIDENCE_LABELS))
         for label, expected in FRONTEND_CATALOG_CONTRACTS.items():
             catalog = inputs["catalogs"][label]
@@ -378,6 +390,9 @@ class Et13EvidenceContractTest(unittest.TestCase):
             payload.update({
                 "case_catalog_version": catalog["case_catalog_version"],
                 "case_catalog_schema_version": catalog["case_catalog_schema_version"],
+                "projection_contract_sha256": catalog[
+                    "projection_contract_sha256"
+                ],
                 "fixture_ids": list(catalog["fixture_ids"]),
                 "capture_surface": catalog["capture_surface"],
                 "device_evidence": catalog["device_evidence"],
@@ -587,6 +602,19 @@ class Et13EvidenceContractTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "invalid key set"):
                 self.artifacts.validate_evidence_payload(
                     label, missing, self.candidate_sha, self.candidate, 501, 3
+                )
+            same_as_projection = copy.deepcopy(payload)
+            same_as_projection["result_manifest_sha256"] = (
+                same_as_projection["projection_contract_sha256"]
+            )
+            with self.assertRaisesRegex(ValueError, "result and prebound input digests"):
+                self.artifacts.validate_evidence_payload(
+                    label,
+                    same_as_projection,
+                    self.candidate_sha,
+                    self.candidate,
+                    501,
+                    3,
                 )
             payload["artifact_set_sha256"] = "f" * 64
             with self.assertRaisesRegex(ValueError, "invalid key set"):
