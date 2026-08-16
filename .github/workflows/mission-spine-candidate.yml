@@ -1,0 +1,95 @@
+name: Mission Spine - immutable candidate artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: Immutable Mission Spine candidate release ID
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  RELEASE_ID: ${{ inputs.release_id }}
+
+jobs:
+  publish-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact GitOps candidate without persisted credentials
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          path: gitops
+      - name: Install pinned Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+      - name: Validate and byte-copy the exact candidate-only commit
+        id: candidate
+        working-directory: gitops
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
+          test "$GITHUB_REPOSITORY" = "DevPathAi/devpath-gitops"
+          test "$GITHUB_REF_TYPE" = "branch"
+          test "$GITHUB_REF_NAME" != "main"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          [[ "$RELEASE_ID" =~ ^ms-[0-9]{8}-[a-z0-9][a-z0-9-]{2,40}$ ]]
+
+          candidate_path="release-manifests/candidates/$RELEASE_ID.candidate-spec.json"
+          test -f "$candidate_path"
+          test ! -L "$candidate_path"
+          candidate_sha="$(sha256sum "$candidate_path" | awk '{print $1}')"
+          python scripts/release/validate_release_manifest.py --root "$PWD" \
+            --candidate-id "$RELEASE_ID" --expected-sha256 "$candidate_sha" \
+            --emit-github-output "$GITHUB_OUTPUT"
+
+          base_sha="$(jq -er '.gitops.base_sha' "$candidate_path")"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$base_sha"
+          test "$(git rev-parse HEAD^)" = "$base_sha"
+          test "$(git rev-list --count "$base_sha"..HEAD)" -eq 1
+          read -ra commit_and_parents <<< "$(git rev-list --parents -n 1 HEAD)"
+          test "${#commit_and_parents[@]}" -eq 2
+
+          mapfile -t branch_changes < <(git diff --name-only "$base_sha"...HEAD)
+          test "${#branch_changes[@]}" -eq 1
+          test "${branch_changes[0]}" = "$candidate_path"
+          mapfile -t branch_status < <(git diff --name-status "$base_sha"...HEAD)
+          test "${#branch_status[@]}" -eq 1
+          test "${branch_status[0]}" = $'A\t'"$candidate_path"
+          test ! -e "release-manifests/releases/$RELEASE_ID.json"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+          reported_sha="$(sed -n 's/^candidate_spec_sha256=//p' "$GITHUB_OUTPUT")"
+          test "$reported_sha" = "$candidate_sha"
+          artifact_dir="$RUNNER_TEMP/mission-spine-candidate-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          test ! -e "$artifact_dir"
+          mkdir -m 0700 -- "$artifact_dir"
+          cp -- "$candidate_path" "$artifact_dir/candidate-spec.json"
+          test -f "$artifact_dir/candidate-spec.json"
+          test ! -L "$artifact_dir/candidate-spec.json"
+          test "$(find "$artifact_dir" -mindepth 1 -maxdepth 1 | wc -l)" -eq 1
+          test "$(find "$artifact_dir" -mindepth 1 -maxdepth 1 -type f -printf '%f\n')" = \
+            "candidate-spec.json"
+          cmp -s "$candidate_path" "$artifact_dir/candidate-spec.json"
+          test "$(sha256sum "$artifact_dir/candidate-spec.json" | awk '{print $1}')" = \
+            "$candidate_sha"
+          echo "artifact_path=$artifact_dir/candidate-spec.json" >> "$GITHUB_OUTPUT"
+      - name: Upload exact immutable candidate bytes
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: ${{ inputs.release_id }}-candidate-spec-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ${{ steps.candidate.outputs.artifact_path }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          overwrite: false
+          include-hidden-files: false
