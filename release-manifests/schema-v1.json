@@ -1,0 +1,376 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/DevPathAi/devpath-gitops/release-manifests/schema-v1.json",
+  "title": "Mission Spine immutable release documents v1",
+  "description": "Two-stage contract: candidate-spec contains immutable inputs; release-manifest seals evidence against its SHA-256.",
+  "type": "object",
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema_version": {"const": 1},
+    "document_type": {"enum": ["candidate-spec", "release-manifest"]},
+    "release_id": {"$ref": "#/$defs/releaseId"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "gitops": {"$ref": "#/$defs/gitops"},
+    "services": {"$ref": "#/$defs/services"},
+    "shared_migration": {"$ref": "#/$defs/sharedMigration"},
+    "frontend": {"$ref": "#/$defs/frontend"},
+    "home": {"$ref": "#/$defs/home"},
+    "analytics_privacy": {"$ref": "#/$defs/analyticsPrivacy"},
+    "ai_release_eval_config": {"$ref": "#/$defs/aiEvalConfig"},
+    "environments": {"$ref": "#/$defs/environments"},
+    "journey_harness": {"$ref": "#/$defs/journeyHarness"},
+    "rollout": {"$ref": "#/$defs/rollout"},
+    "candidate_spec": {"$ref": "#/$defs/candidateRef"},
+    "home_dist_artifact": {"$ref": "#/$defs/homeArtifact"},
+    "analytics_privacy_approval": {"$ref": "#/$defs/privacyApproval"},
+    "ai_release_eval": {"$ref": "#/$defs/aiEval"},
+    "journeys": {"$ref": "#/$defs/journeys"},
+    "quality_evidence": {"$ref": "#/$defs/qualityEvidence"},
+    "validation_attestation": {"$ref": "#/$defs/validationAttestation"}
+  },
+  "additionalProperties": false,
+  "oneOf": [
+    {"$ref": "#/$defs/candidateSpec"},
+    {"$ref": "#/$defs/releaseManifest"}
+  ],
+  "$defs": {
+    "releaseId": {
+      "type": "string",
+      "pattern": "^ms-[0-9]{8}-[a-z0-9][a-z0-9-]{2,40}$"
+    },
+    "sha40": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "sha64": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+    "safeId": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]{1,127}$"},
+    "component": {
+      "type": "object",
+      "required": ["repository", "source_sha", "image_repository", "image_digest"],
+      "properties": {
+        "repository": {"$ref": "#/$defs/repository"},
+        "source_sha": {"$ref": "#/$defs/sha40"},
+        "image_repository": {"type": "string", "pattern": "^ghcr\\.io/devpathai/devpath-[a-z-]+$"},
+        "image_digest": {"$ref": "#/$defs/digest"}
+      },
+      "additionalProperties": false
+    },
+    "services": {
+      "type": "object",
+      "required": [
+        "devpath-admin",
+        "devpath-ai-svc",
+        "devpath-community-svc",
+        "devpath-gateway",
+        "devpath-lcs-svc",
+        "devpath-learning-svc",
+        "devpath-notification-svc",
+        "devpath-platform-svc",
+        "devpath-sandbox-svc"
+      ],
+      "properties": {
+        "devpath-admin": {"$ref": "#/$defs/component"},
+        "devpath-ai-svc": {"$ref": "#/$defs/component"},
+        "devpath-community-svc": {"$ref": "#/$defs/component"},
+        "devpath-gateway": {"$ref": "#/$defs/component"},
+        "devpath-lcs-svc": {"$ref": "#/$defs/component"},
+        "devpath-learning-svc": {"$ref": "#/$defs/component"},
+        "devpath-notification-svc": {"$ref": "#/$defs/component"},
+        "devpath-platform-svc": {"$ref": "#/$defs/component"},
+        "devpath-sandbox-svc": {"$ref": "#/$defs/component"}
+      },
+      "additionalProperties": false
+    },
+    "gitops": {
+      "type": "object",
+      "required": ["repository", "base_sha", "base_web_digest", "web_kustomization"],
+      "properties": {
+        "repository": {"const": "DevPathAi/devpath-gitops"},
+        "base_sha": {"$ref": "#/$defs/sha40"},
+        "base_web_digest": {"$ref": "#/$defs/digest"},
+        "web_kustomization": {"const": "apps/devpath-web/base/kustomization.yaml"}
+      },
+      "additionalProperties": false
+    },
+    "sharedMigration": {
+      "type": "object",
+      "required": ["repository", "source_sha", "image_repository", "image_digest", "flyway_target", "required_migration", "rollback_policy"],
+      "properties": {
+        "repository": {"const": "DevPathAi/devpath-shared"},
+        "source_sha": {"$ref": "#/$defs/sha40"},
+        "image_repository": {"const": "ghcr.io/devpathai/devpath-migration"},
+        "image_digest": {"$ref": "#/$defs/digest"},
+        "flyway_target": {"const": "202608161011"},
+        "required_migration": {"const": "V202608161011__validate_lcs_mentor_snapshot_contract.sql"},
+        "rollback_policy": {"const": "additive-retained"}
+      },
+      "additionalProperties": false
+    },
+    "variant": {
+      "type": "object",
+      "required": ["tag", "image_digest"],
+      "properties": {
+        "tag": {"type": "string", "pattern": "^[0-9a-f]{40}-mission-(off|on)$"},
+        "image_digest": {"$ref": "#/$defs/digest"}
+      },
+      "additionalProperties": false
+    },
+    "frontendRollback": {
+      "type": "object",
+      "required": ["mission_off_digest", "prior_digest", "final_target"],
+      "properties": {
+        "mission_off_digest": {"$ref": "#/$defs/digest"},
+        "prior_digest": {"$ref": "#/$defs/digest"},
+        "final_target": {"const": "prior"}
+      },
+      "additionalProperties": false
+    },
+    "frontend": {
+      "type": "object",
+      "required": ["repository", "source_sha", "app_version", "analytics_contract_version", "flag_contract_version", "mission_off", "mission_on", "selected_on_digest", "rollback"],
+      "properties": {
+        "repository": {"const": "DevPathAi/devpath-frontend"},
+        "source_sha": {"$ref": "#/$defs/sha40"},
+        "app_version": {"$ref": "#/$defs/safeId"},
+        "analytics_contract_version": {"const": "mission-spine.analytics.v1"},
+        "flag_contract_version": {"const": "mission-spine.flag.v1"},
+        "mission_off": {"$ref": "#/$defs/variant"},
+        "mission_on": {"$ref": "#/$defs/variant"},
+        "selected_on_digest": {"$ref": "#/$defs/digest"},
+        "rollback": {"$ref": "#/$defs/frontendRollback"}
+      },
+      "additionalProperties": false
+    },
+    "home": {
+      "type": "object",
+      "required": ["repository", "source_sha", "dist_sha256", "cloudflare_account_id", "cloudflare_project", "candidate_deployment_id", "prior_production_deployment_id"],
+      "properties": {
+        "repository": {"const": "DevPathAi/devpath-home-page"},
+        "source_sha": {"$ref": "#/$defs/sha40"},
+        "dist_sha256": {"$ref": "#/$defs/sha64"},
+        "cloudflare_account_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+        "cloudflare_project": {"$ref": "#/$defs/safeId"},
+        "candidate_deployment_id": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+        "prior_production_deployment_id": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}
+      },
+      "additionalProperties": false
+    },
+    "analyticsPrivacy": {
+      "type": "object",
+      "required": ["collection_mode", "region", "project_identity", "retention_days", "access_owner", "deletion_runbook"],
+      "properties": {
+        "collection_mode": {"enum": ["explicit-consent", "approved-cookieless"]},
+        "region": {"const": "EU"},
+        "project_identity": {"$ref": "#/$defs/safeId"},
+        "retention_days": {"type": "integer", "minimum": 1, "maximum": 365},
+        "access_owner": {"$ref": "#/$defs/safeId"},
+        "deletion_runbook": {"$ref": "#/$defs/safeId"}
+      },
+      "additionalProperties": false
+    },
+    "aiEvalConfig": {
+      "type": "object",
+      "required": ["primary_model", "fallback_models", "prompt_sha256", "fixture_revision", "fixture_sha256"],
+      "properties": {
+        "primary_model": {"$ref": "#/$defs/safeId"},
+        "fallback_models": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/safeId"}},
+        "prompt_sha256": {"$ref": "#/$defs/sha64"},
+        "fixture_revision": {"$ref": "#/$defs/safeId"},
+        "fixture_sha256": {"$ref": "#/$defs/sha64"}
+      },
+      "additionalProperties": false
+    },
+    "environment": {
+      "type": "object",
+      "required": ["github_environment", "kubernetes_context", "namespace", "web_deployment", "web_container", "web_origin", "landing_origin"],
+      "properties": {
+        "github_environment": {"$ref": "#/$defs/safeId"},
+        "kubernetes_context": {"$ref": "#/$defs/safeId"},
+        "namespace": {"$ref": "#/$defs/safeId"},
+        "web_deployment": {"$ref": "#/$defs/safeId"},
+        "web_container": {"$ref": "#/$defs/safeId"},
+        "web_origin": {"type": "string", "format": "uri", "pattern": "^https://"},
+        "landing_origin": {"type": "string", "format": "uri", "pattern": "^https://"}
+      },
+      "additionalProperties": false
+    },
+    "environments": {
+      "type": "object",
+      "required": ["staging", "production"],
+      "properties": {
+        "staging": {"$ref": "#/$defs/environment"},
+        "production": {"$ref": "#/$defs/environment"}
+      },
+      "additionalProperties": false
+    },
+    "dnsOverride": {
+      "type": "object",
+      "required": ["hostname", "address"],
+      "properties": {
+        "hostname": {"type": "string", "pattern": "^[a-z0-9.-]+$"},
+        "address": {"type": "string", "minLength": 3, "maxLength": 45}
+      },
+      "additionalProperties": false
+    },
+    "journeyHarness": {
+      "type": "object",
+      "required": ["landing_origin", "app_origin", "control_origin", "oauth_origin", "analytics_spy_origin", "dns_overrides"],
+      "properties": {
+        "landing_origin": {"type": "string", "format": "uri", "pattern": "^https://"},
+        "app_origin": {"type": "string", "format": "uri", "pattern": "^https://"},
+        "control_origin": {"type": "string", "format": "uri", "pattern": "^https://"},
+        "oauth_origin": {"type": "string", "format": "uri", "pattern": "^https://"},
+        "analytics_spy_origin": {"type": "string", "format": "uri", "pattern": "^https://"},
+        "dns_overrides": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/dnsOverride"}}
+      },
+      "additionalProperties": false
+    },
+    "rollout": {
+      "type": "object",
+      "required": ["sync_timeout_seconds", "canary_seconds", "rollback_budget_seconds", "production_order", "rollback_order"],
+      "properties": {
+        "sync_timeout_seconds": {"const": 300},
+        "canary_seconds": {"const": 900},
+        "rollback_budget_seconds": {"const": 600},
+        "production_order": {
+          "const": ["shared-migration", "additive-services", "frontend-mission-off", "compatibility-smoke", "frontend-mission-on", "canary", "landing-last"]
+        },
+        "rollback_order": {
+          "const": ["landing-prior", "frontend-mission-off", "frontend-prior", "retain-additive-services-and-schema"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "artifact": {
+      "type": "object",
+      "required": ["candidate_spec_sha256", "repository", "workflow_run_id", "artifact_id", "artifact_name", "evidence_file", "sha256"],
+      "properties": {
+        "candidate_spec_sha256": {"$ref": "#/$defs/sha64"},
+        "repository": {"$ref": "#/$defs/repository"},
+        "workflow_run_id": {"type": "integer", "minimum": 1},
+        "artifact_id": {"type": "integer", "minimum": 1},
+        "artifact_name": {"$ref": "#/$defs/safeId"},
+        "evidence_file": {"const": "evidence.json"},
+        "sha256": {"$ref": "#/$defs/sha64"}
+      },
+      "additionalProperties": false
+    },
+    "homeArtifact": {
+      "type": "object",
+      "required": ["candidate_spec_sha256", "repository", "workflow_run_id", "artifact_id", "artifact_name", "evidence_file", "sha256", "payload_file", "payload_sha256"],
+      "properties": {
+        "candidate_spec_sha256": {"$ref": "#/$defs/sha64"},
+        "repository": {"$ref": "#/$defs/repository"},
+        "workflow_run_id": {"type": "integer", "minimum": 1},
+        "artifact_id": {"type": "integer", "minimum": 1},
+        "artifact_name": {"$ref": "#/$defs/safeId"},
+        "evidence_file": {"const": "evidence.json"},
+        "sha256": {"$ref": "#/$defs/sha64"},
+        "payload_file": {"const": "dist.tar.gz"},
+        "payload_sha256": {"$ref": "#/$defs/sha64"}
+      },
+      "additionalProperties": false
+    },
+    "candidateRef": {
+      "type": "object",
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "pattern": "^[A-Za-z0-9_./-]+\\.json$"},
+        "sha256": {"$ref": "#/$defs/sha64"}
+      },
+      "additionalProperties": false
+    },
+    "privacyApproval": {
+      "type": "object",
+      "required": ["approved_at", "evidence"],
+      "properties": {
+        "approved_at": {"type": "string", "format": "date-time"},
+        "evidence": {"$ref": "#/$defs/artifact"}
+      },
+      "additionalProperties": false
+    },
+    "aiEval": {
+      "type": "object",
+      "required": ["hard_invariants_percent", "usefulness_percent", "baseline_delta_points", "evidence"],
+      "properties": {
+        "hard_invariants_percent": {"const": 100},
+        "usefulness_percent": {"type": "number", "minimum": 90, "maximum": 100},
+        "baseline_delta_points": {"type": "number", "minimum": -5},
+        "evidence": {"$ref": "#/$defs/artifact"}
+      },
+      "additionalProperties": false
+    },
+    "journeys": {
+      "type": "object",
+      "required": ["activation", "contextual_practice"],
+      "properties": {
+        "activation": {"$ref": "#/$defs/artifact"},
+        "contextual_practice": {"$ref": "#/$defs/artifact"}
+      },
+      "additionalProperties": false
+    },
+    "qualityEvidence": {
+      "type": "object",
+      "required": ["visual", "accessibility"],
+      "properties": {
+        "visual": {"$ref": "#/$defs/artifact"},
+        "accessibility": {"$ref": "#/$defs/artifact"}
+      },
+      "additionalProperties": false
+    },
+    "validationAttestation": {
+      "type": "object",
+      "required": ["validator_repository", "validator_run_id", "validator_run_attempt", "home_source_sha", "candidate_spec_sha256", "activation_sha256", "contextual_practice_sha256"],
+      "properties": {
+        "validator_repository": {"const": "DevPathAi/devpath-gitops"},
+        "validator_run_id": {"type": "integer", "minimum": 1},
+        "validator_run_attempt": {"type": "integer", "minimum": 1},
+        "home_source_sha": {"$ref": "#/$defs/sha40"},
+        "candidate_spec_sha256": {"$ref": "#/$defs/sha64"},
+        "activation_sha256": {"$ref": "#/$defs/sha64"},
+        "contextual_practice_sha256": {"$ref": "#/$defs/sha64"}
+      },
+      "additionalProperties": false
+    },
+    "candidateSpec": {
+      "type": "object",
+      "required": ["$schema", "schema_version", "document_type", "release_id", "created_at", "gitops", "services", "shared_migration", "frontend", "home", "analytics_privacy", "ai_release_eval_config", "environments", "journey_harness", "rollout"],
+      "properties": {
+        "$schema": {"type": "string"},
+        "schema_version": {"const": 1},
+        "document_type": {"const": "candidate-spec"},
+        "release_id": {"$ref": "#/$defs/releaseId"},
+        "created_at": {"type": "string", "format": "date-time"},
+        "gitops": {"$ref": "#/$defs/gitops"},
+        "services": {"$ref": "#/$defs/services"},
+        "shared_migration": {"$ref": "#/$defs/sharedMigration"},
+        "frontend": {"$ref": "#/$defs/frontend"},
+        "home": {"$ref": "#/$defs/home"},
+        "analytics_privacy": {"$ref": "#/$defs/analyticsPrivacy"},
+        "ai_release_eval_config": {"$ref": "#/$defs/aiEvalConfig"},
+        "environments": {"$ref": "#/$defs/environments"},
+        "journey_harness": {"$ref": "#/$defs/journeyHarness"},
+        "rollout": {"$ref": "#/$defs/rollout"}
+      },
+      "additionalProperties": false
+    },
+    "releaseManifest": {
+      "type": "object",
+      "required": ["$schema", "schema_version", "document_type", "release_id", "created_at", "candidate_spec", "home_dist_artifact", "analytics_privacy_approval", "ai_release_eval", "journeys", "quality_evidence", "validation_attestation"],
+      "properties": {
+        "$schema": {"type": "string"},
+        "schema_version": {"const": 1},
+        "document_type": {"const": "release-manifest"},
+        "release_id": {"$ref": "#/$defs/releaseId"},
+        "created_at": {"type": "string", "format": "date-time"},
+        "candidate_spec": {"$ref": "#/$defs/candidateRef"},
+        "home_dist_artifact": {"$ref": "#/$defs/homeArtifact"},
+        "analytics_privacy_approval": {"$ref": "#/$defs/privacyApproval"},
+        "ai_release_eval": {"$ref": "#/$defs/aiEval"},
+        "journeys": {"$ref": "#/$defs/journeys"},
+        "quality_evidence": {"$ref": "#/$defs/qualityEvidence"},
+        "validation_attestation": {"$ref": "#/$defs/validationAttestation"}
+      },
+      "additionalProperties": false
+    }
+  }
+}

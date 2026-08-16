@@ -1,0 +1,317 @@
+#!/usr/bin/env python3
+"""Seal a final release-manifest after the two pinned Home journeys pass."""
+
+from __future__ import annotations
+
+import argparse
+from datetime import datetime, timezone
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+from typing import Any
+
+from validate_release_manifest import SHA64, resolve_candidate_spec, validate_release_manifest
+from verify_release_artifacts import MAX_HOME_PAYLOAD_BYTES, validate_evidence_payload
+
+
+EXTERNAL_ARTIFACTS = {
+    "home_dist_artifact": ("DevPathAi/devpath-home-page", "home-dist", "home"),
+    "privacy": ("DevPathAi/documents", "privacy-approval", None),
+    "ai": ("DevPathAi/devpath-ai-svc", "ai-eval", "ai"),
+    "visual": ("DevPathAi/devpath-frontend", "visual", "frontend"),
+    "accessibility": ("DevPathAi/devpath-frontend", "accessibility", "frontend"),
+}
+
+
+def _gh_json(args: list[str], env: dict[str, str]) -> dict[str, Any]:
+    result = subprocess.run(["gh", *args], capture_output=True, text=True, env=env, check=False)
+    if result.returncode != 0:
+        raise ValueError("GitHub attestation query failed")
+    value = json.loads(result.stdout)
+    if not isinstance(value, dict):
+        raise ValueError("GitHub attestation query returned invalid JSON")
+    return value
+
+
+def _discover_external_artifact(
+    env: dict[str, str],
+    release_id: str,
+    repository: str,
+    suffix: str,
+    candidate_hash: str,
+    expected_head: str | None,
+    expected_payload_hash: str | None = None,
+) -> dict[str, Any]:
+    name = f"{release_id}-{suffix}"
+    listing = _gh_json(
+        ["api", f"repos/{repository}/actions/artifacts?name={name}&per_page=100"],
+        env,
+    )
+    artifacts = [item for item in listing.get("artifacts", []) if item.get("expired") is False]
+    if len(artifacts) != 1:
+        raise ValueError(f"{suffix}: exactly one active artifact is required")
+    metadata = artifacts[0]
+    run_id = (metadata.get("workflow_run") or {}).get("id")
+    if not isinstance(run_id, int) or run_id <= 0:
+        raise ValueError(f"{suffix}: artifact has no workflow run")
+    run = _gh_json(["api", f"repos/{repository}/actions/runs/{run_id}"], env)
+    if run.get("status") != "completed" or run.get("conclusion") != "success":
+        raise ValueError(f"{suffix}: producer workflow is not successful")
+    if expected_head is not None and run.get("head_sha") != expected_head:
+        raise ValueError(f"{suffix}: producer source SHA mismatch")
+
+    with tempfile.TemporaryDirectory(prefix=f"mission-spine-{suffix}-") as temp_dir:
+        download = subprocess.run(
+            [
+                "gh",
+                "run",
+                "download",
+                str(run_id),
+                "--repo",
+                repository,
+                "--name",
+                name,
+                "--dir",
+                temp_dir,
+            ],
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if download.returncode != 0:
+            raise ValueError(f"{suffix}: artifact download failed")
+        root = Path(temp_dir)
+        entries = sorted(path.name for path in root.iterdir())
+        expected_files = ["dist.tar.gz", "evidence.json"] if expected_payload_hash else ["evidence.json"]
+        if entries != expected_files:
+            raise ValueError(f"{suffix}: artifact file set is not canonical")
+        for filename in expected_files:
+            path = root / filename
+            if not path.is_file() or path.is_symlink():
+                raise ValueError(f"{suffix}: artifact file must be a regular file")
+        evidence_bytes = (root / "evidence.json").read_bytes()
+        if len(evidence_bytes) > 256 * 1024:
+            raise ValueError(f"{suffix}: evidence exceeds sanitized size limit")
+        payload = json.loads(evidence_bytes.decode("utf-8"))
+        validate_evidence_payload(payload, candidate_hash, journey=False)
+        reference = {
+            "candidate_spec_sha256": candidate_hash,
+            "repository": repository,
+            "workflow_run_id": run_id,
+            "artifact_id": metadata["id"],
+            "artifact_name": name,
+            "evidence_file": "evidence.json",
+            "sha256": hashlib.sha256(evidence_bytes).hexdigest(),
+        }
+        if expected_payload_hash is not None:
+            payload_path = root / "dist.tar.gz"
+            if payload_path.stat().st_size > MAX_HOME_PAYLOAD_BYTES:
+                raise ValueError("home-dist: payload exceeds 100 MiB")
+            payload_hash = hashlib.sha256(payload_path.read_bytes()).hexdigest()
+            if payload_hash != expected_payload_hash:
+                raise ValueError("home-dist: payload does not match candidate home.dist_sha256")
+            reference.update({"payload_file": "dist.tar.gz", "payload_sha256": payload_hash})
+        return reference
+
+
+def build_release_manifest(
+    candidate: dict[str, Any],
+    candidate_path: str,
+    candidate_hash: str,
+    external: dict[str, dict[str, Any]],
+    validator_repository: str,
+    validator_run_id: int,
+    validator_run_attempt: int,
+    activation_artifact_id: int,
+    activation_sha256: str,
+    contextual_artifact_id: int,
+    contextual_sha256: str,
+    created_at: str,
+) -> dict[str, Any]:
+    release_id = candidate["release_id"]
+    for value, path in (
+        (activation_sha256, "activation_sha256"),
+        (contextual_sha256, "contextual_sha256"),
+    ):
+        if SHA64.fullmatch(value) is None:
+            raise ValueError(f"{path} must be SHA-256")
+    if activation_sha256 == contextual_sha256:
+        raise ValueError("journey evidence hashes must be distinct")
+    if validator_repository != "DevPathAi/devpath-gitops":
+        raise ValueError("validator repository is not canonical")
+    for value, path in (
+        (validator_run_id, "validator_run_id"),
+        (validator_run_attempt, "validator_run_attempt"),
+        (activation_artifact_id, "activation_artifact_id"),
+        (contextual_artifact_id, "contextual_artifact_id"),
+    ):
+        if not isinstance(value, int) or value <= 0:
+            raise ValueError(f"{path} must be a positive integer")
+
+    def journey_ref(suffix: str, artifact_id: int, evidence_hash: str) -> dict[str, Any]:
+        return {
+            "candidate_spec_sha256": candidate_hash,
+            "repository": validator_repository,
+            "workflow_run_id": validator_run_id,
+            "artifact_id": artifact_id,
+            "artifact_name": f"{release_id}-journey-{suffix}",
+            "evidence_file": "evidence.json",
+            "sha256": evidence_hash,
+        }
+
+    return {
+        "$schema": "../schema-v1.json",
+        "schema_version": 1,
+        "document_type": "release-manifest",
+        "release_id": release_id,
+        "created_at": created_at,
+        "candidate_spec": {"path": candidate_path, "sha256": candidate_hash},
+        "home_dist_artifact": external["home_dist_artifact"],
+        "analytics_privacy_approval": {
+            "approved_at": external["privacy"]["approved_at"],
+            "evidence": external["privacy"]["reference"],
+        },
+        "ai_release_eval": {
+            "hard_invariants_percent": external["ai"]["hard_invariants_percent"],
+            "usefulness_percent": external["ai"]["usefulness_percent"],
+            "baseline_delta_points": external["ai"]["baseline_delta_points"],
+            "evidence": external["ai"]["reference"],
+        },
+        "journeys": {
+            "activation": journey_ref("activation", activation_artifact_id, activation_sha256),
+            "contextual_practice": journey_ref(
+                "contextual-practice",
+                contextual_artifact_id,
+                contextual_sha256,
+            ),
+        },
+        "quality_evidence": {
+            "visual": external["visual"],
+            "accessibility": external["accessibility"],
+        },
+        "validation_attestation": {
+            "validator_repository": validator_repository,
+            "validator_run_id": validator_run_id,
+            "validator_run_attempt": validator_run_attempt,
+            "home_source_sha": candidate["home"]["source_sha"],
+            "candidate_spec_sha256": candidate_hash,
+            "activation_sha256": activation_sha256,
+            "contextual_practice_sha256": contextual_sha256,
+        },
+    }
+
+
+def seal(root: Path, args: argparse.Namespace) -> Path:
+    candidate_path, candidate, candidate_hash = resolve_candidate_spec(root, args.release_id)
+    token = os.environ.get("RELEASE_EVIDENCE_TOKEN", "")
+    validator_repository = os.environ.get("GITHUB_REPOSITORY", "")
+    validator_run_id = int(os.environ.get("GITHUB_RUN_ID", "0"))
+    validator_run_attempt = int(os.environ.get("GITHUB_RUN_ATTEMPT", "0"))
+    if not token:
+        raise ValueError("RELEASE_EVIDENCE_TOKEN is required")
+    if shutil.which("gh") is None:
+        raise ValueError("GitHub CLI is required")
+    gh_env = os.environ.copy()
+    gh_env["GH_TOKEN"] = token
+    source = {
+        "home": candidate["home"]["source_sha"],
+        "ai": candidate["services"]["devpath-ai-svc"]["source_sha"],
+        "frontend": candidate["frontend"]["source_sha"],
+    }
+    discovered: dict[str, dict[str, Any]] = {}
+    for key, (repository, suffix, source_key) in EXTERNAL_ARTIFACTS.items():
+        discovered[key] = _discover_external_artifact(
+            gh_env,
+            args.release_id,
+            repository,
+            suffix,
+            candidate_hash,
+            source.get(source_key) if source_key else None,
+            candidate["home"]["dist_sha256"] if key == "home_dist_artifact" else None,
+        )
+
+    # Approval/eval scores are sanitized metadata inside their evidence objects.
+    def evidence_json(reference: dict[str, Any]) -> dict[str, Any]:
+        repository = reference["repository"]
+        run_id = reference["workflow_run_id"]
+        name = reference["artifact_name"]
+        with tempfile.TemporaryDirectory(prefix="mission-spine-metadata-") as temp_dir:
+            result = subprocess.run(
+                ["gh", "run", "download", str(run_id), "--repo", repository, "--name", name, "--dir", temp_dir],
+                env=gh_env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            if result.returncode != 0:
+                raise ValueError("sanitized metadata artifact download failed")
+            return json.loads((Path(temp_dir) / "evidence.json").read_text(encoding="utf-8"))
+
+    privacy_payload = evidence_json(discovered["privacy"])
+    ai_payload = evidence_json(discovered["ai"])
+    external = {
+        "home_dist_artifact": discovered["home_dist_artifact"],
+        "privacy": {
+            "approved_at": privacy_payload.get("approved_at"),
+            "reference": discovered["privacy"],
+        },
+        "ai": {
+            "hard_invariants_percent": ai_payload.get("hard_invariants_percent"),
+            "usefulness_percent": ai_payload.get("usefulness_percent"),
+            "baseline_delta_points": ai_payload.get("baseline_delta_points"),
+            "reference": discovered["ai"],
+        },
+        "visual": discovered["visual"],
+        "accessibility": discovered["accessibility"],
+    }
+    created_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    relative_candidate = candidate_path.relative_to(root).as_posix()
+    release = build_release_manifest(
+        candidate,
+        relative_candidate,
+        candidate_hash,
+        external,
+        validator_repository,
+        validator_run_id,
+        validator_run_attempt,
+        args.activation_artifact_id,
+        args.activation_sha256,
+        args.contextual_artifact_id,
+        args.contextual_sha256,
+        created_at,
+    )
+    validate_release_manifest(release, candidate, candidate_hash)
+    release_path = root / "release-manifests" / "releases" / f"{args.release_id}.json"
+    release_path.parent.mkdir(parents=True, exist_ok=True)
+    with release_path.open("x", encoding="utf-8", newline="\n") as output:
+        json.dump(release, output, ensure_ascii=True, indent=2, sort_keys=True)
+        output.write("\n")
+    return release_path
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--root", type=Path, default=Path.cwd())
+    parser.add_argument("--release-id", required=True)
+    parser.add_argument("--activation-artifact-id", type=int, required=True)
+    parser.add_argument("--activation-sha256", required=True)
+    parser.add_argument("--contextual-artifact-id", type=int, required=True)
+    parser.add_argument("--contextual-sha256", required=True)
+    args = parser.parse_args(argv)
+    try:
+        release_path = seal(args.root.resolve(), args)
+        print(f"sealed final release-manifest: {release_path}")
+        return 0
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        print(f"release seal failed: {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

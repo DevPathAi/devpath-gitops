@@ -1,0 +1,251 @@
+name: Mission Spine - candidate journeys and staging validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: Immutable Mission Spine candidate release ID
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+  deployments: write
+
+env:
+  RELEASE_ID: ${{ inputs.release_id }}
+
+concurrency:
+  # Staging is one mutable shared deployment. Different releases must not race.
+  group: mission-spine-staging
+  cancel-in-progress: false
+
+jobs:
+  candidate-journeys-seal-and-staging:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    environment: mission-spine-staging
+    steps:
+      - name: Checkout GitOps candidate branch
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          path: gitops
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Require protected staging environment and release branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ENVIRONMENT_NAME: mission-spine-staging
+        working-directory: gitops
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_TYPE" = "branch"
+          test "$GITHUB_REF_NAME" != "main"
+          gh api "repos/${GITHUB_REPOSITORY}/environments/${ENVIRONMENT_NAME}" \
+            | jq -e '[.protection_rules[]? | select(.type == "required_reviewers" and .prevent_self_review == true and ((.reviewers // []) | length > 0))] | length == 1' >/dev/null
+      - name: Resolve immutable candidate-spec and exact GitOps base_sha
+        id: candidate
+        working-directory: gitops
+        run: |
+          set -euo pipefail
+          python scripts/release/validate_release_manifest.py --root "$PWD" \
+            --candidate-id "$RELEASE_ID" --emit-github-output "$GITHUB_OUTPUT"
+      - name: Compare candidate base against current main and require no final manifest
+        working-directory: gitops
+        env:
+          BASE_SHA: ${{ steps.candidate.outputs.gitops_base_sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$BASE_SHA"
+          git merge-base --is-ancestor "$BASE_SHA" HEAD
+          mapfile -t branch_changes < <(git diff --name-only "$BASE_SHA"...HEAD)
+          test "${#branch_changes[@]}" -eq 1
+          test "${branch_changes[0]}" = "release-manifests/candidates/$RELEASE_ID.candidate-spec.json"
+          test ! -e "release-manifests/releases/$RELEASE_ID.json"
+      - name: Checkout the candidate's exact Home source SHA
+        uses: actions/checkout@v6
+        with:
+          repository: DevPathAi/devpath-home-page
+          ref: ${{ steps.candidate.outputs.home_source_sha }}
+          token: ${{ secrets.RELEASE_EVIDENCE_TOKEN }}
+          persist-credentials: false
+          path: home
+      - name: Prove pinned Home checkout and install deterministic harness
+        working-directory: home
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ steps.candidate.outputs.home_source_sha }}"
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Run exactly two live cross-service journeys
+        working-directory: home
+        env:
+          MISSION_CANDIDATE_SPEC_PATH: ${{ steps.candidate.outputs.candidate_spec_path }}
+          MISSION_CANDIDATE_SPEC_SHA256: ${{ steps.candidate.outputs.candidate_spec_sha256 }}
+          MISSION_RELEASE_CONTROL_TOKEN: ${{ secrets.MISSION_RELEASE_CONTROL_TOKEN }}
+          MISSION_RELEASE_EVIDENCE_DIR: ${{ runner.temp }}/mission-spine-journeys
+        run: |
+          set -euo pipefail
+          test -n "${MISSION_RELEASE_CONTROL_TOKEN:-}"
+          test ! -e "$MISSION_RELEASE_EVIDENCE_DIR"
+          npm run test:release
+      - name: Validate and byte-copy the two sanitized journey outputs
+        id: journey
+        working-directory: gitops
+        run: |
+          set -euo pipefail
+          python scripts/release/prepare_journey_evidence.py --root "$PWD" \
+            --release-id "$RELEASE_ID" \
+            --evidence-dir "$RUNNER_TEMP/mission-spine-journeys" \
+            --output-dir "$RUNNER_TEMP/mission-spine-artifacts" \
+            --github-output "$GITHUB_OUTPUT"
+      - name: Upload activation evidence
+        id: upload_activation
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ inputs.release_id }}-journey-activation
+          path: ${{ steps.journey.outputs.activation_path }}
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload contextual practice evidence
+        id: upload_contextual
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ inputs.release_id }}-journey-contextual-practice
+          path: ${{ steps.journey.outputs.contextual_path }}
+          if-no-files-found: error
+          retention-days: 30
+      - name: Seal final release-manifest against validator run and journey hashes
+        working-directory: gitops
+        env:
+          RELEASE_EVIDENCE_TOKEN: ${{ secrets.RELEASE_EVIDENCE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${RELEASE_EVIDENCE_TOKEN:-}"
+          python scripts/release/seal_release_manifest.py --root "$PWD" \
+            --release-id "$RELEASE_ID" \
+            --activation-artifact-id "${{ steps.upload_activation.outputs.artifact-id }}" \
+            --activation-sha256 "${{ steps.journey.outputs.activation_sha256 }}" \
+            --contextual-artifact-id "${{ steps.upload_contextual.outputs.artifact-id }}" \
+            --contextual-sha256 "${{ steps.journey.outputs.contextual_sha256 }}"
+      - name: Commit only the newly sealed final manifest
+        working-directory: gitops
+        run: |
+          set -euo pipefail
+          release_path="release-manifests/releases/$RELEASE_ID.json"
+          test "$(git status --porcelain=v1 --untracked-files=all)" = "?? $release_path"
+          git config user.name "devpath-release-bot"
+          git config user.email "release-bot@users.noreply.github.com"
+          git add "$release_path"
+          git commit -m "release(manifest): seal $RELEASE_ID validation attestation"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+      - name: Validate sealed final bundle
+        id: release
+        working-directory: gitops
+        run: |
+          set -euo pipefail
+          python scripts/release/validate_release_manifest.py --root "$PWD" \
+            --release-id "$RELEASE_ID" --emit-github-output "$GITHUB_OUTPUT"
+      - name: Prove sealed final binds the executed candidate and Home checkout
+        run: |
+          set -euo pipefail
+          test "${{ steps.release.outputs.candidate_spec_sha256 }}" = \
+            "${{ steps.candidate.outputs.candidate_spec_sha256 }}"
+          test "${{ steps.release.outputs.home_source_sha }}" = \
+            "${{ steps.candidate.outputs.home_source_sha }}"
+      - name: Configure approved staging cluster
+        id: kube
+        env:
+          STAGING_KUBECONFIG_B64: ${{ secrets.STAGING_KUBECONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "${STAGING_KUBECONFIG_B64:-}"
+          umask 077
+          printf '%s' "$STAGING_KUBECONFIG_B64" | base64 --decode > "$RUNNER_TEMP/staging-kubeconfig"
+          chmod 600 "$RUNNER_TEMP/staging-kubeconfig"
+          echo "KUBECONFIG=$RUNNER_TEMP/staging-kubeconfig" >> "$GITHUB_ENV"
+      - name: Stage exact OFF then ON digest
+        working-directory: gitops
+        env:
+          CONTEXT: ${{ steps.release.outputs.staging_context }}
+          NAMESPACE: ${{ steps.release.outputs.staging_namespace }}
+          DEPLOYMENT: ${{ steps.release.outputs.staging_deployment }}
+          CONTAINER: ${{ steps.release.outputs.staging_container }}
+          OFF_DIGEST: ${{ steps.release.outputs.web_off_digest }}
+          ON_DIGEST: ${{ steps.release.outputs.web_on_digest }}
+          PRIOR_DIGEST: ${{ steps.release.outputs.web_prior_digest }}
+        run: |
+          set -euo pipefail
+          current_image="$(kubectl --context "$CONTEXT" -n "$NAMESPACE" get "deployment/$DEPLOYMENT" -o json \
+            | jq -r --arg container "$CONTAINER" '.spec.template.spec.containers[] | select(.name == $container) | .image')"
+          test "$current_image" = "ghcr.io/devpathai/devpath-web@$PRIOR_DIGEST"
+          kubectl --context "$CONTEXT" -n "$NAMESPACE" set image \
+            "deployment/$DEPLOYMENT" "$CONTAINER=ghcr.io/devpathai/devpath-web@$OFF_DIGEST"
+          python scripts/release/wait_web_rollout.py --root "$PWD" \
+            --release-id "$RELEASE_ID" --environment staging \
+            --phase mission-off --canary-seconds 0
+          kubectl --context "$CONTEXT" -n "$NAMESPACE" set image \
+            "deployment/$DEPLOYMENT" "$CONTAINER=ghcr.io/devpathai/devpath-web@$ON_DIGEST"
+          python scripts/release/wait_web_rollout.py --root "$PWD" \
+            --release-id "$RELEASE_ID" --environment staging \
+            --phase mission-on --canary-seconds 0
+      - name: Rehearse reverse rollback within 600 seconds
+        id: reverse
+        working-directory: gitops
+        env:
+          CONTEXT: ${{ steps.release.outputs.staging_context }}
+          NAMESPACE: ${{ steps.release.outputs.staging_namespace }}
+          DEPLOYMENT: ${{ steps.release.outputs.staging_deployment }}
+          CONTAINER: ${{ steps.release.outputs.staging_container }}
+          OFF_DIGEST: ${{ steps.release.outputs.web_off_digest }}
+          PRIOR_DIGEST: ${{ steps.release.outputs.web_prior_digest }}
+        run: |
+          set -euo pipefail
+          started="$(date +%s)"
+          kubectl --context "$CONTEXT" -n "$NAMESPACE" set image \
+            "deployment/$DEPLOYMENT" "$CONTAINER=ghcr.io/devpathai/devpath-web@$OFF_DIGEST"
+          python scripts/release/wait_web_rollout.py --root "$PWD" \
+            --release-id "$RELEASE_ID" --environment staging \
+            --phase mission-off --canary-seconds 0
+          kubectl --context "$CONTEXT" -n "$NAMESPACE" set image \
+            "deployment/$DEPLOYMENT" "$CONTAINER=ghcr.io/devpathai/devpath-web@$PRIOR_DIGEST"
+          python scripts/release/wait_web_rollout.py --root "$PWD" \
+            --release-id "$RELEASE_ID" --environment staging \
+            --phase prior --canary-seconds 0
+          elapsed=$(( $(date +%s) - started ))
+          test "$elapsed" -le 600
+          echo "rollback_seconds=$elapsed" >> "$GITHUB_OUTPUT"
+      - name: Record sanitized sealed-validation evidence
+        env:
+          CANDIDATE_SHA: ${{ steps.release.outputs.candidate_spec_sha256 }}
+          RELEASE_MANIFEST_SHA: ${{ steps.release.outputs.release_manifest_sha256 }}
+          ROLLBACK_SECONDS: ${{ steps.reverse.outputs.rollback_seconds }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/staging-evidence"
+          printf '{"release_id":"%s","candidate_spec_sha256":"%s","release_manifest_sha256":"%s","status":"passed","rollback_seconds":%s,"validator_run_id":%s,"validator_run_attempt":%s}\n' \
+            "$RELEASE_ID" "$CANDIDATE_SHA" "$RELEASE_MANIFEST_SHA" \
+            "$ROLLBACK_SECONDS" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" \
+            > "$RUNNER_TEMP/staging-evidence/evidence.json"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: ${{ inputs.release_id }}-sealed-validation
+          path: ${{ runner.temp }}/staging-evidence/evidence.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Fail-safe restore recorded staging prior digest
+        if: always() && steps.kube.outcome == 'success'
+        continue-on-error: true
+        env:
+          CONTEXT: ${{ steps.release.outputs.staging_context }}
+          NAMESPACE: ${{ steps.release.outputs.staging_namespace }}
+          DEPLOYMENT: ${{ steps.release.outputs.staging_deployment }}
+          CONTAINER: ${{ steps.release.outputs.staging_container }}
+          PRIOR_DIGEST: ${{ steps.release.outputs.web_prior_digest }}
+        run: |
+          kubectl --context "$CONTEXT" -n "$NAMESPACE" set image \
+            "deployment/$DEPLOYMENT" "$CONTAINER=ghcr.io/devpathai/devpath-web@$PRIOR_DIGEST"

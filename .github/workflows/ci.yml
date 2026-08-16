@@ -6,6 +6,31 @@ on:
   pull_request:
 
 jobs:
+  mission-spine-release-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - uses: azure/setup-kubectl@v5
+      - name: Validate release schema, fixtures, mutator, and workflow contract
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check jsonschema==4.25.1
+          python -m unittest discover -s tests/release -p 'test_*.py' -v
+          python -m json.tool release-manifests/schema-v1.json >/dev/null
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.25.x"
+      - name: Lint GitHub Actions workflows
+        run: |
+          set -euo pipefail
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+          "$(go env GOPATH)/bin/actionlint" -color
+      - name: Dry render digest-capable web base
+        run: kubectl kustomize apps/devpath-web/base >/dev/null
+
   kustomize:
     runs-on: ubuntu-latest
     steps:

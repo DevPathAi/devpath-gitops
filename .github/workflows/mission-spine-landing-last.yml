@@ -1,0 +1,143 @@
+name: Mission Spine - Landing last
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: Sealed Mission Spine release ID
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  deployments: write
+
+env:
+  RELEASE_ID: ${{ inputs.release_id }}
+
+concurrency:
+  # Promotion, Landing-last, and rollback share this repository-wide lock.
+  group: mission-spine-production
+  cancel-in-progress: false
+
+jobs:
+  landing-last:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: mission-spine-production-landing
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Require an exact two-document release branch rooted at sealed base
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_ID" =~ ^ms-[0-9]{8}-[a-z0-9][a-z0-9-]{2,40}$ ]]
+          candidate_path="release-manifests/candidates/$RELEASE_ID.candidate-spec.json"
+          release_path="release-manifests/releases/$RELEASE_ID.json"
+          test -f "$candidate_path"
+          test -f "$release_path"
+          base_sha="$(jq -er '.gitops.base_sha | select(test("^[0-9a-f]{40}$"))' "$candidate_path")"
+          git merge-base --is-ancestor "$base_sha" HEAD
+          mapfile -t branch_changes < <(git diff --name-only "$base_sha"...HEAD)
+          test "${#branch_changes[@]}" -eq 2
+          test "${branch_changes[0]}" = "$candidate_path"
+          test "${branch_changes[1]}" = "$release_path"
+      - name: Require protected Landing approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ENVIRONMENT_NAME: mission-spine-production-landing
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/environments/${ENVIRONMENT_NAME}" \
+            | jq -e '[.protection_rules[]? | select(.type == "required_reviewers" and .prevent_self_review == true and ((.reviewers // []) | length > 0))] | length == 1' >/dev/null
+      - name: Resolve sealed release and materialize exact Home dist
+        id: release
+        env:
+          RELEASE_EVIDENCE_TOKEN: ${{ secrets.RELEASE_EVIDENCE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${RELEASE_EVIDENCE_TOKEN:-}"
+          python scripts/release/validate_release_manifest.py --root "$GITHUB_WORKSPACE" \
+            --release-id "$RELEASE_ID" --emit-github-output "$GITHUB_OUTPUT"
+          python scripts/release/verify_release_artifacts.py --root "$GITHUB_WORKSPACE" \
+            --release-id "$RELEASE_ID" \
+            --materialize-home "$RUNNER_TEMP/home-dist.tar.gz"
+          # Both candidate_deployment_id and prior_production_deployment_id are sealed in candidate-spec.
+      - name: Require completed production ON canary and unchanged main
+        env:
+          RELEASE_EVIDENCE_TOKEN: ${{ secrets.RELEASE_EVIDENCE_TOKEN }}
+        run: |
+          set -euo pipefail
+          python scripts/release/verify_promotion_evidence.py --root "$GITHUB_WORKSPACE" \
+            --release-id "$RELEASE_ID"
+          git fetch origin main
+          on_commit="$(git rev-parse origin/main)"
+          off_commit="$(git rev-parse "$on_commit^")"
+          test "$(git rev-parse "$off_commit^")" = "${{ steps.release.outputs.gitops_base_sha }}"
+          test "$(git show -s --format=%s "$on_commit")" = "release(web): promote $RELEASE_ID mission-on"
+          test "$(git show -s --format=%s "$off_commit")" = "release(web): promote $RELEASE_ID mission-off"
+      - name: Verify Cloudflare candidate and current prior CAS
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          python scripts/release/cloudflare_pages.py --root "$GITHUB_WORKSPACE" \
+            --release-id "$RELEASE_ID" --action preflight
+      - name: Safely extract sealed production dist
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path, PurePosixPath
+          import os
+          import tarfile
+          archive = Path(os.environ["RUNNER_TEMP"]) / "home-dist.tar.gz"
+          target = Path(os.environ["RUNNER_TEMP"]) / "home-release"
+          target.mkdir()
+          with tarfile.open(archive, "r:gz") as bundle:
+              members = bundle.getmembers()
+              if not members:
+                  raise SystemExit("empty Home dist archive")
+              for member in members:
+                  path = PurePosixPath(member.name)
+                  if path.is_absolute() or ".." in path.parts or path.parts[0] != "dist":
+                      raise SystemExit("unsafe Home dist archive path")
+                  if member.issym() or member.islnk() or member.isdev():
+                      raise SystemExit("links and devices are forbidden in Home dist")
+              bundle.extractall(target, members=members, filter="data")
+          if not (target / "dist" / "index.html").is_file():
+              raise SystemExit("Home dist index.html missing")
+          PY
+      - name: Deploy Landing last from exact dist without rebuild
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ steps.release.outputs.home_account_id }}
+          HOME_PROJECT: ${{ steps.release.outputs.home_project }}
+          HOME_SOURCE_SHA: ${{ steps.release.outputs.home_source_sha }}
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          npx --yes wrangler@4.38.0 pages deploy "$RUNNER_TEMP/home-release/dist" \
+            --project-name "$HOME_PROJECT" --branch develop --commit-hash "$HOME_SOURCE_SHA"
+          python scripts/release/cloudflare_pages.py --root "$GITHUB_WORKSPACE" \
+            --release-id "$RELEASE_ID" --action verify-new-production
+      - name: Record sanitized Landing-last evidence
+        env:
+          CANDIDATE_SHA: ${{ steps.release.outputs.candidate_spec_sha256 }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/landing-evidence"
+          printf '{"candidate_spec_sha256":"%s","status":"passed","landing_order":"last"}\n' \
+            "$CANDIDATE_SHA" > "$RUNNER_TEMP/landing-evidence/evidence.json"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: ${{ inputs.release_id }}-landing-last
+          path: ${{ runner.temp }}/landing-evidence/evidence.json
+          if-no-files-found: error
+          retention-days: 30
