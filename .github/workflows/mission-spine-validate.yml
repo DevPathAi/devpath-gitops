@@ -80,13 +80,20 @@ jobs:
           repository: DevPathAi/devpath-home-page
           ref: ${{ steps.candidate.outputs.home_source_sha }}
           token: ${{ secrets.RELEASE_EVIDENCE_TOKEN }}
+          fetch-depth: 0
           persist-credentials: false
           path: home
       - name: Prove pinned Home checkout
         working-directory: home
+        env:
+          CANDIDATE_SPEC_PATH: ${{ steps.candidate.outputs.candidate_spec_path }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ steps.candidate.outputs.home_source_sha }}"
+          rendered_product_sha="$(jq -er '.quality_evidence_inputs.catalogs["home-visual"].rendered_product_sha' "$CANDIDATE_SPEC_PATH")"
+          git cat-file -e "$rendered_product_sha^{commit}"
+          git merge-base --is-ancestor \
+            "$rendered_product_sha" "${{ steps.candidate.outputs.home_source_sha }}"
       - name: Generate candidate-bound Home visual and accessibility evidence
         working-directory: home
         env:

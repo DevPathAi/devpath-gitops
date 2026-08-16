@@ -52,6 +52,10 @@ class Et13EvidenceContractTest(unittest.TestCase):
             home["rendered_product_tree_sha256"],
             "9f7f2c06c7caa9e77a155163654cc8107670fe8c9d9cc059d1f4a6ca427bcf25",
         )
+        self.assertEqual(
+            home["rendered_product_sha"],
+            "084ab218698b0411f9bdea7c7c32c45fce87fd18",
+        )
         self.assertNotEqual(home["rendered_product_sha"], home["source_sha"])
         for field in ("rendered_product_tree_sha256", "font_manifest_sha256"):
             self.assertRegex(home[field], r"^[0-9a-f]{64}$")
@@ -481,6 +485,38 @@ class Et13EvidenceContractTest(unittest.TestCase):
         )
         positions = [workflow.index(needle) for needle in ordered]
         self.assertEqual(positions, sorted(positions))
+
+    def test_home_checkout_fetches_history_and_proves_rendered_product_ancestry(self):
+        workflow = VALIDATION_WORKFLOW.read_text(encoding="utf-8")
+        checkout_start = workflow.index(
+            "- name: Checkout the candidate's exact Home source SHA"
+        )
+        proof_start = workflow.index("- name: Prove pinned Home checkout", checkout_start)
+        checkout = workflow[checkout_start:proof_start]
+        for needle in (
+            "repository: DevPathAi/devpath-home-page",
+            "ref: ${{ steps.candidate.outputs.home_source_sha }}",
+            "fetch-depth: 0",
+            "persist-credentials: false",
+            "path: home",
+        ):
+            with self.subTest(section="checkout", needle=needle):
+                self.assertIn(needle, checkout)
+
+        proof_end = workflow.index(
+            "- name: Generate candidate-bound Home visual and accessibility evidence",
+            proof_start,
+        )
+        proof = workflow[proof_start:proof_end]
+        for needle in (
+            "CANDIDATE_SPEC_PATH: ${{ steps.candidate.outputs.candidate_spec_path }}",
+            ".quality_evidence_inputs.catalogs[\"home-visual\"].rendered_product_sha",
+            "git cat-file -e \"$rendered_product_sha^{commit}\"",
+            "git merge-base --is-ancestor",
+            '"${{ steps.candidate.outputs.home_source_sha }}"',
+        ):
+            with self.subTest(section="proof", needle=needle):
+                self.assertIn(needle, proof)
 
     def test_sealer_accepts_only_two_regular_home_manifest_files(self):
         with tempfile.TemporaryDirectory() as temp_dir:
