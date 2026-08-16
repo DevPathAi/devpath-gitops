@@ -18,8 +18,8 @@ ARTIFACT_VERIFIER = ROOT / "scripts" / "release" / "verify_release_artifacts.py"
 SEALER = ROOT / "scripts" / "release" / "seal_release_manifest.py"
 SCHEMA = ROOT / "release-manifests" / "schema-v1.json"
 VALIDATION_WORKFLOW = ROOT / ".github" / "workflows" / "mission-spine-validate.yml"
-FINAL_FRONTEND_SHA = "a2c419cadb8d50095728e4e9613273f89ede5314"
-FINAL_HOME_SOURCE_SHA = "b130d7e58c5b3e96a64f729d4aa02dbab5d991aa"
+FINAL_FRONTEND_SHA = "dbc1cc9010dea56471e8eec462a0c52cee946d15"
+FINAL_HOME_SOURCE_SHA = "dc5f37cb495f99cdfd43c6957db9958ddad7def7"
 FINAL_HOME_TREE_SHA256 = "64e51e148bde2962f1abdd06feffb2745fe062d47e6efbc9608c618fe9835368"
 STALE_FRONTEND_SHA = "a18aee3d31e61dcd3935" "17ef68125224eeb76c7a"
 STALE_HOME_SOURCE_SHA = "6821ab90b6625a15752f" "831cdce183dc0ffaa86f"
@@ -374,11 +374,12 @@ class Et13EvidenceContractTest(unittest.TestCase):
 
     def _base_payload(self, label):
         catalog = self.candidate["quality_evidence_inputs"]["catalogs"][label]
+        manual = label in self.validator.MANUAL_CATALOG_CONTRACTS
         payload = {
             "candidate_spec_sha256": self.candidate_sha,
             "status": "passed",
             "producer_run_id": 501,
-            "producer_run_attempt": 3,
+            "producer_run_attempt": 1 if manual else 3,
             "repository": catalog["repository"],
             "source_sha": catalog["source_sha"],
             "case_catalog_sha256": catalog["sha256"],
@@ -422,6 +423,7 @@ class Et13EvidenceContractTest(unittest.TestCase):
             if label == "frontend-automated-a11y":
                 payload["surface_case_counts"] = dict(catalog["surface_case_counts"])
         else:
+            environment, job_name = self.artifacts.PROTECTED_APPROVAL_CONTRACTS[label]
             payload.update({
                 "assistive_technology": {
                     "manual-nvda": "NVDA+Chromium",
@@ -429,6 +431,12 @@ class Et13EvidenceContractTest(unittest.TestCase):
                     "manual-talkback": "TalkBack+Android",
                 }[label],
                 "test_provenance_sha256": catalog["provenance_sha256"],
+                "approval_environment": environment,
+                "approval_environment_id": 701,
+                "approval_job_name": job_name,
+                "approved_by": "release-reviewer",
+                "approved_by_id": 702,
+                "approval_effective_at": "2026-08-16T10:15:00Z",
             })
             if label in {"manual-voiceover", "manual-talkback"}:
                 mobile = self.candidate["quality_evidence_inputs"]["mobile_test_artifacts"]
@@ -521,13 +529,14 @@ class Et13EvidenceContractTest(unittest.TestCase):
     def test_all_seven_sanitized_payload_shapes_pass(self):
         for label in self.validator.QUALITY_EVIDENCE_LABELS:
             with self.subTest(label=label):
+                attempt = 1 if label in self.validator.MANUAL_CATALOG_CONTRACTS else 3
                 self.artifacts.validate_evidence_payload(
                     label,
                     self._base_payload(label),
                     self.candidate_sha,
                     self.candidate,
                     501,
-                    3,
+                    attempt,
                 )
 
     def test_frontend_catalog_totals_and_surface_splits_are_not_self_asserted(self):

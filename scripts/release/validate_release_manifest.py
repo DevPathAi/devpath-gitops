@@ -227,6 +227,82 @@ FRONTEND_CATALOG_CONTRACTS = {
     },
 }
 
+SIGNED_MOBILE_BINDING_KEYS = {
+    "schema_version",
+    "repository",
+    "source_sha",
+    "event",
+    "workflow_path",
+    "workflow_sha256",
+    "workflow_run_id",
+    "run_attempt",
+    "artifact_id",
+    "artifact_name",
+    "artifact_archive_sha256",
+    "build_provenance_file",
+    "build_provenance_sha256",
+    "signed_apk_file",
+    "signed_apk_sha256",
+    "signed_ipa_file",
+    "signed_ipa_sha256",
+}
+SIGNED_MOBILE_BINDING_VERSION = "leva.mission-spine.signed-mobile-build-binding.v1"
+SIGNED_MOBILE_WORKFLOW = ".github/workflows/mission-spine-signed-mobile-build.yml"
+SIGNED_MOBILE_FILES = {
+    "build_provenance_file": "build-provenance.v1.json",
+    "signed_apk_file": "mobile/android/leva-release.apk",
+    "signed_ipa_file": "mobile/ios/leva-release.ipa",
+}
+
+MANUAL_CATALOG_CONTRACTS = {
+    "manual-nvda": {
+        "path": "tool/release-evidence/catalogs/manual-nvda.v1.json",
+        "provenance_path": "tool/release-evidence/provenance/manual-nvda.v1.json",
+        "case_count": 2,
+        "assistive_technology": "NVDA+Chromium",
+        "surface": "web",
+        "case_ids": (
+            "nvda-web-today-mission-spine",
+            "nvda-web-next-action-navigation",
+        ),
+        "required_platform": "windows_physical_host",
+        "required_client": "chromium",
+        "required_artifact": "exact_source_web_release_build",
+    },
+    "manual-voiceover": {
+        "path": "tool/release-evidence/catalogs/manual-voiceover.v1.json",
+        "provenance_path": "tool/release-evidence/provenance/manual-voiceover.v1.json",
+        "case_count": 4,
+        "assistive_technology": "VoiceOver+Safari+iOS",
+        "surface": "ios",
+        "case_ids": (
+            "voiceover-ios-today-mission-spine",
+            "voiceover-ios-next-action-navigation",
+            "voiceover-ios-content-reading",
+            "voiceover-ios-offline-status",
+        ),
+        "required_platform": "ios_physical_device",
+        "required_client": "native_flutter_ios",
+        "required_artifact": "candidate_signed_ipa",
+    },
+    "manual-talkback": {
+        "path": "tool/release-evidence/catalogs/manual-talkback.v1.json",
+        "provenance_path": "tool/release-evidence/provenance/manual-talkback.v1.json",
+        "case_count": 4,
+        "assistive_technology": "TalkBack+Android",
+        "surface": "android",
+        "case_ids": (
+            "talkback-android-today-mission-spine",
+            "talkback-android-next-action-navigation",
+            "talkback-android-content-reading",
+            "talkback-android-offline-status",
+        ),
+        "required_platform": "android_physical_device",
+        "required_client": "native_flutter_android",
+        "required_artifact": "candidate_signed_apk",
+    },
+}
+
 REQUIRED_SERVICES = {
     "devpath-admin",
     "devpath-ai-svc",
@@ -420,15 +496,49 @@ def quality_artifact_name(
         if isinstance(run_attempt, bool) or not isinstance(run_attempt, int) or run_attempt <= 0:
             raise ValueError("Home quality evidence requires an exact positive run attempt")
         return f"{release_id}-home-visual-a11y-attempt-{run_attempt}"
-    names = {
-        "manual-nvda": "nvda-evidence",
-        "manual-voiceover": "voiceover-evidence",
-        "manual-talkback": "talkback-evidence",
-    }
-    try:
-        return names[label]
-    except KeyError as exc:
-        raise ValueError(f"unknown quality evidence label: {label}") from exc
+    if label in MANUAL_CATALOG_CONTRACTS:
+        for value in (workflow_run_id, run_attempt):
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(
+                    "Manual quality evidence requires exact positive run ID and attempt"
+                )
+        return f"{release_id}-{label}-run-{workflow_run_id}-attempt-{run_attempt}"
+    raise ValueError(f"unknown quality evidence label: {label}")
+
+
+def home_dist_artifact_name(
+    release_id: str,
+    workflow_run_id: int,
+    run_attempt: int,
+) -> str:
+    for value in (workflow_run_id, run_attempt):
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError("Home dist requires exact positive run ID and attempt")
+    return f"{release_id}-home-dist-run-{workflow_run_id}-attempt-{run_attempt}"
+
+
+def ai_eval_artifact_name(
+    release_id: str,
+    workflow_run_id: int,
+    run_attempt: int,
+) -> str:
+    for value in (workflow_run_id, run_attempt):
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError("AI release evaluation requires exact positive run ID and attempt")
+    return f"{release_id}-ai-eval-run-{workflow_run_id}-attempt-{run_attempt}"
+
+
+def privacy_approval_artifact_name(
+    release_id: str,
+    workflow_run_id: int,
+    run_attempt: int,
+) -> str:
+    for value in (workflow_run_id, run_attempt):
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError("Privacy approval requires exact positive run ID and attempt")
+    return (
+        f"{release_id}-privacy-approval-run-{workflow_run_id}-attempt-{run_attempt}"
+    )
 
 
 def quality_source(candidate: dict[str, Any], label: str) -> tuple[str, str]:
@@ -785,6 +895,20 @@ def _validate_quality_evidence_inputs(value: Any, candidate: dict[str, Any]) -> 
                     _string(catalog[field], f"{catalog_path}.{field}", SHA64)
         else:
             _string(catalog["provenance_sha256"], f"{catalog_path}.provenance_sha256", SHA64)
+            if label in MANUAL_CATALOG_CONTRACTS:
+                expected_manual = MANUAL_CATALOG_CONTRACTS[label]
+                if catalog["path"] != expected_manual["path"]:
+                    _fail(f"{catalog_path}.path", "must bind the authoritative manual catalog")
+                if catalog["case_count"] != expected_manual["case_count"]:
+                    _fail(
+                        f"{catalog_path}.case_count",
+                        "must match the authoritative manual catalog count",
+                    )
+                if catalog["sha256"] == catalog["provenance_sha256"]:
+                    _fail(
+                        catalog_path,
+                        "manual catalog and static test-provenance hashes must be distinct",
+                    )
         if label in {"home-visual", "home-axe-browser-a11y"}:
             _string(catalog["rendered_product_sha"], f"{catalog_path}.rendered_product_sha", SHA40)
             _string(
@@ -813,6 +937,19 @@ def _validate_quality_evidence_inputs(value: Any, candidate: dict[str, Any]) -> 
             "frontend generated, input-provenance, and baseline digests must be distinct",
         )
 
+    manual_catalog_hashes = [
+        catalogs[label]["sha256"] for label in MANUAL_CATALOG_CONTRACTS
+    ]
+    manual_provenance_hashes = [
+        catalogs[label]["provenance_sha256"] for label in MANUAL_CATALOG_CONTRACTS
+    ]
+    manual_input_hashes = manual_catalog_hashes + manual_provenance_hashes
+    if len(manual_input_hashes) != len(set(manual_input_hashes)):
+        _fail(
+            f"{path}.catalogs",
+            "manual catalog and static test-provenance raw hashes must all be distinct",
+        )
+
     home_visual = catalogs["home-visual"]
     home_a11y = catalogs["home-axe-browser-a11y"]
     if (
@@ -831,22 +968,40 @@ def _validate_quality_evidence_inputs(value: Any, candidate: dict[str, Any]) -> 
 
     mobile_path = f"{path}.mobile_test_artifacts"
     mobile = _object(obj["mobile_test_artifacts"], mobile_path)
-    _exact_keys(
-        mobile,
-        {
-            "repository",
-            "source_sha",
-            "build_provenance_sha256",
-            "signed_apk_sha256",
-            "signed_ipa_sha256",
-        },
-        mobile_path,
-    )
+    _exact_keys(mobile, SIGNED_MOBILE_BINDING_KEYS, mobile_path)
+    if mobile["schema_version"] != SIGNED_MOBILE_BINDING_VERSION:
+        _fail(f"{mobile_path}.schema_version", "signed-mobile binding schema is not approved")
     if mobile["repository"] != candidate["frontend"]["repository"]:
         _fail(f"{mobile_path}.repository", "must be DevPathAi/devpath-frontend")
     if mobile["source_sha"] != candidate["frontend"]["source_sha"]:
         _fail(f"{mobile_path}.source_sha", "must bind the exact frontend source")
-    for field in ("build_provenance_sha256", "signed_apk_sha256", "signed_ipa_sha256"):
+    if mobile["event"] != "workflow_dispatch":
+        _fail(f"{mobile_path}.event", "must be workflow_dispatch")
+    if mobile["workflow_path"] != SIGNED_MOBILE_WORKFLOW:
+        _fail(f"{mobile_path}.workflow_path", f"must be {SIGNED_MOBILE_WORKFLOW}")
+    for field in ("workflow_run_id", "run_attempt", "artifact_id"):
+        _positive_int(mobile[field], f"{mobile_path}.{field}")
+    if mobile["run_attempt"] != 1:
+        _fail(
+            f"{mobile_path}.run_attempt",
+            "protected signing approval is sealable only on attempt 1; retry with a fresh dispatch",
+        )
+    expected_name = (
+        f"{candidate['release_id']}-signed-mobile-build-run-"
+        f"{mobile['workflow_run_id']}-attempt-{mobile['run_attempt']}"
+    )
+    if mobile["artifact_name"] != expected_name:
+        _fail(f"{mobile_path}.artifact_name", f"must be {expected_name}")
+    for field, expected_file in SIGNED_MOBILE_FILES.items():
+        if mobile[field] != expected_file:
+            _fail(f"{mobile_path}.{field}", f"must be {expected_file}")
+    for field in (
+        "workflow_sha256",
+        "artifact_archive_sha256",
+        "build_provenance_sha256",
+        "signed_apk_sha256",
+        "signed_ipa_sha256",
+    ):
         _string(mobile[field], f"{mobile_path}.{field}", SHA64)
     mobile_hashes = {
         mobile["build_provenance_sha256"],
@@ -1034,6 +1189,8 @@ def validate_candidate_spec(data: Any, source: Path | None = None) -> dict[str, 
             "prompt_sha256",
             "fixture_revision",
             "fixture_sha256",
+            "rendered_config_sha256",
+            "ollama_endpoint_sha256",
         },
         "$.ai_release_eval_config",
     )
@@ -1047,6 +1204,16 @@ def validate_candidate_spec(data: Any, source: Path | None = None) -> dict[str, 
     _string(evaluation["prompt_sha256"], "$.ai_release_eval_config.prompt_sha256", SHA64)
     _string(evaluation["fixture_revision"], "$.ai_release_eval_config.fixture_revision", SAFE_IDENTIFIER)
     _string(evaluation["fixture_sha256"], "$.ai_release_eval_config.fixture_sha256", SHA64)
+    _string(
+        evaluation["rendered_config_sha256"],
+        "$.ai_release_eval_config.rendered_config_sha256",
+        SHA64,
+    )
+    _string(
+        evaluation["ollama_endpoint_sha256"],
+        "$.ai_release_eval_config.ollama_endpoint_sha256",
+        SHA64,
+    )
 
     environments = _object(root["environments"], "$.environments")
     _exact_keys(environments, {"staging", "production"}, "$.environments")
@@ -1132,11 +1299,20 @@ def validate_release_manifest(
         candidate_hash,
         candidate["home"]["dist_sha256"],
     )
+    if root["home_dist_artifact"]["run_attempt"] != 1:
+        _fail(
+            "$.home_dist_artifact.run_attempt",
+            "Home dist is sealable only on attempt 1; retry with a fresh dispatch",
+        )
     _require_artifact_identity(
         root["home_dist_artifact"],
         "$.home_dist_artifact",
         candidate["home"]["repository"],
-        f"{release_id}-home-dist",
+        home_dist_artifact_name(
+            release_id,
+            root["home_dist_artifact"]["workflow_run_id"],
+            root["home_dist_artifact"]["run_attempt"],
+        ),
         PRODUCER_WORKFLOWS["home-dist"],
         candidate["home"]["source_sha"],
     )
@@ -1150,11 +1326,20 @@ def validate_release_manifest(
         release_id,
         candidate_hash,
     )
+    if approval["evidence"]["run_attempt"] != 1:
+        _fail(
+            "$.analytics_privacy_approval.evidence.run_attempt",
+            "protected privacy approval requires attempt 1",
+        )
     _require_artifact_identity(
         approval["evidence"],
         "$.analytics_privacy_approval.evidence",
         "DevPathAi/documents",
-        f"{release_id}-privacy-approval",
+        privacy_approval_artifact_name(
+            release_id,
+            approval["evidence"]["workflow_run_id"],
+            approval["evidence"]["run_attempt"],
+        ),
         PRODUCER_WORKFLOWS["privacy-approval"],
         candidate["analytics_privacy"]["approval_source_sha"],
     )
@@ -1172,11 +1357,20 @@ def validate_release_manifest(
     if _number(evaluation["baseline_delta_points"], "$.ai_release_eval.baseline_delta_points") < -5:
         _fail("$.ai_release_eval.baseline_delta_points", "must not regress more than five points")
     _validate_artifact(evaluation["evidence"], "$.ai_release_eval.evidence", release_id, candidate_hash)
+    if evaluation["evidence"]["run_attempt"] != 1:
+        _fail(
+            "$.ai_release_eval.evidence.run_attempt",
+            "protected AI release evaluation requires attempt 1",
+        )
     _require_artifact_identity(
         evaluation["evidence"],
         "$.ai_release_eval.evidence",
         candidate["services"]["devpath-ai-svc"]["repository"],
-        f"{release_id}-ai-eval",
+        ai_eval_artifact_name(
+            release_id,
+            evaluation["evidence"]["workflow_run_id"],
+            evaluation["evidence"]["run_attempt"],
+        ),
         PRODUCER_WORKFLOWS["ai-release-eval"],
         candidate["services"]["devpath-ai-svc"]["source_sha"],
     )
@@ -1243,7 +1437,12 @@ def validate_release_manifest(
             )
         else:
             repository, head_sha = quality_source(candidate, label)
-            artifact_name = quality_artifact_name(label, release_id)
+            artifact_name = quality_artifact_name(
+                label,
+                release_id,
+                artifact["run_attempt"],
+                artifact["workflow_run_id"],
+            )
         _require_artifact_identity(
             artifact,
             artifact_path,
@@ -1252,6 +1451,11 @@ def validate_release_manifest(
             PRODUCER_WORKFLOWS[label],
             head_sha,
         )
+        if label in MANUAL_CATALOG_CONTRACTS and artifact["run_attempt"] != 1:
+            _fail(
+                f"{artifact_path}.run_attempt",
+                "protected manual approval is sealable only on attempt 1; retry with a fresh dispatch",
+            )
         artifacts[label] = artifact
 
     frontend_pair_fields = {
@@ -1268,6 +1472,24 @@ def validate_release_manifest(
             _fail(
                 "$.quality_evidence",
                 f"atomic frontend evidence pair {field} must match",
+            )
+
+    manual_pair_fields = {
+        "repository",
+        "event",
+        "head_sha",
+        "run_attempt",
+        "workflow_path",
+        "workflow_sha256",
+        "workflow_run_id",
+    }
+    manual_labels = tuple(MANUAL_CATALOG_CONTRACTS)
+    for field in manual_pair_fields:
+        values = {artifacts[label][field] for label in manual_labels}
+        if len(values) != 1:
+            _fail(
+                "$.quality_evidence",
+                f"atomic manual evidence trio {field} must match",
             )
 
     shared_home_fields = {
@@ -1298,6 +1520,24 @@ def validate_release_manifest(
     }
     if len(set(physical_ids.values())) != len(physical_ids):
         _fail("$.quality_evidence", "quality evidence artifacts must be distinct except Home's two manifests")
+    signed_mobile = candidate["quality_evidence_inputs"]["mobile_test_artifacts"]
+    for label, artifact in artifacts.items():
+        if (
+            artifact["repository"] == signed_mobile["repository"]
+            and artifact["artifact_id"] == signed_mobile["artifact_id"]
+        ):
+            _fail(
+                f"$.quality_evidence.{QUALITY_EVIDENCE[label]}.artifact_id",
+                "must be distinct from the prebound signed-mobile artifact ID",
+            )
+        if (
+            artifact["repository"] == signed_mobile["repository"]
+            and artifact["artifact_name"] == signed_mobile["artifact_name"]
+        ):
+            _fail(
+                f"$.quality_evidence.{QUALITY_EVIDENCE[label]}.artifact_name",
+                "must be distinct from the prebound signed-mobile artifact name",
+            )
 
     attestation = _object(root["validation_attestation"], "$.validation_attestation")
     _exact_keys(

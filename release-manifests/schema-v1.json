@@ -174,13 +174,15 @@
     },
     "aiEvalConfig": {
       "type": "object",
-      "required": ["primary_model", "fallback_models", "prompt_sha256", "fixture_revision", "fixture_sha256"],
+      "required": ["primary_model", "fallback_models", "prompt_sha256", "fixture_revision", "fixture_sha256", "rendered_config_sha256", "ollama_endpoint_sha256"],
       "properties": {
         "primary_model": {"$ref": "#/$defs/safeId"},
         "fallback_models": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/safeId"}},
         "prompt_sha256": {"$ref": "#/$defs/sha64"},
         "fixture_revision": {"$ref": "#/$defs/safeId"},
-        "fixture_sha256": {"$ref": "#/$defs/sha64"}
+        "fixture_sha256": {"$ref": "#/$defs/sha64"},
+        "rendered_config_sha256": {"$ref": "#/$defs/sha64"},
+        "ollama_endpoint_sha256": {"$ref": "#/$defs/sha64"}
       },
       "additionalProperties": false
     },
@@ -233,7 +235,7 @@
       "type": "object",
       "required": ["repository", "source_sha", "path", "sha256", "case_count", "provenance_sha256"],
       "properties": {
-        "repository": {"$ref": "#/$defs/repository"},
+        "repository": {"const": "DevPathAi/devpath-frontend"},
         "source_sha": {"$ref": "#/$defs/sha40"},
         "path": {"type": "string", "pattern": "^[A-Za-z0-9_./-]+\\.json$"},
         "sha256": {"$ref": "#/$defs/sha64"},
@@ -336,20 +338,32 @@
         "home-visual": {"$ref": "#/$defs/homeQualityCatalog"},
         "frontend-automated-a11y": {"$ref": "#/$defs/frontendAutomatedA11yCatalog"},
         "home-axe-browser-a11y": {"$ref": "#/$defs/homeQualityCatalog"},
-        "manual-nvda": {"$ref": "#/$defs/qualityCatalog"},
-        "manual-voiceover": {"$ref": "#/$defs/qualityCatalog"},
-        "manual-talkback": {"$ref": "#/$defs/qualityCatalog"}
+        "manual-nvda": {"allOf": [{"$ref": "#/$defs/qualityCatalog"}, {"properties": {"repository": {"const": "DevPathAi/devpath-frontend"}, "path": {"const": "tool/release-evidence/catalogs/manual-nvda.v1.json"}, "case_count": {"const": 2}}}]},
+        "manual-voiceover": {"allOf": [{"$ref": "#/$defs/qualityCatalog"}, {"properties": {"repository": {"const": "DevPathAi/devpath-frontend"}, "path": {"const": "tool/release-evidence/catalogs/manual-voiceover.v1.json"}, "case_count": {"const": 4}}}]},
+        "manual-talkback": {"allOf": [{"$ref": "#/$defs/qualityCatalog"}, {"properties": {"repository": {"const": "DevPathAi/devpath-frontend"}, "path": {"const": "tool/release-evidence/catalogs/manual-talkback.v1.json"}, "case_count": {"const": 4}}}]}
       },
       "additionalProperties": false
     },
     "mobileTestArtifacts": {
       "type": "object",
-      "required": ["repository", "source_sha", "build_provenance_sha256", "signed_apk_sha256", "signed_ipa_sha256"],
+      "required": ["schema_version", "repository", "source_sha", "event", "workflow_path", "workflow_sha256", "workflow_run_id", "run_attempt", "artifact_id", "artifact_name", "artifact_archive_sha256", "build_provenance_file", "build_provenance_sha256", "signed_apk_file", "signed_apk_sha256", "signed_ipa_file", "signed_ipa_sha256"],
       "properties": {
+        "schema_version": {"const": "leva.mission-spine.signed-mobile-build-binding.v1"},
         "repository": {"const": "DevPathAi/devpath-frontend"},
         "source_sha": {"$ref": "#/$defs/sha40"},
+        "event": {"const": "workflow_dispatch"},
+        "workflow_path": {"const": ".github/workflows/mission-spine-signed-mobile-build.yml"},
+        "workflow_sha256": {"$ref": "#/$defs/sha64"},
+        "workflow_run_id": {"type": "integer", "minimum": 1},
+        "run_attempt": {"const": 1},
+        "artifact_id": {"type": "integer", "minimum": 1},
+        "artifact_name": {"$ref": "#/$defs/safeId"},
+        "artifact_archive_sha256": {"$ref": "#/$defs/sha64"},
+        "build_provenance_file": {"const": "build-provenance.v1.json"},
         "build_provenance_sha256": {"$ref": "#/$defs/sha64"},
+        "signed_apk_file": {"const": "mobile/android/leva-release.apk"},
         "signed_apk_sha256": {"$ref": "#/$defs/sha64"},
+        "signed_ipa_file": {"const": "mobile/ios/leva-release.ipa"},
         "signed_ipa_sha256": {"$ref": "#/$defs/sha64"}
       },
       "additionalProperties": false
@@ -419,6 +433,36 @@
       },
       "additionalProperties": false
     },
+    "manualArtifact": {
+      "allOf": [
+        {"$ref": "#/$defs/artifact"},
+        {"properties": {"run_attempt": {"const": 1}}}
+      ]
+    },
+    "aiEvalArtifact": {
+      "allOf": [
+        {"$ref": "#/$defs/artifact"},
+        {
+          "properties": {
+            "repository": {"const": "DevPathAi/devpath-ai-svc"},
+            "run_attempt": {"const": 1},
+            "workflow_path": {"const": ".github/workflows/mission-spine-release-eval.yml"}
+          }
+        }
+      ]
+    },
+    "privacyApprovalArtifact": {
+      "allOf": [
+        {"$ref": "#/$defs/artifact"},
+        {
+          "properties": {
+            "repository": {"const": "DevPathAi/documents"},
+            "run_attempt": {"const": 1},
+            "workflow_path": {"const": ".github/workflows/mission-spine-privacy-approval.yml"}
+          }
+        }
+      ]
+    },
     "homeVisualArtifact": {
       "allOf": [
         {"$ref": "#/$defs/homeQualityArtifact"},
@@ -436,11 +480,11 @@
       "required": ["candidate_spec_sha256", "repository", "event", "head_sha", "run_attempt", "workflow_path", "workflow_sha256", "workflow_run_id", "artifact_id", "artifact_name", "evidence_file", "sha256", "payload_file", "payload_sha256"],
       "properties": {
         "candidate_spec_sha256": {"$ref": "#/$defs/sha64"},
-        "repository": {"$ref": "#/$defs/repository"},
+        "repository": {"const": "DevPathAi/devpath-home-page"},
         "event": {"const": "workflow_dispatch"},
         "head_sha": {"$ref": "#/$defs/sha40"},
-        "run_attempt": {"type": "integer", "minimum": 1},
-        "workflow_path": {"type": "string", "pattern": "^\\.github/workflows/[A-Za-z0-9_.-]+\\.ya?ml$"},
+        "run_attempt": {"const": 1},
+        "workflow_path": {"const": ".github/workflows/mission-spine-home-dist.yml"},
         "workflow_sha256": {"$ref": "#/$defs/sha64"},
         "workflow_run_id": {"type": "integer", "minimum": 1},
         "artifact_id": {"type": "integer", "minimum": 1},
@@ -466,7 +510,7 @@
       "required": ["approved_at", "evidence"],
       "properties": {
         "approved_at": {"type": "string", "format": "date-time"},
-        "evidence": {"$ref": "#/$defs/artifact"}
+        "evidence": {"$ref": "#/$defs/privacyApprovalArtifact"}
       },
       "additionalProperties": false
     },
@@ -477,7 +521,7 @@
         "hard_invariants_percent": {"const": 100},
         "usefulness_percent": {"type": "number", "minimum": 90, "maximum": 100},
         "baseline_delta_points": {"type": "number", "minimum": -5},
-        "evidence": {"$ref": "#/$defs/artifact"}
+        "evidence": {"$ref": "#/$defs/aiEvalArtifact"}
       },
       "additionalProperties": false
     },
@@ -498,9 +542,9 @@
         "home_visual": {"$ref": "#/$defs/homeVisualArtifact"},
         "frontend_automated_a11y": {"$ref": "#/$defs/artifact"},
         "home_axe_browser_a11y": {"$ref": "#/$defs/homeA11yArtifact"},
-        "manual_nvda": {"$ref": "#/$defs/artifact"},
-        "manual_voiceover": {"$ref": "#/$defs/artifact"},
-        "manual_talkback": {"$ref": "#/$defs/artifact"}
+        "manual_nvda": {"$ref": "#/$defs/manualArtifact"},
+        "manual_voiceover": {"$ref": "#/$defs/manualArtifact"},
+        "manual_talkback": {"$ref": "#/$defs/manualArtifact"}
       },
       "additionalProperties": false
     },

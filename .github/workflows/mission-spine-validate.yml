@@ -199,6 +199,14 @@ jobs:
           artifact-ids: ${{ needs.candidate-journeys.outputs.home_quality_artifact_id }}
           path: ${{ runner.temp }}/downloaded-home-quality
           merge-multiple: true
+      - name: Install exact AI release renderer
+        working-directory: gitops
+        run: |
+          set -euo pipefail
+          python scripts/release/install_pinned_kustomize.py \
+            --destination "$RUNNER_TEMP/mission-spine-kustomize"
+          echo "MISSION_SPINE_KUSTOMIZE_BIN=$RUNNER_TEMP/mission-spine-kustomize/kustomize" \
+            >> "$GITHUB_ENV"
       - name: Recheck candidate head and seal final release-manifest
         working-directory: gitops
         env:

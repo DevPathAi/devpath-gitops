@@ -18,32 +18,46 @@ from typing import Any
 from validate_release_manifest import (
     FRONTEND_CATALOG_CONTRACTS,
     FRONTEND_EVIDENCE_FILES,
+    MANUAL_CATALOG_CONTRACTS,
     PRODUCER_WORKFLOWS,
     QUALITY_EVIDENCE,
     QUALITY_EVIDENCE_EVENTS,
     QUALITY_EVIDENCE_FILES,
     SHA40,
     SHA64,
+    ai_eval_artifact_name,
+    home_dist_artifact_name,
+    privacy_approval_artifact_name,
     quality_artifact_name,
     quality_source,
     resolve_candidate_spec,
     validate_release_manifest,
 )
 from verify_release_artifacts import (
-    MAX_HOME_PAYLOAD_BYTES,
     _frontend_expected_entries,
     _workflow_bytes,
+    PROTECTED_APPROVAL_KEYS,
+    download_ai_release_eval_archive,
+    download_home_artifact_archive,
+    download_privacy_approval_archive,
+    validate_atomic_frontend_authentication,
     validate_evidence_payload,
     validate_frontend_evidence_bundle,
+    validate_home_dist_archive,
+    validate_home_master_trust,
+    validate_ai_release_eval_trust,
+    validate_manual_chronology,
+    validate_privacy_approval_trust,
     validate_run_provenance,
+    validate_workflow_dispatch_inputs,
+    verify_frontend_baseline_authentication,
+    verify_candidate_artifact,
+    verify_ai_rendered_config,
+    verify_live_protected_approval,
+    verify_manual_catalog_inputs,
+    verify_signed_mobile_artifact,
+    select_unique_protected_producer_run,
 )
-
-
-EXTERNAL_ARTIFACTS = {
-    "home_dist_artifact": ("home-dist", "DevPathAi/devpath-home-page", "home-dist", "home"),
-    "privacy": ("privacy-approval", "DevPathAi/documents", "privacy-approval", "privacy"),
-    "ai": ("ai-release-eval", "DevPathAi/devpath-ai-svc", "ai-eval", "ai"),
-}
 
 
 def _gh_json(args: list[str], env: dict[str, str]) -> dict[str, Any]:
@@ -71,6 +85,9 @@ def _discover_external_artifact(
     expected_files: list[str] | None = None,
     expected_run_id: int | None = None,
     expected_run_attempt: int | None = None,
+    frontend_authentications: dict[str, dict[str, Any]] | None = None,
+    signed_mobile_context: tuple[dict[str, Any], dict[str, Any]] | None = None,
+    payload_output: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     name = artifact_name
     listing = _gh_json(
@@ -80,6 +97,46 @@ def _discover_external_artifact(
     artifacts = [item for item in listing.get("artifacts", []) if item.get("expired") is False]
     workflow_path = PRODUCER_WORKFLOWS[label]
     workflow = _workflow_bytes(repository, workflow_path, expected_head, env)
+    if label == "home-dist":
+        validate_workflow_dispatch_inputs(
+            workflow,
+            {
+                "release_id",
+                "candidate_spec_sha256",
+                "home_source_sha",
+                "dist_sha256",
+            },
+            "home-dist",
+        )
+    elif label == "ai-release-eval":
+        validate_workflow_dispatch_inputs(
+            workflow,
+            {
+                "release_id",
+                "candidate_spec_sha256",
+                "ai_source_sha",
+                "gitops_source_sha",
+            },
+            "ai-release-eval",
+        )
+    elif label == "privacy-approval":
+        validate_workflow_dispatch_inputs(
+            workflow,
+            {"release_id", "candidate_spec_sha256", "approval_source_sha"},
+            "privacy-approval",
+        )
+    if label in MANUAL_CATALOG_CONTRACTS:
+        validate_workflow_dispatch_inputs(
+            workflow,
+            {
+                "release_id",
+                "candidate_run_id",
+                "candidate_run_attempt",
+                "candidate_artifact_id",
+                "candidate_spec_sha256",
+            },
+            "manual",
+        )
     matches: list[tuple[dict[str, Any], int, dict[str, Any]]] = []
     for metadata in artifacts:
         if metadata.get("name") != name or not isinstance(metadata.get("id"), int):
@@ -123,27 +180,56 @@ def _discover_external_artifact(
     )
 
     with tempfile.TemporaryDirectory(prefix=f"mission-spine-{label}-") as temp_dir:
-        download = subprocess.run(
-            [
-                "gh",
-                "run",
-                "download",
-                str(run_id),
-                "--repo",
+        container = Path(temp_dir)
+        if label == "home-dist":
+            root = container / "package"
+            download_home_artifact_archive(
+                env,
                 repository,
-                "--name",
-                name,
-                "--dir",
-                temp_dir,
-            ],
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-        if download.returncode != 0:
-            raise ValueError(f"{label}: artifact download failed")
-        root = Path(temp_dir)
+                metadata["id"],
+                metadata,
+                root,
+            )
+        elif label == "ai-release-eval":
+            root = container / "package"
+            download_ai_release_eval_archive(
+                env,
+                repository,
+                metadata["id"],
+                metadata,
+                root,
+            )
+        elif label == "privacy-approval":
+            root = container / "package"
+            download_privacy_approval_archive(
+                env,
+                repository,
+                metadata["id"],
+                metadata,
+                root,
+            )
+        else:
+            root = container
+            download = subprocess.run(
+                [
+                    "gh",
+                    "run",
+                    "download",
+                    str(run_id),
+                    "--repo",
+                    repository,
+                    "--name",
+                    name,
+                    "--dir",
+                    str(root),
+                ],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            if download.returncode != 0:
+                raise ValueError(f"{label}: artifact download failed")
         entries = sorted(path.relative_to(root).as_posix() for path in root.rglob("*"))
         files = expected_files or (["dist.tar.gz", "evidence.json"] if expected_payload_hash else [evidence_file])
         expected_entries = (
@@ -170,7 +256,44 @@ def _discover_external_artifact(
             run.get("run_attempt"),
         )
         if label in FRONTEND_EVIDENCE_FILES:
-            validate_frontend_evidence_bundle(label, root, payload, candidate)
+            authentication = validate_frontend_evidence_bundle(label, root, payload, candidate)
+            if frontend_authentications is not None:
+                frontend_authentications[label] = authentication
+        if label in MANUAL_CATALOG_CONTRACTS:
+            if signed_mobile_context is None:
+                raise ValueError(f"{label}: signed-mobile chronology context is required")
+            signed_provenance, signed_run = signed_mobile_context
+            validate_manual_chronology(
+                label,
+                signed_provenance,
+                signed_run,
+                run,
+                payload,
+            )
+            verify_live_protected_approval(
+                env,
+                repository,
+                run_id,
+                run.get("run_attempt"),
+                run,
+                label,
+                {field: payload[field] for field in PROTECTED_APPROVAL_KEYS},
+                expected_head,
+            )
+        if label in {"ai-release-eval", "privacy-approval"}:
+            verify_live_protected_approval(
+                env,
+                repository,
+                run_id,
+                run.get("run_attempt"),
+                run,
+                label,
+                {field: payload[field] for field in PROTECTED_APPROVAL_KEYS},
+                expected_head,
+            )
+        if payload_output is not None:
+            payload_output.clear()
+            payload_output.update(payload)
         reference = {
             "candidate_spec_sha256": candidate_hash,
             "repository": repository,
@@ -183,8 +306,7 @@ def _discover_external_artifact(
         }
         if expected_payload_hash is not None:
             payload_path = root / "dist.tar.gz"
-            if payload_path.stat().st_size > MAX_HOME_PAYLOAD_BYTES:
-                raise ValueError("home-dist: payload exceeds 100 MiB")
+            validate_home_dist_archive(payload_path)
             payload_hash = hashlib.sha256(payload_path.read_bytes()).hexdigest()
             if payload_hash != expected_payload_hash:
                 raise ValueError("home-dist: payload does not match candidate home.dist_sha256")
@@ -246,6 +368,235 @@ def list_frontend_evidence_runs(
     raise ValueError("frontend producer run query exceeded the pagination safety limit")
 
 
+def list_manual_evidence_runs(
+    env: dict[str, str],
+    repository: str,
+    expected_head: str,
+) -> list[dict[str, Any]]:
+    runs: list[dict[str, Any]] = []
+    for page in range(1, 1001):
+        listing = _gh_json(
+            [
+                "api",
+                (
+                    f"repos/{repository}/actions/runs?head_sha={expected_head}"
+                    "&event=workflow_dispatch&status=success&per_page=100"
+                    f"&page={page}"
+                ),
+            ],
+            env,
+        )
+        page_runs = listing.get("workflow_runs", [])
+        if not isinstance(page_runs, list):
+            raise ValueError("manual producer run query returned invalid JSON")
+        runs.extend(page_runs)
+        if len(page_runs) < 100:
+            return runs
+    raise ValueError("manual producer run query exceeded the pagination safety limit")
+
+
+def _list_named_artifacts(
+    env: dict[str, str],
+    repository: str,
+    artifact_name: str,
+) -> list[dict[str, Any]]:
+    artifacts: list[dict[str, Any]] = []
+    for page in range(1, 1001):
+        listing = _gh_json(
+            [
+                "api",
+                (
+                    f"repos/{repository}/actions/artifacts?name={artifact_name}"
+                    f"&per_page=100&page={page}"
+                ),
+            ],
+            env,
+        )
+        page_artifacts = listing.get("artifacts", [])
+        if not isinstance(page_artifacts, list):
+            raise ValueError("manual artifact query returned invalid JSON")
+        artifacts.extend(page_artifacts)
+        if len(page_artifacts) < 100:
+            return artifacts
+    raise ValueError("manual artifact query exceeded the pagination safety limit")
+
+
+def _discover_home_dist(
+    env: dict[str, str],
+    release_id: str,
+    candidate_hash: str,
+    candidate: dict[str, Any],
+) -> dict[str, Any]:
+    repository = candidate["home"]["repository"]
+    expected_head = candidate["home"]["source_sha"]
+    workflow_path = PRODUCER_WORKFLOWS["home-dist"]
+    selected = select_unique_protected_producer_run(
+        env,
+        repository,
+        expected_head,
+        workflow_path,
+        release_id,
+        "home-dist",
+    )
+    run_id = selected["id"]
+    branch = _gh_json(["api", f"repos/{repository}/branches/master"], env)
+    validate_home_master_trust(branch, selected, expected_head)
+    return _discover_external_artifact(
+        env,
+        "home-dist",
+        repository,
+        home_dist_artifact_name(release_id, run_id, 1),
+        candidate_hash,
+        expected_head,
+        candidate,
+        candidate["home"]["dist_sha256"],
+        expected_event="workflow_dispatch",
+        evidence_file="evidence.json",
+        expected_files=["dist.tar.gz", "evidence.json"],
+        expected_run_id=run_id,
+        expected_run_attempt=1,
+    )
+
+
+def _discover_ai_eval(
+    env: dict[str, str],
+    release_id: str,
+    candidate_hash: str,
+    candidate: dict[str, Any],
+    payload_output: dict[str, Any],
+) -> dict[str, Any]:
+    repository = candidate["services"]["devpath-ai-svc"]["repository"]
+    expected_head = candidate["services"]["devpath-ai-svc"]["source_sha"]
+    workflow_path = PRODUCER_WORKFLOWS["ai-release-eval"]
+    selected = select_unique_protected_producer_run(
+        env,
+        repository,
+        expected_head,
+        workflow_path,
+        release_id,
+        "ai-release-eval",
+    )
+    run_id = selected["id"]
+    branch = _gh_json(["api", f"repos/{repository}/branches/main"], env)
+    validate_ai_release_eval_trust(branch, selected, expected_head)
+    return _discover_external_artifact(
+        env,
+        "ai-release-eval",
+        repository,
+        ai_eval_artifact_name(release_id, run_id, 1),
+        candidate_hash,
+        expected_head,
+        candidate,
+        expected_run_id=run_id,
+        expected_run_attempt=1,
+        payload_output=payload_output,
+    )
+
+
+def _discover_privacy_approval(
+    env: dict[str, str],
+    release_id: str,
+    candidate_hash: str,
+    candidate: dict[str, Any],
+    payload_output: dict[str, Any],
+) -> dict[str, Any]:
+    repository = "DevPathAi/documents"
+    expected_head = candidate["analytics_privacy"]["approval_source_sha"]
+    workflow_path = PRODUCER_WORKFLOWS["privacy-approval"]
+    selected = select_unique_protected_producer_run(
+        env,
+        repository,
+        expected_head,
+        workflow_path,
+        release_id,
+        "privacy-approval",
+    )
+    run_id = selected["id"]
+    branch = _gh_json(["api", f"repos/{repository}/branches/main"], env)
+    validate_privacy_approval_trust(branch, selected, expected_head)
+    return _discover_external_artifact(
+        env,
+        "privacy-approval",
+        repository,
+        privacy_approval_artifact_name(release_id, run_id, 1),
+        candidate_hash,
+        expected_head,
+        candidate,
+        expected_run_id=run_id,
+        expected_run_attempt=1,
+        payload_output=payload_output,
+    )
+
+
+def _discover_manual_trio(
+    env: dict[str, str],
+    release_id: str,
+    candidate_hash: str,
+    candidate: dict[str, Any],
+    signed_mobile_context: tuple[dict[str, Any], dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    repository = candidate["frontend"]["repository"]
+    expected_head = candidate["frontend"]["source_sha"]
+    runs = list_manual_evidence_runs(env, repository, expected_head)
+    candidates: list[dict[str, Any]] = []
+    for run in runs:
+        if not (
+            run.get("status") == "completed"
+            and run.get("conclusion") == "success"
+            and run.get("event") == "workflow_dispatch"
+            and run.get("head_sha") == expected_head
+            and run.get("head_branch") == "main"
+            and run.get("path") == PRODUCER_WORKFLOWS["manual-nvda"]
+            and isinstance(run.get("id"), int)
+            and not isinstance(run.get("id"), bool)
+            and run["id"] > 0
+            and run.get("run_attempt") == 1
+        ):
+            continue
+        run_id = run["id"]
+        complete = True
+        for label in MANUAL_CATALOG_CONTRACTS:
+            name = quality_artifact_name(label, release_id, 1, run_id)
+            matches = [
+                metadata
+                for metadata in _list_named_artifacts(env, repository, name)
+                if metadata.get("name") == name
+                and metadata.get("expired") is False
+                and (metadata.get("workflow_run") or {}).get("id") == run_id
+            ]
+            if len(matches) > 1:
+                raise ValueError(f"{label}: duplicate active artifacts for one producer run")
+            if len(matches) != 1:
+                complete = False
+                break
+        if complete:
+            candidates.append(run)
+    run_ids = {run["id"] for run in candidates}
+    if len(run_ids) != 1:
+        raise ValueError("exactly one atomic manual producer run is required")
+    selected = candidates[0]
+    run_id = selected["id"]
+    discovered: dict[str, dict[str, Any]] = {}
+    for label in MANUAL_CATALOG_CONTRACTS:
+        key = QUALITY_EVIDENCE[label]
+        discovered[key] = _discover_external_artifact(
+            env,
+            label,
+            repository,
+            quality_artifact_name(label, release_id, 1, run_id),
+            candidate_hash,
+            expected_head,
+            candidate,
+            expected_event="workflow_dispatch",
+            evidence_file="evidence.json",
+            expected_files=["evidence.json"],
+            expected_run_id=run_id,
+            expected_run_attempt=1,
+            signed_mobile_context=signed_mobile_context,
+        )
+    return discovered
+
+
 def _discover_frontend_pair(
     env: dict[str, str],
     release_id: str,
@@ -259,6 +610,7 @@ def _discover_frontend_pair(
     run_id = selected["id"]
     run_attempt = selected["run_attempt"]
     discovered: dict[str, dict[str, Any]] = {}
+    authentications: dict[str, dict[str, Any]] = {}
     for label in FRONTEND_CATALOG_CONTRACTS:
         key = QUALITY_EVIDENCE[label]
         discovered[key] = _discover_external_artifact(
@@ -274,7 +626,10 @@ def _discover_frontend_pair(
             expected_files=list(FRONTEND_EVIDENCE_FILES[label]),
             expected_run_id=run_id,
             expected_run_attempt=run_attempt,
+            frontend_authentications=authentications,
         )
+    validate_atomic_frontend_authentication(authentications)
+    verify_frontend_baseline_authentication(env, authentications["frontend-visual"])
     return discovered
 
 
@@ -467,24 +822,44 @@ def seal(root: Path, args: argparse.Namespace) -> Path:
         raise ValueError("GitHub CLI is required")
     gh_env = os.environ.copy()
     gh_env["GH_TOKEN"] = token
-    source = {
-        "home": candidate["home"]["source_sha"],
-        "ai": candidate["services"]["devpath-ai-svc"]["source_sha"],
-        "frontend": candidate["frontend"]["source_sha"],
-        "privacy": candidate["analytics_privacy"]["approval_source_sha"],
-    }
-    discovered: dict[str, dict[str, Any]] = {}
-    for key, (label, repository, suffix, source_key) in EXTERNAL_ARTIFACTS.items():
-        discovered[key] = _discover_external_artifact(
+    verify_candidate_artifact(
+        gh_env,
+        args.release_id,
+        candidate,
+        candidate_path.read_bytes(),
+    )
+    verify_ai_rendered_config(root, candidate)
+    verify_manual_catalog_inputs(gh_env, candidate)
+    with tempfile.TemporaryDirectory(prefix="mission-spine-signed-mobile-") as temp_dir:
+        signed_mobile_context = verify_signed_mobile_artifact(
             gh_env,
-            label,
-            repository,
-            f"{args.release_id}-{suffix}",
-            candidate_hash,
-            source[source_key],
             candidate,
-            candidate["home"]["dist_sha256"] if key == "home_dist_artifact" else None,
+            Path(temp_dir) / "signed-mobile",
         )
+    ai_payload: dict[str, Any] = {}
+    privacy_payload: dict[str, Any] = {}
+    discovered: dict[str, dict[str, Any]] = {
+        "home_dist_artifact": _discover_home_dist(
+            gh_env,
+            args.release_id,
+            candidate_hash,
+            candidate,
+        ),
+        "ai": _discover_ai_eval(
+            gh_env,
+            args.release_id,
+            candidate_hash,
+            candidate,
+            ai_payload,
+        ),
+        "privacy": _discover_privacy_approval(
+            gh_env,
+            args.release_id,
+            candidate_hash,
+            candidate,
+            privacy_payload,
+        ),
+    }
     discovered.update(
         _discover_frontend_pair(
             gh_env,
@@ -493,12 +868,22 @@ def seal(root: Path, args: argparse.Namespace) -> Path:
             candidate,
         )
     )
+    discovered.update(
+        _discover_manual_trio(
+            gh_env,
+            args.release_id,
+            candidate_hash,
+            candidate,
+            signed_mobile_context,
+        )
+    )
     for label, key in QUALITY_EVIDENCE.items():
         if label in {
             "frontend-visual",
             "frontend-automated-a11y",
             "home-visual",
             "home-axe-browser-a11y",
+            *MANUAL_CATALOG_CONTRACTS,
         }:
             continue
         repository, source_sha = quality_source(candidate, label)
@@ -519,25 +904,7 @@ def seal(root: Path, args: argparse.Namespace) -> Path:
             ),
         )
 
-    # Approval/eval scores are sanitized metadata inside their evidence objects.
-    def evidence_json(reference: dict[str, Any]) -> dict[str, Any]:
-        repository = reference["repository"]
-        run_id = reference["workflow_run_id"]
-        name = reference["artifact_name"]
-        with tempfile.TemporaryDirectory(prefix="mission-spine-metadata-") as temp_dir:
-            result = subprocess.run(
-                ["gh", "run", "download", str(run_id), "--repo", repository, "--name", name, "--dir", temp_dir],
-                env=gh_env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
-            if result.returncode != 0:
-                raise ValueError("sanitized metadata artifact download failed")
-            return json.loads((Path(temp_dir) / "evidence.json").read_text(encoding="utf-8"))
-
-    privacy_payload = evidence_json(discovered["privacy"])
-    ai_payload = evidence_json(discovered["ai"])
+    # Approval/eval scores are sanitized metadata from the already authenticated ZIP bytes.
     external = {
         "home_dist_artifact": discovered["home_dist_artifact"],
         "privacy": {

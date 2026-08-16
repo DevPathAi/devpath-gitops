@@ -445,7 +445,7 @@ class Et13AtomicEvidenceTest(unittest.TestCase):
             "event": "workflow_dispatch",
             "head_sha": expected_head,
             "path": ".github/workflows/et13-evidence.yml",
-            "run_attempt": 2,
+            "run_attempt": 1,
         }
         page_one = [base] + [
             {**base, "id": 600 + index, "path": ".github/workflows/other.yml"}
@@ -499,6 +499,30 @@ class Et13AtomicEvidenceTest(unittest.TestCase):
         catalog_path.write_bytes(generated_raw)
         catalog_binding["sha256"] = sha256(generated_raw)
 
+        visual_catalog = candidate["quality_evidence_inputs"]["catalogs"][
+            "frontend-visual"
+        ]
+        baseline_authentication = {
+            "release_id": candidate["release_id"],
+            "repository": candidate["frontend"]["repository"],
+            "workflow_path": ".github/workflows/et13-baseline-approval.yml",
+            "workflow_sha256": "1" * 64,
+            "run_id": 7001,
+            "run_attempt": 1,
+            "head_sha": candidate["frontend"]["source_sha"],
+            "artifact_id": 8001,
+            "artifact_name": (
+                f'{candidate["release_id"]}-frontend-visual-approved-baseline-'
+                "run-7001-attempt-1"
+            ),
+            "artifact_archive_sha256": "2" * 64,
+            "approval_document_sha256": visual_catalog["baseline_approval_sha256"],
+            "approval_environment": "et13-baseline-approval",
+            "approval_environment_id": 9001,
+            "approved_by_id": 10001,
+            "approved_by": "et13-reviewer",
+            "approval_effective_at": "2099-01-01T00:00:00Z",
+        }
         provenance_inputs = {
             "schema_version": "leva.et13.input-provenance.v1",
             "kind": lane["kind"],
@@ -510,6 +534,7 @@ class Et13AtomicEvidenceTest(unittest.TestCase):
             "renderer_lock_sha256": "9" * 64,
             "renderer_image_digest": "sha256:" + "a" * 64,
             "build_marker_sha256": "b" * 64,
+            "baseline_authentication": baseline_authentication,
         }
         provenance = {
             **provenance_inputs,
@@ -730,6 +755,38 @@ class Et13AtomicEvidenceTest(unittest.TestCase):
             payload["input_provenance_file_sha256"] = sha256(raw)
             (root / "evidence.json").write_bytes(raw_json(payload))
             with self.assertRaisesRegex(ValueError, "canonical or raw input provenance"):
+                self.verifier.validate_frontend_evidence_bundle(
+                    "frontend-visual", root, payload, candidate
+                )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            candidate, payload, _, provenance, _ = self._write_bundle(
+                root, "frontend-visual"
+            )
+            provenance["baseline_authentication"] = None
+            provenance["input_provenance_sha256"] = canonical_sha(
+                {
+                    key: value
+                    for key, value in provenance.items()
+                    if key != "input_provenance_sha256"
+                }
+            )
+            raw = raw_json(provenance)
+            (root / "artifacts/et13/provenance.v1.json").write_bytes(raw)
+            catalog = candidate["quality_evidence_inputs"]["catalogs"][
+                "frontend-visual"
+            ]
+            catalog["input_provenance_sha256"] = provenance[
+                "input_provenance_sha256"
+            ]
+            catalog["input_provenance_file_sha256"] = sha256(raw)
+            payload["input_provenance_sha256"] = provenance[
+                "input_provenance_sha256"
+            ]
+            payload["input_provenance_file_sha256"] = sha256(raw)
+            (root / "evidence.json").write_bytes(raw_json(payload))
+            with self.assertRaisesRegex(ValueError, "baseline authentication"):
                 self.verifier.validate_frontend_evidence_bundle(
                     "frontend-visual", root, payload, candidate
                 )

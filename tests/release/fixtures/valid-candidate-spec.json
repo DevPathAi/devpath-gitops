@@ -14,13 +14,13 @@
   "services": {
     "devpath-admin": {
       "repository": "DevPathAi/devpath-frontend",
-      "source_sha": "a2c419cadb8d50095728e4e9613273f89ede5314",
+      "source_sha": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
       "image_repository": "ghcr.io/devpathai/devpath-admin",
       "image_digest": "sha256:1010101010101010101010101010101010101010101010101010101010101010"
     },
     "devpath-ai-svc": {
       "repository": "DevPathAi/devpath-ai-svc",
-      "source_sha": "47adf75283a9a8ba75a93a51bf76113a1d8315a1",
+      "source_sha": "b7203bcb000edfc0030f77a4c05dd8e1a83f7ce6",
       "image_repository": "ghcr.io/devpathai/devpath-ai-svc",
       "image_digest": "sha256:2020202020202020202020202020202020202020202020202020202020202020"
     },
@@ -80,16 +80,16 @@
   },
   "frontend": {
     "repository": "DevPathAi/devpath-frontend",
-    "source_sha": "a2c419cadb8d50095728e4e9613273f89ede5314",
+    "source_sha": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
     "app_version": "ms-20990101-contract-fixture",
     "analytics_contract_version": "mission-spine.analytics.v1",
     "flag_contract_version": "mission-spine.flag.v1",
     "mission_off": {
-      "tag": "a2c419cadb8d50095728e4e9613273f89ede5314-mission-off",
+      "tag": "dbc1cc9010dea56471e8eec462a0c52cee946d15-mission-off",
       "image_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     },
     "mission_on": {
-      "tag": "a2c419cadb8d50095728e4e9613273f89ede5314-mission-on",
+      "tag": "dbc1cc9010dea56471e8eec462a0c52cee946d15-mission-on",
       "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     },
     "selected_on_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -101,8 +101,8 @@
   },
   "home": {
     "repository": "DevPathAi/devpath-home-page",
-    "source_sha": "b130d7e58c5b3e96a64f729d4aa02dbab5d991aa",
-    "dist_sha256": "dededededededededededededededededededededededededededededededede",
+    "source_sha": "dc5f37cb495f99cdfd43c6957db9958ddad7def7",
+    "dist_sha256": "a900d0d63bdb996e7c32d99e4874c6d4f92429089872d76e90a8e46feafd46dc",
     "cloudflare_account_id": "0123456789abcdef0123456789abcdef",
     "cloudflare_project": "devpath-home-page",
     "candidate_deployment_id": "11111111-1111-1111-1111-111111111111",
@@ -110,7 +110,7 @@
   },
   "analytics_privacy": {
     "collection_mode": "explicit-consent",
-    "approval_source_sha": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "approval_source_sha": "9dc2abb0cd0a1d3ba09c18884f3c5798bdf30de1",
     "region": "EU",
     "project_identity": "posthog-eu-mission-spine",
     "retention_days": 90,
@@ -118,11 +118,13 @@
     "deletion_runbook": "documents/privacy/posthog-deletion-v1"
   },
   "ai_release_eval_config": {
-    "primary_model": "claude-sonnet-release",
-    "fallback_models": ["qwen-release-fallback"],
-    "prompt_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
-    "fixture_revision": "mentor-eval.v1",
-    "fixture_sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+    "primary_model": "qwen2.5:3b",
+    "fallback_models": ["claude-sonnet-4-6"],
+    "prompt_sha256": "6f0e9042e3c5a37602ac08a632992f34563e80885684d5349dcc0c9f9e53fab5",
+    "fixture_revision": "mentor-golden-v2",
+    "fixture_sha256": "e90cec1236e07f324d7348a7e9c9e72401c7f0a3b8de3909d79f96615121eb8c",
+    "rendered_config_sha256": "697bd9595008b07d736df1d7166986feb48afb404372f19cbfc8fce84a3f1e40",
+    "ollama_endpoint_sha256": "4646464646464646464646464646464646464646464646464646464646464646"
   },
   "environments": {
     "staging": {
@@ -165,9 +167,9 @@
     "catalogs": {
       "frontend-visual": {
         "repository": "DevPathAi/devpath-frontend",
-        "source_sha": "a2c419cadb8d50095728e4e9613273f89ede5314",
+        "source_sha": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
         "path": "evidence/et13/generated/visual-cases.v1.json",
-        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sha256": "1f21427cec099ba1d5465d0207fd3f8261084d1e69d94827f02fa44341272e1b",
         "case_catalog_version": "leva.et13.catalog.v1",
         "case_catalog_schema_version": "leva.et13.visual-cases.v1",
         "projection_contract_sha256": "c66d08b6425628a06b27d07e08d648cfb3568d9db7c8d8aca2371172ccf4bde3",
@@ -198,7 +200,7 @@
       },
       "home-visual": {
         "repository": "DevPathAi/devpath-home-page",
-        "source_sha": "b130d7e58c5b3e96a64f729d4aa02dbab5d991aa",
+        "source_sha": "dc5f37cb495f99cdfd43c6957db9958ddad7def7",
         "rendered_product_sha": "084ab218698b0411f9bdea7c7c32c45fce87fd18",
         "rendered_product_tree_sha256": "64e51e148bde2962f1abdd06feffb2745fe062d47e6efbc9608c618fe9835368",
         "path": "e2e/visual/case-catalog.v2.json",
@@ -209,9 +211,9 @@
       },
       "frontend-automated-a11y": {
         "repository": "DevPathAi/devpath-frontend",
-        "source_sha": "a2c419cadb8d50095728e4e9613273f89ede5314",
+        "source_sha": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
         "path": "evidence/et13/generated/a11y-cases.v1.json",
-        "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "sha256": "2a76815be997178a6eeb9d54eb609a998fec33538803fd94e44127bdf390897c",
         "case_catalog_version": "leva.et13.catalog.v1",
         "case_catalog_schema_version": "leva.et13.a11y-cases.v1",
         "projection_contract_sha256": "c66d08b6425628a06b27d07e08d648cfb3568d9db7c8d8aca2371172ccf4bde3",
@@ -239,7 +241,7 @@
       },
       "home-axe-browser-a11y": {
         "repository": "DevPathAi/devpath-home-page",
-        "source_sha": "b130d7e58c5b3e96a64f729d4aa02dbab5d991aa",
+        "source_sha": "dc5f37cb495f99cdfd43c6957db9958ddad7def7",
         "rendered_product_sha": "084ab218698b0411f9bdea7c7c32c45fce87fd18",
         "rendered_product_tree_sha256": "64e51e148bde2962f1abdd06feffb2745fe062d47e6efbc9608c618fe9835368",
         "path": "e2e/visual/case-catalog.v2.json",
@@ -250,27 +252,27 @@
       },
       "manual-nvda": {
         "repository": "DevPathAi/devpath-frontend",
-        "source_sha": "a2c419cadb8d50095728e4e9613273f89ede5314",
+        "source_sha": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
         "path": "tool/release-evidence/catalogs/manual-nvda.v1.json",
-        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "sha256": "f900678464064d0f481ab736d682fea1587622fb633ab19d5f7566cdc47974e2",
         "case_count": 2,
-        "provenance_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+        "provenance_sha256": "954f95400dfba2122844367cd3eacaa5062a7767957181260ca4f219a5e106bb"
       },
       "manual-voiceover": {
         "repository": "DevPathAi/devpath-frontend",
-        "source_sha": "a2c419cadb8d50095728e4e9613273f89ede5314",
+        "source_sha": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
         "path": "tool/release-evidence/catalogs/manual-voiceover.v1.json",
-        "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "sha256": "c988e9ffda573b303e973b763861dacce166977064bc583e541029b4a557cd2e",
         "case_count": 4,
-        "provenance_sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+        "provenance_sha256": "7930d9745f6be745949f53fd49d0a7a57942005a8ed552c167a51e82eb4ce5f3"
       },
       "manual-talkback": {
         "repository": "DevPathAi/devpath-frontend",
-        "source_sha": "a2c419cadb8d50095728e4e9613273f89ede5314",
+        "source_sha": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
         "path": "tool/release-evidence/catalogs/manual-talkback.v1.json",
-        "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "sha256": "449088fd119b6c8c4a247f0cf8019580da7aee6351c1e88394a61a318c3d2244",
         "case_count": 4,
-        "provenance_sha256": "5555555555555555555555555555555555555555555555555555555555555555"
+        "provenance_sha256": "905ed4794991e9e16872fc08090f158cd50ab93e892d58398d63f785d112ef51"
       }
     },
     "frontend_projection_contract": {
@@ -380,10 +382,22 @@
       ]
     },
     "mobile_test_artifacts": {
+      "schema_version": "leva.mission-spine.signed-mobile-build-binding.v1",
       "repository": "DevPathAi/devpath-frontend",
-      "source_sha": "a2c419cadb8d50095728e4e9613273f89ede5314",
+      "source_sha": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
+      "event": "workflow_dispatch",
+      "workflow_path": ".github/workflows/mission-spine-signed-mobile-build.yml",
+      "workflow_sha256": "35dd62bd6ac4efba41b67347d6aa0fc7efc87c3a6f8a19d8a60c381530fb1c56",
+      "workflow_run_id": 110,
+      "run_attempt": 1,
+      "artifact_id": 212,
+      "artifact_name": "ms-20990101-contract-fixture-signed-mobile-build-run-110-attempt-1",
+      "artifact_archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "build_provenance_file": "build-provenance.v1.json",
       "build_provenance_sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+      "signed_apk_file": "mobile/android/leva-release.apk",
       "signed_apk_sha256": "7777777777777777777777777777777777777777777777777777777777777777",
+      "signed_ipa_file": "mobile/ios/leva-release.ipa",
       "signed_ipa_sha256": "8888888888888888888888888888888888888888888888888888888888888888"
     }
   },

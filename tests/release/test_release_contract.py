@@ -248,6 +248,11 @@ class ReleaseManifestContractTest(unittest.TestCase):
             releases.mkdir(parents=True)
             candidate_data = copy.deepcopy(self.candidate)
             candidate_data["release_id"] = "ms-20990101-other"
+            mobile = candidate_data["quality_evidence_inputs"]["mobile_test_artifacts"]
+            mobile["artifact_name"] = (
+                f'{candidate_data["release_id"]}-signed-mobile-build-run-'
+                f'{mobile["workflow_run_id"]}-attempt-{mobile["run_attempt"]}'
+            )
             candidate_path = candidates / "ms-20990101-contract-fixture.candidate-spec.json"
             candidate_path.write_text(json.dumps(candidate_data), encoding="utf-8")
             release_data = copy.deepcopy(self.release)

@@ -35,7 +35,7 @@ class CandidateArtifactWorkflowTest(unittest.TestCase):
             'test "$GITHUB_EVENT_NAME" = "workflow_dispatch"',
             'test "$GITHUB_REPOSITORY" = "DevPathAi/devpath-gitops"',
             'test "$GITHUB_REF_TYPE" = "branch"',
-            'test "$GITHUB_REF_NAME" != "main"',
+            'test "$GITHUB_REF_NAME" = "release/candidate-$RELEASE_ID"',
             'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"',
             "--candidate-id \"$RELEASE_ID\"",
             "--emit-github-output \"$GITHUB_OUTPUT\"",

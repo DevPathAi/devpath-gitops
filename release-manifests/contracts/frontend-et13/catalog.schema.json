@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://leva.ai.kr/schemas/et13/catalog.v1.json",
+  "title": "Leva ET13 production evidence catalog v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "fixtures",
+    "projection_contract_version",
+    "projection_matrix",
+    "projection_contract_sha256",
+    "visual_matrix",
+    "a11y_matrix",
+    "baseline_status"
+  ],
+  "properties": {
+    "schema_version": {"const": "leva.et13.catalog.v1"},
+    "fixtures": {
+      "type": "array",
+      "minItems": 12,
+      "maxItems": 12,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/fixture"}
+    },
+    "projection_contract_version": {
+      "const": "leva.et13.projection-contract.v1"
+    },
+    "projection_matrix": {
+      "type": "array",
+      "minItems": 12,
+      "maxItems": 12,
+      "items": {"$ref": "#/$defs/projectionRow"}
+    },
+    "projection_contract_sha256": {
+      "const": "c66d08b6425628a06b27d07e08d648cfb3568d9db7c8d8aca2371172ccf4bde3"
+    },
+    "visual_matrix": {"$ref": "#/$defs/visualMatrix"},
+    "a11y_matrix": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        {
+          "const": {
+            "width": 320,
+            "theme": "light",
+            "text_scale_percent": 200
+          }
+        },
+        {
+          "const": {
+            "width": 1240,
+            "theme": "dark",
+            "text_scale_percent": 200
+          }
+        }
+      ],
+      "items": false
+    },
+    "baseline_status": {"const": "pending_external_review"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "owner",
+        "distribution",
+        "route",
+        "ready_semantics_label",
+        "surface_label",
+        "capture_scope",
+        "source_widget",
+        "substitutions"
+      ],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+        "owner": {"enum": ["web", "admin", "mobile", "dp_design"]},
+        "distribution": {"enum": ["web", "admin", "mobile"]},
+        "route": {"type": "string", "pattern": "^/\\?fixture=[a-z0-9-]+$"},
+        "ready_semantics_label": {"type": "string", "pattern": "^ET13_READY:[a-z0-9-]+$"},
+        "surface_label": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+        "capture_scope": {
+          "enum": ["full_route", "body_projection", "component_projection"]
+        },
+        "source_widget": {"type": "string", "minLength": 1},
+        "substitutions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "projectionRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fixture_id",
+        "capture_scope",
+        "source_widget",
+        "substitutions"
+      ],
+      "properties": {
+        "fixture_id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+        "capture_scope": {
+          "enum": ["full_route", "body_projection", "component_projection"]
+        },
+        "source_widget": {"type": "string", "minLength": 1},
+        "substitutions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "visualMatrix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "widths",
+        "themes",
+        "height",
+        "device_pixel_ratio",
+        "text_scale_percent",
+        "locale",
+        "timezone",
+        "reduced_motion"
+      ],
+      "properties": {
+        "widths": {"const": [320, 600, 840, 1240]},
+        "themes": {"const": ["light", "dark"]},
+        "height": {"const": 900},
+        "device_pixel_ratio": {"const": 1},
+        "text_scale_percent": {"const": 100},
+        "locale": {"const": "ko-KR"},
+        "timezone": {"const": "UTC"},
+        "reduced_motion": {"const": true}
+      }
+    }
+  }
+}

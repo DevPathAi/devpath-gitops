@@ -359,6 +359,7 @@ class ReleaseHardeningTest(unittest.TestCase):
                 "candidate_spec_sha256": self.candidate_hash,
                 "status": "passed",
                 **producer,
+                "producer_run_attempt": 1,
                 "home_source_sha": self.candidate["home"]["source_sha"],
                 "dist_sha256": self.candidate["home"]["dist_sha256"],
             },
@@ -366,6 +367,7 @@ class ReleaseHardeningTest(unittest.TestCase):
                 "candidate_spec_sha256": self.candidate_hash,
                 "status": "passed",
                 **producer,
+                "producer_run_attempt": 1,
                 "approved_at": "2098-12-31T00:00:00Z",
                 **{
                     key: self.candidate["analytics_privacy"][key]
@@ -374,6 +376,12 @@ class ReleaseHardeningTest(unittest.TestCase):
                         "access_owner", "deletion_runbook",
                     )
                 },
+                "approval_environment": "mission-spine-privacy-approval",
+                "approval_environment_id": 7001,
+                "approval_job_name": "Approve analytics privacy release",
+                "approved_by": "release-reviewer",
+                "approved_by_id": 7002,
+                "approval_effective_at": "2098-12-31T00:00:00Z",
             },
             "frontend-automated-a11y": {
                 "candidate_spec_sha256": self.candidate_hash,
@@ -416,14 +424,15 @@ class ReleaseHardeningTest(unittest.TestCase):
             },
         }
         for label, payload in exact_payloads.items():
+            attempt = 1 if label in {"home-dist", "privacy-approval"} else 3
             self.artifacts.validate_evidence_payload(
-                label, payload, self.candidate_hash, self.candidate, 501, 3
+                label, payload, self.candidate_hash, self.candidate, 501, attempt
             )
             invalid = copy.deepcopy(payload)
             invalid["detail"] = "free-form material"
             with self.assertRaisesRegex(ValueError, "key set", msg=label):
                 self.artifacts.validate_evidence_payload(
-                    label, invalid, self.candidate_hash, self.candidate, 501, 3
+                    label, invalid, self.candidate_hash, self.candidate, 501, attempt
                 )
 
     def test_journey_execution_job_is_read_only_and_separate_from_write_seal(self):
@@ -616,8 +625,8 @@ class ReleaseHardeningTest(unittest.TestCase):
 
     def test_canonical_composed_source_pins_are_bound_in_candidate_fixture(self):
         expected = {
-            "devpath-admin": "a2c419cadb8d50095728e4e9613273f89ede5314",
-            "devpath-ai-svc": "47adf75283a9a8ba75a93a51bf76113a1d8315a1",
+            "devpath-admin": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
+            "devpath-ai-svc": "b7203bcb000edfc0030f77a4c05dd8e1a83f7ce6",
             "devpath-community-svc": "d8bdff0df558e212a4974731d4614c4b626e3264",
             "devpath-gateway": "f55add639992fbe45fcc17adc210eb8e92277885",
             "devpath-lcs-svc": "077a34a5aa0a8e09a0932887b1444fd725f32824",
@@ -644,11 +653,11 @@ class ReleaseHardeningTest(unittest.TestCase):
         )
         self.assertEqual(
             self.candidate["frontend"]["source_sha"],
-            "a2c419cadb8d50095728e4e9613273f89ede5314",
+            "dbc1cc9010dea56471e8eec462a0c52cee946d15",
         )
         self.assertEqual(
             self.candidate["home"]["source_sha"],
-            "b130d7e58c5b3e96a64f729d4aa02dbab5d991aa",
+            "dc5f37cb495f99cdfd43c6957db9958ddad7def7",
         )
 
 

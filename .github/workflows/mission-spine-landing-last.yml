@@ -110,6 +110,13 @@ jobs:
           set -euo pipefail
           gh api "repos/${GITHUB_REPOSITORY}/environments/${ENVIRONMENT_NAME}" \
             | jq -e '[.protection_rules[]? | select(.type == "required_reviewers" and .prevent_self_review == true and ((.reviewers // []) | length > 0))] | length == 1' >/dev/null
+      - name: Install exact AI release renderer
+        run: |
+          set -euo pipefail
+          python scripts/release/install_pinned_kustomize.py \
+            --destination "$RUNNER_TEMP/mission-spine-kustomize"
+          echo "MISSION_SPINE_KUSTOMIZE_BIN=$RUNNER_TEMP/mission-spine-kustomize/kustomize" \
+            >> "$GITHUB_ENV"
       - name: Resolve sealed release and materialize exact Home dist
         id: release
         env:
