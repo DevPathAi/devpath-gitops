@@ -166,9 +166,27 @@
       "frontend-visual": {
         "repository": "DevPathAi/devpath-frontend",
         "source_sha": "a2c419cadb8d50095728e4e9613273f89ede5314",
-        "path": "tool/release-evidence/catalogs/frontend-visual.v1.json",
+        "path": "evidence/et13/generated/visual-cases.v1.json",
         "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "case_catalog_version": "leva.et13.visual-cases.v1",
+        "fixture_ids": [
+          "web-today-available",
+          "web-path-current-week",
+          "web-content-reading",
+          "web-workspace-idle",
+          "web-review-loaded",
+          "web-mentor-context-preview",
+          "admin-kpi-dashboard",
+          "admin-support-long-wire",
+          "mobile-today-available",
+          "mobile-content-reading",
+          "dp-design-mission-ledger",
+          "dp-design-context-payload-preview"
+        ],
         "case_count": 96,
+        "surface_case_counts": {"web": 48, "admin": 16, "mobile": 16, "dp_design": 16},
+        "capture_surface": "flutter_web_release_projection",
+        "device_evidence": false,
         "provenance_sha256": "1111111111111111111111111111111111111111111111111111111111111111"
       },
       "home-visual": {
@@ -185,9 +203,27 @@
       "frontend-automated-a11y": {
         "repository": "DevPathAi/devpath-frontend",
         "source_sha": "a2c419cadb8d50095728e4e9613273f89ede5314",
-        "path": "tool/release-evidence/catalogs/frontend-automated-a11y.v1.json",
+        "path": "evidence/et13/generated/a11y-cases.v1.json",
         "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "case_catalog_version": "leva.et13.a11y-cases.v1",
+        "fixture_ids": [
+          "web-today-available",
+          "web-path-current-week",
+          "web-content-reading",
+          "web-workspace-idle",
+          "web-review-loaded",
+          "web-mentor-context-preview",
+          "admin-kpi-dashboard",
+          "admin-support-long-wire",
+          "mobile-today-available",
+          "mobile-content-reading",
+          "dp-design-mission-ledger",
+          "dp-design-context-payload-preview"
+        ],
         "case_count": 24,
+        "surface_case_counts": {"web": 12, "admin": 4, "mobile": 4, "dp_design": 4},
+        "capture_surface": "flutter_web_release_projection",
+        "device_evidence": false,
         "provenance_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
       },
       "home-axe-browser-a11y": {

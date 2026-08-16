@@ -318,6 +318,10 @@ class ReleaseHardeningTest(unittest.TestCase):
             "repository": self.candidate["frontend"]["repository"],
             "source_sha": self.candidate["frontend"]["source_sha"],
             "case_catalog_sha256": self.candidate["quality_evidence_inputs"]["catalogs"]["frontend-visual"]["sha256"],
+            "case_catalog_version": self.candidate["quality_evidence_inputs"]["catalogs"]["frontend-visual"]["case_catalog_version"],
+            "fixture_ids": self.candidate["quality_evidence_inputs"]["catalogs"]["frontend-visual"]["fixture_ids"],
+            "capture_surface": "flutter_web_release_projection",
+            "device_evidence": False,
             "case_count": 96,
             "passed_case_count": 96,
             "failed_case_count": 0,
@@ -370,6 +374,14 @@ class ReleaseHardeningTest(unittest.TestCase):
                 "case_catalog_sha256": self.candidate["quality_evidence_inputs"][
                     "catalogs"
                 ]["frontend-automated-a11y"]["sha256"],
+                "case_catalog_version": self.candidate["quality_evidence_inputs"][
+                    "catalogs"
+                ]["frontend-automated-a11y"]["case_catalog_version"],
+                "fixture_ids": self.candidate["quality_evidence_inputs"]["catalogs"][
+                    "frontend-automated-a11y"
+                ]["fixture_ids"],
+                "capture_surface": "flutter_web_release_projection",
+                "device_evidence": False,
                 "case_count": 24,
                 "passed_case_count": 24,
                 "failed_case_count": 0,

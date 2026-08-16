@@ -17,6 +17,8 @@ import tempfile
 from typing import Any
 
 from validate_release_manifest import (
+    FRONTEND_CATALOG_CONTRACTS,
+    FRONTEND_FIXTURE_IDS,
     PRODUCER_WORKFLOWS,
     QUALITY_EVIDENCE,
     SHA64,
@@ -140,6 +142,12 @@ def _validate_surface_counts(value: Any, case_count: int, label: str) -> None:
     parsed = [_positive_int(count, f"{label} surface {surface}") for surface, count in counts.items()]
     if sum(parsed) != case_count:
         raise ValueError(f"{label} surface counts must sum to the exact catalog count")
+    expected = FRONTEND_CATALOG_CONTRACTS.get(label)
+    if expected is not None and (
+        case_count != expected["case_count"]
+        or counts != expected["surface_case_counts"]
+    ):
+        raise ValueError(f"{label} must match the exact approved frontend surface counts")
 
 
 def _canonical_sha256(value: Any) -> str:
@@ -438,10 +446,16 @@ def validate_evidence_payload(
         }
         extras: set[str]
         if label == "frontend-visual":
-            extras = {"surface_case_counts", "render_provenance_sha256", "pixel_diff_percent"}
+            extras = {
+                "case_catalog_version", "fixture_ids", "surface_case_counts",
+                "capture_surface", "device_evidence",
+                "render_provenance_sha256", "pixel_diff_percent",
+            }
         elif label == "frontend-automated-a11y":
             extras = {
-                "surface_case_counts", "test_provenance_sha256", "standard",
+                "case_catalog_version", "fixture_ids", "surface_case_counts",
+                "capture_surface", "device_evidence",
+                "test_provenance_sha256", "standard",
                 "critical_violations", "serious_violations",
             }
         elif label == "manual-nvda":
@@ -468,10 +482,28 @@ def validate_evidence_payload(
             raise ValueError(f"{label} case catalog hash mismatch")
         _validate_quality_counts(value, catalog, label)
 
+        # Frontend release evidence binds pre-run inputs only. Post-run manifest and
+        # artifact-set hashes stay in the producer's separate detailed artifact.
         provenance_field = "render_provenance_sha256" if label == "frontend-visual" else "test_provenance_sha256"
         if value[provenance_field] != catalog["provenance_sha256"]:
             raise ValueError(f"{label} {provenance_field} mismatch")
         if label in {"frontend-visual", "frontend-automated-a11y"}:
+            if (
+                value["case_catalog_version"] != catalog["case_catalog_version"]
+                or value["fixture_ids"] != catalog["fixture_ids"]
+                or value["fixture_ids"] != list(FRONTEND_FIXTURE_IDS)
+            ):
+                raise ValueError(f"{label} must bind the exact approved frontend catalog order")
+            expected = FRONTEND_CATALOG_CONTRACTS[label]
+            if (
+                value["capture_surface"] != expected["capture_surface"]
+                or value["device_evidence"] is not expected["device_evidence"]
+                or value["capture_surface"] != catalog["capture_surface"]
+                or value["device_evidence"] is not catalog["device_evidence"]
+            ):
+                raise ValueError(
+                    f"{label} is Flutter-web projection evidence, not native device evidence"
+                )
             _validate_surface_counts(value["surface_case_counts"], value["case_count"], label)
         if label == "frontend-visual":
             if _bounded_number(value["pixel_diff_percent"], "frontend visual pixel diff", 0, 0) != 0:

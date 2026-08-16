@@ -69,6 +69,40 @@ QUALITY_EVIDENCE_EVENTS = {
     label: "workflow_dispatch" for label in QUALITY_EVIDENCE_LABELS
 }
 
+FRONTEND_FIXTURE_IDS = (
+    "web-today-available",
+    "web-path-current-week",
+    "web-content-reading",
+    "web-workspace-idle",
+    "web-review-loaded",
+    "web-mentor-context-preview",
+    "admin-kpi-dashboard",
+    "admin-support-long-wire",
+    "mobile-today-available",
+    "mobile-content-reading",
+    "dp-design-mission-ledger",
+    "dp-design-context-payload-preview",
+)
+
+FRONTEND_CATALOG_CONTRACTS = {
+    "frontend-visual": {
+        "path": "evidence/et13/generated/visual-cases.v1.json",
+        "case_catalog_version": "leva.et13.visual-cases.v1",
+        "case_count": 96,
+        "surface_case_counts": {"web": 48, "admin": 16, "mobile": 16, "dp_design": 16},
+        "capture_surface": "flutter_web_release_projection",
+        "device_evidence": False,
+    },
+    "frontend-automated-a11y": {
+        "path": "evidence/et13/generated/a11y-cases.v1.json",
+        "case_catalog_version": "leva.et13.a11y-cases.v1",
+        "case_count": 24,
+        "surface_case_counts": {"web": 12, "admin": 4, "mobile": 4, "dp_design": 4},
+        "capture_surface": "flutter_web_release_projection",
+        "device_evidence": False,
+    },
+}
+
 REQUIRED_SERVICES = {
     "devpath-admin",
     "devpath-ai-svc",
@@ -474,6 +508,14 @@ def _validate_quality_evidence_inputs(value: Any, candidate: dict[str, Any]) -> 
             "case_count",
             "provenance_sha256",
         }
+        if label in FRONTEND_CATALOG_CONTRACTS:
+            fields |= {
+                "case_catalog_version",
+                "capture_surface",
+                "device_evidence",
+                "fixture_ids",
+                "surface_case_counts",
+            }
         if label in {"home-visual", "home-axe-browser-a11y"}:
             fields |= {
                 "rendered_product_sha",
@@ -493,6 +535,28 @@ def _validate_quality_evidence_inputs(value: Any, candidate: dict[str, Any]) -> 
         relative = Path(_string(catalog["path"], f"{catalog_path}.path"))
         if relative.is_absolute() or ".." in relative.parts or relative.suffix != ".json":
             _fail(f"{catalog_path}.path", "must be a safe repository-relative JSON path")
+        if label in FRONTEND_CATALOG_CONTRACTS:
+            expected = FRONTEND_CATALOG_CONTRACTS[label]
+            exact = {
+                "path": catalog["path"],
+                "case_catalog_version": catalog["case_catalog_version"],
+                "capture_surface": catalog["capture_surface"],
+                "device_evidence": catalog["device_evidence"],
+                "fixture_ids": catalog["fixture_ids"],
+                "case_count": catalog["case_count"],
+                "surface_case_counts": catalog["surface_case_counts"],
+            }
+            expected_exact = {
+                "path": expected["path"],
+                "case_catalog_version": expected["case_catalog_version"],
+                "capture_surface": expected["capture_surface"],
+                "device_evidence": expected["device_evidence"],
+                "fixture_ids": list(FRONTEND_FIXTURE_IDS),
+                "case_count": expected["case_count"],
+                "surface_case_counts": expected["surface_case_counts"],
+            }
+            if exact != expected_exact:
+                _fail(catalog_path, "must match the exact approved frontend catalog contract")
         if (
             label in {"home-visual", "home-axe-browser-a11y"}
             and catalog["path"] != "e2e/visual/case-catalog.v2.json"

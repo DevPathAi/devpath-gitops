@@ -238,7 +238,43 @@
         "path": {"type": "string", "pattern": "^[A-Za-z0-9_./-]+\\.json$"},
         "sha256": {"$ref": "#/$defs/sha64"},
         "case_count": {"type": "integer", "minimum": 1},
-        "provenance_sha256": {"$ref": "#/$defs/sha64"}
+        "provenance_sha256": {"$ref": "#/$defs/sha64", "description": "Precomputable producer input-provenance digest; never a post-run result-manifest or artifact-set digest."}
+      },
+      "additionalProperties": false
+    },
+    "frontendVisualCatalog": {
+      "type": "object",
+      "required": ["repository", "source_sha", "path", "sha256", "case_catalog_version", "fixture_ids", "case_count", "surface_case_counts", "capture_surface", "device_evidence", "provenance_sha256"],
+      "properties": {
+        "repository": {"const": "DevPathAi/devpath-frontend"},
+        "source_sha": {"$ref": "#/$defs/sha40"},
+        "path": {"const": "evidence/et13/generated/visual-cases.v1.json"},
+        "sha256": {"$ref": "#/$defs/sha64"},
+        "case_catalog_version": {"const": "leva.et13.visual-cases.v1"},
+        "fixture_ids": {"const": ["web-today-available", "web-path-current-week", "web-content-reading", "web-workspace-idle", "web-review-loaded", "web-mentor-context-preview", "admin-kpi-dashboard", "admin-support-long-wire", "mobile-today-available", "mobile-content-reading", "dp-design-mission-ledger", "dp-design-context-payload-preview"]},
+        "case_count": {"const": 96},
+        "surface_case_counts": {"const": {"web": 48, "admin": 16, "mobile": 16, "dp_design": 16}},
+        "capture_surface": {"const": "flutter_web_release_projection"},
+        "device_evidence": {"const": false},
+        "provenance_sha256": {"$ref": "#/$defs/sha64", "description": "Precomputable producer input-provenance digest; never a post-run result-manifest or artifact-set digest."}
+      },
+      "additionalProperties": false
+    },
+    "frontendAutomatedA11yCatalog": {
+      "type": "object",
+      "required": ["repository", "source_sha", "path", "sha256", "case_catalog_version", "fixture_ids", "case_count", "surface_case_counts", "capture_surface", "device_evidence", "provenance_sha256"],
+      "properties": {
+        "repository": {"const": "DevPathAi/devpath-frontend"},
+        "source_sha": {"$ref": "#/$defs/sha40"},
+        "path": {"const": "evidence/et13/generated/a11y-cases.v1.json"},
+        "sha256": {"$ref": "#/$defs/sha64"},
+        "case_catalog_version": {"const": "leva.et13.a11y-cases.v1"},
+        "fixture_ids": {"const": ["web-today-available", "web-path-current-week", "web-content-reading", "web-workspace-idle", "web-review-loaded", "web-mentor-context-preview", "admin-kpi-dashboard", "admin-support-long-wire", "mobile-today-available", "mobile-content-reading", "dp-design-mission-ledger", "dp-design-context-payload-preview"]},
+        "case_count": {"const": 24},
+        "surface_case_counts": {"const": {"web": 12, "admin": 4, "mobile": 4, "dp_design": 4}},
+        "capture_surface": {"const": "flutter_web_release_projection"},
+        "device_evidence": {"const": false},
+        "provenance_sha256": {"$ref": "#/$defs/sha64", "description": "Precomputable producer input-provenance digest; never a post-run result-manifest or artifact-set digest."}
       },
       "additionalProperties": false
     },
@@ -262,9 +298,9 @@
       "type": "object",
       "required": ["frontend-visual", "home-visual", "frontend-automated-a11y", "home-axe-browser-a11y", "manual-nvda", "manual-voiceover", "manual-talkback"],
       "properties": {
-        "frontend-visual": {"$ref": "#/$defs/qualityCatalog"},
+        "frontend-visual": {"$ref": "#/$defs/frontendVisualCatalog"},
         "home-visual": {"$ref": "#/$defs/homeQualityCatalog"},
-        "frontend-automated-a11y": {"$ref": "#/$defs/qualityCatalog"},
+        "frontend-automated-a11y": {"$ref": "#/$defs/frontendAutomatedA11yCatalog"},
         "home-axe-browser-a11y": {"$ref": "#/$defs/homeQualityCatalog"},
         "manual-nvda": {"$ref": "#/$defs/qualityCatalog"},
         "manual-voiceover": {"$ref": "#/$defs/qualityCatalog"},

@@ -27,6 +27,38 @@ STALE_HOME_TREE_SHA256 = (
     "9f7f2c06c7caa9e77a155163654cc810" "7670fe8c9d9cc059d1f4a6ca427bcf25"
 )
 HOME_LOCAL_CANDIDATE_SHA = "90b" "988"
+FRONTEND_FIXTURE_IDS = [
+    "web-today-available",
+    "web-path-current-week",
+    "web-content-reading",
+    "web-workspace-idle",
+    "web-review-loaded",
+    "web-mentor-context-preview",
+    "admin-kpi-dashboard",
+    "admin-support-long-wire",
+    "mobile-today-available",
+    "mobile-content-reading",
+    "dp-design-mission-ledger",
+    "dp-design-context-payload-preview",
+]
+FRONTEND_CATALOG_CONTRACTS = {
+    "frontend-visual": {
+        "path": "evidence/et13/generated/visual-cases.v1.json",
+        "case_catalog_version": "leva.et13.visual-cases.v1",
+        "case_count": 96,
+        "surface_case_counts": {"web": 48, "admin": 16, "mobile": 16, "dp_design": 16},
+        "capture_surface": "flutter_web_release_projection",
+        "device_evidence": False,
+    },
+    "frontend-automated-a11y": {
+        "path": "evidence/et13/generated/a11y-cases.v1.json",
+        "case_catalog_version": "leva.et13.a11y-cases.v1",
+        "case_count": 24,
+        "surface_case_counts": {"web": 12, "admin": 4, "mobile": 4, "dp_design": 4},
+        "capture_surface": "flutter_web_release_projection",
+        "device_evidence": False,
+    },
+}
 
 
 def load_module(path: Path, name: str):
@@ -51,7 +83,11 @@ class Et13EvidenceContractTest(unittest.TestCase):
         inputs = self.candidate["quality_evidence_inputs"]
         self.assertEqual(set(inputs), {"catalogs", "mobile_test_artifacts"})
         self.assertEqual(set(inputs["catalogs"]), set(self.validator.QUALITY_EVIDENCE_LABELS))
-        self.assertGreater(inputs["catalogs"]["frontend-visual"]["case_count"], 80)
+        for label, expected in FRONTEND_CATALOG_CONTRACTS.items():
+            catalog = inputs["catalogs"][label]
+            self.assertEqual(catalog["fixture_ids"], FRONTEND_FIXTURE_IDS)
+            for field, value in expected.items():
+                self.assertEqual(catalog[field], value)
         home = inputs["catalogs"]["home-visual"]
         self.assertEqual(
             home["source_sha"],
@@ -169,10 +205,39 @@ class Et13EvidenceContractTest(unittest.TestCase):
             [self.candidate_sha, CANDIDATE_FIXTURE.name],
         )
 
-    def test_schema_uses_exact_catalog_counts_without_a_screenshot_cap(self):
+    def test_schema_hard_codes_the_approved_frontend_catalog_matrix(self):
         schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
-        count_schema = schema["$defs"]["qualityCatalog"]["properties"]["case_count"]
-        self.assertEqual(count_schema, {"type": "integer", "minimum": 1})
+        for definition, expected in (
+            ("frontendVisualCatalog", FRONTEND_CATALOG_CONTRACTS["frontend-visual"]),
+            (
+                "frontendAutomatedA11yCatalog",
+                FRONTEND_CATALOG_CONTRACTS["frontend-automated-a11y"],
+            ),
+        ):
+            properties = schema["$defs"][definition]["properties"]
+            self.assertEqual(properties["path"], {"const": expected["path"]})
+            self.assertEqual(
+                properties["case_catalog_version"],
+                {"const": expected["case_catalog_version"]},
+            )
+            self.assertEqual(properties["fixture_ids"], {"const": FRONTEND_FIXTURE_IDS})
+            self.assertEqual(properties["case_count"], {"const": expected["case_count"]})
+            self.assertEqual(
+                properties["surface_case_counts"],
+                {"const": expected["surface_case_counts"]},
+            )
+            self.assertEqual(
+                properties["capture_surface"],
+                {"const": expected["capture_surface"]},
+            )
+            self.assertEqual(
+                properties["device_evidence"],
+                {"const": expected["device_evidence"]},
+            )
+            self.assertIn(
+                "Precomputable producer input-provenance",
+                properties["provenance_sha256"]["description"],
+            )
         self.assertNotIn("screenshot_count", json.dumps(schema, sort_keys=True))
         self.assertEqual(schema["$defs"]["artifact"]["properties"]["event"], {"const": "workflow_dispatch"})
         self.assertEqual(schema["$defs"]["artifact"]["properties"]["evidence_file"], {"const": "evidence.json"})
@@ -303,14 +368,16 @@ class Et13EvidenceContractTest(unittest.TestCase):
             "passed_case_count": catalog["case_count"],
             "failed_case_count": 0,
         }
+        if label in FRONTEND_CATALOG_CONTRACTS:
+            payload.update({
+                "case_catalog_version": catalog["case_catalog_version"],
+                "fixture_ids": list(catalog["fixture_ids"]),
+                "capture_surface": catalog["capture_surface"],
+                "device_evidence": catalog["device_evidence"],
+            })
         if label == "frontend-visual":
             payload.update({
-                "surface_case_counts": {
-                    "web": catalog["case_count"] - 48,
-                    "admin": 16,
-                    "mobile": 16,
-                    "dp_design": 16,
-                },
+                "surface_case_counts": dict(catalog["surface_case_counts"]),
                 "render_provenance_sha256": catalog["provenance_sha256"],
                 "pixel_diff_percent": 0,
             })
@@ -326,12 +393,7 @@ class Et13EvidenceContractTest(unittest.TestCase):
                 "serious_violations": 0,
             })
             if label == "frontend-automated-a11y":
-                payload["surface_case_counts"] = {
-                    "web": catalog["case_count"] - 12,
-                    "admin": 4,
-                    "mobile": 4,
-                    "dp_design": 4,
-                }
+                payload["surface_case_counts"] = dict(catalog["surface_case_counts"])
         else:
             payload.update({
                 "assistive_technology": {
@@ -441,23 +503,102 @@ class Et13EvidenceContractTest(unittest.TestCase):
                     3,
                 )
 
-    def test_frontend_visual_supports_more_than_80_exact_catalog_cases(self):
-        candidate = copy.deepcopy(self.candidate)
-        catalog = candidate["quality_evidence_inputs"]["catalogs"]["frontend-visual"]
-        catalog["case_count"] = 128
-        payload = self._base_payload("frontend-visual")
-        payload["case_count"] = 128
-        payload["passed_case_count"] = 128
-        payload["surface_case_counts"]["web"] += 128 - sum(payload["surface_case_counts"].values())
-        self.artifacts.validate_evidence_payload(
-            "frontend-visual", payload, self.candidate_sha, candidate, 501, 3
+    def test_frontend_catalog_totals_and_surface_splits_are_not_self_asserted(self):
+        mutations = (
+            ("frontend-visual", "case_count", 128),
+            (
+                "frontend-visual",
+                "surface_case_counts",
+                {"web": 47, "admin": 17, "mobile": 16, "dp_design": 16},
+            ),
+            ("frontend-automated-a11y", "case_count", 25),
+            (
+                "frontend-automated-a11y",
+                "surface_case_counts",
+                {"web": 11, "admin": 5, "mobile": 4, "dp_design": 4},
+            ),
         )
+        for label, field, value in mutations:
+            with self.subTest(label=label, field=field):
+                candidate = copy.deepcopy(self.candidate)
+                candidate["quality_evidence_inputs"]["catalogs"][label][field] = value
+                with self.assertRaisesRegex(ValueError, "exact approved frontend"):
+                    self.validator.validate_candidate_spec(candidate, CANDIDATE_FIXTURE)
 
-        payload["passed_case_count"] = 127
-        payload["failed_case_count"] = 1
-        with self.assertRaisesRegex(ValueError, "all catalog cases|passed"):
+        for label in FRONTEND_CATALOG_CONTRACTS:
+            with self.subTest(label=label):
+                payload = self._base_payload(label)
+                payload["surface_case_counts"]["web"] -= 1
+                payload["surface_case_counts"]["admin"] += 1
+                with self.assertRaisesRegex(ValueError, "exact approved frontend"):
+                    self.artifacts.validate_evidence_payload(
+                        label, payload, self.candidate_sha, self.candidate, 501, 3
+                    )
+
+    def test_frontend_catalog_version_and_fixture_order_fail_closed(self):
+        for label in FRONTEND_CATALOG_CONTRACTS:
+            candidate_mutations = (
+                ("path", "evidence/et13/generated/wrong-cases.v1.json"),
+                ("case_catalog_version", "leva.et13.wrong-cases.v1"),
+                ("fixture_ids", list(reversed(FRONTEND_FIXTURE_IDS))),
+                ("capture_surface", "native_mobile_device"),
+                ("device_evidence", True),
+            )
+            for field, value in candidate_mutations:
+                with self.subTest(label=label, candidate_field=field):
+                    candidate = copy.deepcopy(self.candidate)
+                    candidate["quality_evidence_inputs"]["catalogs"][label][field] = value
+                    with self.assertRaisesRegex(ValueError, "exact approved frontend"):
+                        self.validator.validate_candidate_spec(candidate, CANDIDATE_FIXTURE)
+
+            for field, value in (
+                ("case_catalog_version", "leva.et13.wrong-cases.v1"),
+                ("fixture_ids", list(reversed(FRONTEND_FIXTURE_IDS))),
+            ):
+                with self.subTest(label=label, evidence_field=field):
+                    payload = self._base_payload(label)
+                    payload[field] = value
+                    with self.assertRaisesRegex(ValueError, "exact approved frontend catalog order"):
+                        self.artifacts.validate_evidence_payload(
+                            label, payload, self.candidate_sha, self.candidate, 501, 3
+                        )
+
+    def test_frontend_release_evidence_keeps_result_artifact_hashes_separate(self):
+        for label in FRONTEND_CATALOG_CONTRACTS:
+            for field in ("result_manifest_sha256", "artifact_set_sha256"):
+                with self.subTest(label=label, field=field):
+                    payload = self._base_payload(label)
+                    payload[field] = "f" * 64
+                    with self.assertRaisesRegex(ValueError, "invalid key set"):
+                        self.artifacts.validate_evidence_payload(
+                            label, payload, self.candidate_sha, self.candidate, 501, 3
+                        )
+
+    def test_frontend_projection_evidence_cannot_claim_native_device_coverage(self):
+        for label in FRONTEND_CATALOG_CONTRACTS:
+            payload = self._base_payload(label)
+            self.assertEqual(payload["capture_surface"], "flutter_web_release_projection")
+            self.assertIs(payload["device_evidence"], False)
+            for field, value in (
+                ("capture_surface", "native_mobile_device"),
+                ("device_evidence", True),
+            ):
+                with self.subTest(label=label, field=field):
+                    invalid = copy.deepcopy(payload)
+                    invalid[field] = value
+                    with self.assertRaisesRegex(ValueError, "Flutter-web projection"):
+                        self.artifacts.validate_evidence_payload(
+                            label, invalid, self.candidate_sha, self.candidate, 501, 3
+                        )
+
+        with self.assertRaisesRegex(ValueError, "invalid key set"):
             self.artifacts.validate_evidence_payload(
-                "frontend-visual", payload, self.candidate_sha, candidate, 501, 3
+                "manual-talkback",
+                self._base_payload("frontend-automated-a11y"),
+                self.candidate_sha,
+                self.candidate,
+                501,
+                3,
             )
 
     def test_catalog_source_provenance_and_raw_content_fail_closed(self):
