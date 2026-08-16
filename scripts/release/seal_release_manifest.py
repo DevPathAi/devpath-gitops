@@ -16,6 +16,8 @@ import tempfile
 from typing import Any
 
 from validate_release_manifest import (
+    FRONTEND_CATALOG_CONTRACTS,
+    FRONTEND_EVIDENCE_FILES,
     PRODUCER_WORKFLOWS,
     QUALITY_EVIDENCE,
     QUALITY_EVIDENCE_EVENTS,
@@ -29,8 +31,10 @@ from validate_release_manifest import (
 )
 from verify_release_artifacts import (
     MAX_HOME_PAYLOAD_BYTES,
+    _frontend_expected_entries,
     _workflow_bytes,
     validate_evidence_payload,
+    validate_frontend_evidence_bundle,
     validate_run_provenance,
 )
 
@@ -65,6 +69,8 @@ def _discover_external_artifact(
     expected_event: str = "workflow_dispatch",
     evidence_file: str = "evidence.json",
     expected_files: list[str] | None = None,
+    expected_run_id: int | None = None,
+    expected_run_attempt: int | None = None,
 ) -> dict[str, Any]:
     name = artifact_name
     listing = _gh_json(
@@ -81,6 +87,8 @@ def _discover_external_artifact(
         run_id = (metadata.get("workflow_run") or {}).get("id")
         if not isinstance(run_id, int) or run_id <= 0:
             continue
+        if expected_run_id is not None and run_id != expected_run_id:
+            continue
         run = _gh_json(["api", f"repos/{repository}/actions/runs/{run_id}"], env)
         if (
             run.get("status") == "completed"
@@ -88,6 +96,10 @@ def _discover_external_artifact(
             and run.get("event") == expected_event
             and run.get("head_sha") == expected_head
             and run.get("path") == workflow_path
+            and (
+                expected_run_attempt is None
+                or run.get("run_attempt") == expected_run_attempt
+            )
         ):
             matches.append((metadata, run_id, run))
     if len(matches) != 1:
@@ -132,9 +144,14 @@ def _discover_external_artifact(
         if download.returncode != 0:
             raise ValueError(f"{label}: artifact download failed")
         root = Path(temp_dir)
-        entries = sorted(path.name for path in root.iterdir())
+        entries = sorted(path.relative_to(root).as_posix() for path in root.rglob("*"))
         files = expected_files or (["dist.tar.gz", "evidence.json"] if expected_payload_hash else [evidence_file])
-        if entries != sorted(files):
+        expected_entries = (
+            _frontend_expected_entries(label)
+            if label in FRONTEND_EVIDENCE_FILES
+            else sorted(files)
+        )
+        if entries != expected_entries:
             raise ValueError(f"{label}: artifact file set is not canonical")
         for filename in files:
             path = root / filename
@@ -152,6 +169,8 @@ def _discover_external_artifact(
             run_id,
             run.get("run_attempt"),
         )
+        if label in FRONTEND_EVIDENCE_FILES:
+            validate_frontend_evidence_bundle(label, root, payload, candidate)
         reference = {
             "candidate_spec_sha256": candidate_hash,
             "repository": repository,
@@ -171,6 +190,76 @@ def _discover_external_artifact(
                 raise ValueError("home-dist: payload does not match candidate home.dist_sha256")
             reference.update({"payload_file": "dist.tar.gz", "payload_sha256": payload_hash})
         return reference
+
+
+def select_frontend_evidence_run(
+    runs: list[dict[str, Any]],
+    expected_head: str,
+) -> dict[str, Any]:
+    """Select the highest successful attempt of exactly one dispatched producer run."""
+    eligible = [
+        run
+        for run in runs
+        if run.get("status") == "completed"
+        and run.get("conclusion") == "success"
+        and run.get("event") == "workflow_dispatch"
+        and run.get("head_sha") == expected_head
+        and run.get("path") == ".github/workflows/et13-evidence.yml"
+        and isinstance(run.get("id"), int)
+        and not isinstance(run.get("id"), bool)
+        and run["id"] > 0
+        and isinstance(run.get("run_attempt"), int)
+        and not isinstance(run.get("run_attempt"), bool)
+        and run["run_attempt"] > 0
+    ]
+    run_ids = {run["id"] for run in eligible}
+    if len(run_ids) != 1:
+        raise ValueError("exactly one frontend producer run is required")
+    return max(eligible, key=lambda run: run["run_attempt"])
+
+
+def _discover_frontend_pair(
+    env: dict[str, str],
+    release_id: str,
+    candidate_hash: str,
+    candidate: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    repository = candidate["frontend"]["repository"]
+    expected_head = candidate["frontend"]["source_sha"]
+    listing = _gh_json(
+        [
+            "api",
+            (
+                f"repos/{repository}/actions/runs?head_sha={expected_head}"
+                "&event=workflow_dispatch&status=success&per_page=100"
+            ),
+        ],
+        env,
+    )
+    runs = listing.get("workflow_runs", [])
+    if not isinstance(runs, list):
+        raise ValueError("frontend producer run query returned invalid JSON")
+    selected = select_frontend_evidence_run(runs, expected_head)
+    run_id = selected["id"]
+    run_attempt = selected["run_attempt"]
+    discovered: dict[str, dict[str, Any]] = {}
+    for label in FRONTEND_CATALOG_CONTRACTS:
+        key = QUALITY_EVIDENCE[label]
+        discovered[key] = _discover_external_artifact(
+            env,
+            label,
+            repository,
+            quality_artifact_name(label, release_id, run_attempt, run_id),
+            candidate_hash,
+            expected_head,
+            candidate,
+            expected_event="workflow_dispatch",
+            evidence_file="evidence.json",
+            expected_files=list(FRONTEND_EVIDENCE_FILES[label]),
+            expected_run_id=run_id,
+            expected_run_attempt=run_attempt,
+        )
+    return discovered
 
 
 def load_home_quality_manifests(
@@ -380,8 +469,21 @@ def seal(root: Path, args: argparse.Namespace) -> Path:
             candidate,
             candidate["home"]["dist_sha256"] if key == "home_dist_artifact" else None,
         )
+    discovered.update(
+        _discover_frontend_pair(
+            gh_env,
+            args.release_id,
+            candidate_hash,
+            candidate,
+        )
+    )
     for label, key in QUALITY_EVIDENCE.items():
-        if label in {"home-visual", "home-axe-browser-a11y"}:
+        if label in {
+            "frontend-visual",
+            "frontend-automated-a11y",
+            "home-visual",
+            "home-axe-browser-a11y",
+        }:
             continue
         repository, source_sha = quality_source(candidate, label)
         discovered[key] = _discover_external_artifact(

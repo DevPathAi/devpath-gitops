@@ -244,37 +244,46 @@
     },
     "frontendVisualCatalog": {
       "type": "object",
-      "required": ["repository", "source_sha", "path", "sha256", "case_catalog_version", "fixture_ids", "case_count", "surface_case_counts", "capture_surface", "device_evidence", "provenance_sha256"],
+      "required": ["repository", "source_sha", "path", "sha256", "case_catalog_version", "case_catalog_schema_version", "fixture_ids", "case_count", "surface_case_counts", "capture_surface", "device_evidence", "evidence_mode", "input_provenance_sha256", "input_provenance_file_sha256", "baseline_status", "baseline_set_sha256", "baseline_approval_sha256"],
       "properties": {
         "repository": {"const": "DevPathAi/devpath-frontend"},
         "source_sha": {"$ref": "#/$defs/sha40"},
         "path": {"const": "evidence/et13/generated/visual-cases.v1.json"},
         "sha256": {"$ref": "#/$defs/sha64"},
-        "case_catalog_version": {"const": "leva.et13.visual-cases.v1"},
+        "case_catalog_version": {"const": "leva.et13.catalog.v1"},
+        "case_catalog_schema_version": {"const": "leva.et13.visual-cases.v1"},
         "fixture_ids": {"const": ["web-today-available", "web-path-current-week", "web-content-reading", "web-workspace-idle", "web-review-loaded", "web-mentor-context-preview", "admin-kpi-dashboard", "admin-support-long-wire", "mobile-today-available", "mobile-content-reading", "dp-design-mission-ledger", "dp-design-context-payload-preview"]},
         "case_count": {"const": 96},
         "surface_case_counts": {"const": {"web": 48, "admin": 16, "mobile": 16, "dp_design": 16}},
         "capture_surface": {"const": "flutter_web_release_projection"},
         "device_evidence": {"const": false},
-        "provenance_sha256": {"$ref": "#/$defs/sha64", "description": "Precomputable producer input-provenance digest; never a post-run result-manifest or artifact-set digest."}
+        "evidence_mode": {"const": "release_ready"},
+        "input_provenance_sha256": {"$ref": "#/$defs/sha64", "description": "Canonical SHA-256 of provenance.v1.json with provenance_sha256 excluded, using sorted-key compact JSON."},
+        "input_provenance_file_sha256": {"$ref": "#/$defs/sha64", "description": "Raw-byte SHA-256 of the packaged provenance.v1.json file."},
+        "baseline_status": {"const": "approved"},
+        "baseline_set_sha256": {"$ref": "#/$defs/sha64"},
+        "baseline_approval_sha256": {"$ref": "#/$defs/sha64"}
       },
       "additionalProperties": false
     },
     "frontendAutomatedA11yCatalog": {
       "type": "object",
-      "required": ["repository", "source_sha", "path", "sha256", "case_catalog_version", "fixture_ids", "case_count", "surface_case_counts", "capture_surface", "device_evidence", "provenance_sha256"],
+      "required": ["repository", "source_sha", "path", "sha256", "case_catalog_version", "case_catalog_schema_version", "fixture_ids", "case_count", "surface_case_counts", "capture_surface", "device_evidence", "evidence_mode", "input_provenance_sha256", "input_provenance_file_sha256"],
       "properties": {
         "repository": {"const": "DevPathAi/devpath-frontend"},
         "source_sha": {"$ref": "#/$defs/sha40"},
         "path": {"const": "evidence/et13/generated/a11y-cases.v1.json"},
         "sha256": {"$ref": "#/$defs/sha64"},
-        "case_catalog_version": {"const": "leva.et13.a11y-cases.v1"},
+        "case_catalog_version": {"const": "leva.et13.catalog.v1"},
+        "case_catalog_schema_version": {"const": "leva.et13.a11y-cases.v1"},
         "fixture_ids": {"const": ["web-today-available", "web-path-current-week", "web-content-reading", "web-workspace-idle", "web-review-loaded", "web-mentor-context-preview", "admin-kpi-dashboard", "admin-support-long-wire", "mobile-today-available", "mobile-content-reading", "dp-design-mission-ledger", "dp-design-context-payload-preview"]},
         "case_count": {"const": 24},
         "surface_case_counts": {"const": {"web": 12, "admin": 4, "mobile": 4, "dp_design": 4}},
         "capture_surface": {"const": "flutter_web_release_projection"},
         "device_evidence": {"const": false},
-        "provenance_sha256": {"$ref": "#/$defs/sha64", "description": "Precomputable producer input-provenance digest; never a post-run result-manifest or artifact-set digest."}
+        "evidence_mode": {"const": "release_ready"},
+        "input_provenance_sha256": {"$ref": "#/$defs/sha64", "description": "Canonical SHA-256 of provenance.v1.json with provenance_sha256 excluded, using sorted-key compact JSON."},
+        "input_provenance_file_sha256": {"$ref": "#/$defs/sha64", "description": "Raw-byte SHA-256 of the packaged provenance.v1.json file."}
       },
       "additionalProperties": false
     },

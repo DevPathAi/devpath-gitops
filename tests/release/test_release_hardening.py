@@ -175,26 +175,26 @@ class ReleaseHardeningTest(unittest.TestCase):
             "event": "workflow_dispatch",
             "head_sha": "a" * 40,
             "run_attempt": 2,
-            "workflow_path": ".github/workflows/mission-spine-visual-evidence.yml",
+            "workflow_path": ".github/workflows/et13-evidence.yml",
             "workflow_sha256": hashlib.sha256(workflow).hexdigest(),
         }
         run = {
             "event": "workflow_dispatch",
             "head_sha": "a" * 40,
             "run_attempt": 2,
-            "path": ".github/workflows/mission-spine-visual-evidence.yml",
+            "path": ".github/workflows/et13-evidence.yml",
             "status": "completed",
             "conclusion": "success",
         }
         self.artifacts.validate_run_provenance(
             "visual", run, reference, "a" * 40,
-            ".github/workflows/mission-spine-visual-evidence.yml", workflow
+            ".github/workflows/et13-evidence.yml", workflow
         )
         mutations = (
             ("event", "push"),
             ("head_sha", "b" * 40),
             ("run_attempt", 3),
-            ("path", "evil/.github/workflows/mission-spine-visual-evidence.yml"),
+            ("path", "evil/.github/workflows/et13-evidence.yml"),
         )
         for field, value in mutations:
             invalid = copy.deepcopy(run)
@@ -202,7 +202,7 @@ class ReleaseHardeningTest(unittest.TestCase):
             with self.assertRaises(ValueError, msg=field):
                 self.artifacts.validate_run_provenance(
                     "visual", invalid, reference, "a" * 40,
-                    ".github/workflows/mission-spine-visual-evidence.yml", workflow
+                    ".github/workflows/et13-evidence.yml", workflow
                 )
 
     def test_validation_tree_allows_only_direct_candidate_then_final_commits(self):
@@ -319,16 +319,25 @@ class ReleaseHardeningTest(unittest.TestCase):
             "source_sha": self.candidate["frontend"]["source_sha"],
             "case_catalog_sha256": self.candidate["quality_evidence_inputs"]["catalogs"]["frontend-visual"]["sha256"],
             "case_catalog_version": self.candidate["quality_evidence_inputs"]["catalogs"]["frontend-visual"]["case_catalog_version"],
+            "case_catalog_schema_version": self.candidate["quality_evidence_inputs"]["catalogs"]["frontend-visual"]["case_catalog_schema_version"],
             "fixture_ids": self.candidate["quality_evidence_inputs"]["catalogs"]["frontend-visual"]["fixture_ids"],
             "capture_surface": "flutter_web_release_projection",
             "device_evidence": False,
+            "evidence_mode": "release_ready",
             "case_count": 96,
             "passed_case_count": 96,
             "failed_case_count": 0,
             "surface_case_counts": {"web": 48, "admin": 16, "mobile": 16, "dp_design": 16},
-            "render_provenance_sha256": self.candidate["quality_evidence_inputs"][
+            "input_provenance_sha256": self.candidate["quality_evidence_inputs"][
                 "catalogs"
-            ]["frontend-visual"]["provenance_sha256"],
+            ]["frontend-visual"]["input_provenance_sha256"],
+            "input_provenance_file_sha256": self.candidate["quality_evidence_inputs"][
+                "catalogs"
+            ]["frontend-visual"]["input_provenance_file_sha256"],
+            "result_manifest_sha256": "e" * 64,
+            "baseline_status": "approved",
+            "baseline_set_sha256": self.candidate["quality_evidence_inputs"]["catalogs"]["frontend-visual"]["baseline_set_sha256"],
+            "baseline_approval_sha256": self.candidate["quality_evidence_inputs"]["catalogs"]["frontend-visual"]["baseline_approval_sha256"],
             "pixel_diff_percent": 0,
         }
         self.artifacts.validate_evidence_payload(
@@ -377,19 +386,27 @@ class ReleaseHardeningTest(unittest.TestCase):
                 "case_catalog_version": self.candidate["quality_evidence_inputs"][
                     "catalogs"
                 ]["frontend-automated-a11y"]["case_catalog_version"],
+                "case_catalog_schema_version": self.candidate["quality_evidence_inputs"][
+                    "catalogs"
+                ]["frontend-automated-a11y"]["case_catalog_schema_version"],
                 "fixture_ids": self.candidate["quality_evidence_inputs"]["catalogs"][
                     "frontend-automated-a11y"
                 ]["fixture_ids"],
                 "capture_surface": "flutter_web_release_projection",
                 "device_evidence": False,
+                "evidence_mode": "release_ready",
                 "case_count": 24,
                 "passed_case_count": 24,
                 "failed_case_count": 0,
                 "surface_case_counts": {"web": 12, "admin": 4, "mobile": 4, "dp_design": 4},
-                "test_provenance_sha256": self.candidate["quality_evidence_inputs"][
+                "input_provenance_sha256": self.candidate["quality_evidence_inputs"][
                     "catalogs"
-                ]["frontend-automated-a11y"]["provenance_sha256"],
-                "standard": "WCAG2.2AA",
+                ]["frontend-automated-a11y"]["input_provenance_sha256"],
+                "input_provenance_file_sha256": self.candidate["quality_evidence_inputs"][
+                    "catalogs"
+                ]["frontend-automated-a11y"]["input_provenance_file_sha256"],
+                "result_manifest_sha256": "e" * 64,
+                "standard": "WCAG 2.2 AA",
                 "critical_violations": 0,
                 "serious_violations": 0,
             },

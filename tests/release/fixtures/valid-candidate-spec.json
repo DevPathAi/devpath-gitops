@@ -168,7 +168,8 @@
         "source_sha": "a2c419cadb8d50095728e4e9613273f89ede5314",
         "path": "evidence/et13/generated/visual-cases.v1.json",
         "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "case_catalog_version": "leva.et13.visual-cases.v1",
+        "case_catalog_version": "leva.et13.catalog.v1",
+        "case_catalog_schema_version": "leva.et13.visual-cases.v1",
         "fixture_ids": [
           "web-today-available",
           "web-path-current-week",
@@ -187,7 +188,12 @@
         "surface_case_counts": {"web": 48, "admin": 16, "mobile": 16, "dp_design": 16},
         "capture_surface": "flutter_web_release_projection",
         "device_evidence": false,
-        "provenance_sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+        "evidence_mode": "release_ready",
+        "input_provenance_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "input_provenance_file_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+        "baseline_status": "approved",
+        "baseline_set_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+        "baseline_approval_sha256": "5555555555555555555555555555555555555555555555555555555555555555"
       },
       "home-visual": {
         "repository": "DevPathAi/devpath-home-page",
@@ -205,7 +211,8 @@
         "source_sha": "a2c419cadb8d50095728e4e9613273f89ede5314",
         "path": "evidence/et13/generated/a11y-cases.v1.json",
         "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-        "case_catalog_version": "leva.et13.a11y-cases.v1",
+        "case_catalog_version": "leva.et13.catalog.v1",
+        "case_catalog_schema_version": "leva.et13.a11y-cases.v1",
         "fixture_ids": [
           "web-today-available",
           "web-path-current-week",
@@ -224,7 +231,9 @@
         "surface_case_counts": {"web": 12, "admin": 4, "mobile": 4, "dp_design": 4},
         "capture_surface": "flutter_web_release_projection",
         "device_evidence": false,
-        "provenance_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+        "evidence_mode": "release_ready",
+        "input_provenance_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+        "input_provenance_file_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
       },
       "home-axe-browser-a11y": {
         "repository": "DevPathAi/devpath-home-page",

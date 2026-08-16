@@ -34,9 +34,9 @@ PRODUCER_WORKFLOWS = {
     "ai-release-eval": ".github/workflows/mission-spine-release-eval.yml",
     "journey-activation": ".github/workflows/mission-spine-validate.yml",
     "journey-contextual-practice": ".github/workflows/mission-spine-validate.yml",
-    "frontend-visual": ".github/workflows/mission-spine-visual-evidence.yml",
+    "frontend-visual": ".github/workflows/et13-evidence.yml",
     "home-visual": ".github/workflows/mission-spine-validate.yml",
-    "frontend-automated-a11y": ".github/workflows/mission-spine-accessibility-evidence.yml",
+    "frontend-automated-a11y": ".github/workflows/et13-evidence.yml",
     "home-axe-browser-a11y": ".github/workflows/mission-spine-validate.yml",
     "manual-nvda": ".github/workflows/mission-spine-manual-at-evidence.yml",
     "manual-voiceover": ".github/workflows/mission-spine-manual-at-evidence.yml",
@@ -69,6 +69,21 @@ QUALITY_EVIDENCE_EVENTS = {
     label: "workflow_dispatch" for label in QUALITY_EVIDENCE_LABELS
 }
 
+FRONTEND_EVIDENCE_FILES = {
+    "frontend-visual": (
+        "evidence.json",
+        "evidence/et13/generated/visual-cases.v1.json",
+        "artifacts/et13/provenance.v1.json",
+        "artifacts/et13/visual-manifest.v1.json",
+    ),
+    "frontend-automated-a11y": (
+        "evidence.json",
+        "evidence/et13/generated/a11y-cases.v1.json",
+        "artifacts/et13/provenance.v1.json",
+        "artifacts/et13/a11y-manifest.v1.json",
+    ),
+}
+
 FRONTEND_FIXTURE_IDS = (
     "web-today-available",
     "web-path-current-week",
@@ -87,19 +102,23 @@ FRONTEND_FIXTURE_IDS = (
 FRONTEND_CATALOG_CONTRACTS = {
     "frontend-visual": {
         "path": "evidence/et13/generated/visual-cases.v1.json",
-        "case_catalog_version": "leva.et13.visual-cases.v1",
+        "case_catalog_version": "leva.et13.catalog.v1",
+        "case_catalog_schema_version": "leva.et13.visual-cases.v1",
         "case_count": 96,
         "surface_case_counts": {"web": 48, "admin": 16, "mobile": 16, "dp_design": 16},
         "capture_surface": "flutter_web_release_projection",
         "device_evidence": False,
+        "evidence_mode": "release_ready",
     },
     "frontend-automated-a11y": {
         "path": "evidence/et13/generated/a11y-cases.v1.json",
-        "case_catalog_version": "leva.et13.a11y-cases.v1",
+        "case_catalog_version": "leva.et13.catalog.v1",
+        "case_catalog_schema_version": "leva.et13.a11y-cases.v1",
         "case_count": 24,
         "surface_case_counts": {"web": 12, "admin": 4, "mobile": 4, "dp_design": 4},
         "capture_surface": "flutter_web_release_projection",
         "device_evidence": False,
+        "evidence_mode": "release_ready",
     },
 }
 
@@ -273,14 +292,20 @@ def quality_artifact_name(
     label: str,
     release_id: str,
     run_attempt: int | None = None,
+    workflow_run_id: int | None = None,
 ) -> str:
+    if label in FRONTEND_CATALOG_CONTRACTS:
+        for value in (workflow_run_id, run_attempt):
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(
+                    "Frontend quality evidence requires exact positive run ID and attempt"
+                )
+        return f"{release_id}-{label}-run-{workflow_run_id}-attempt-{run_attempt}"
     if label in {"home-visual", "home-axe-browser-a11y"}:
         if isinstance(run_attempt, bool) or not isinstance(run_attempt, int) or run_attempt <= 0:
             raise ValueError("Home quality evidence requires an exact positive run attempt")
         return f"{release_id}-home-visual-a11y-attempt-{run_attempt}"
     names = {
-        "frontend-visual": f"{release_id}-frontend-visual",
-        "frontend-automated-a11y": f"{release_id}-frontend-automated-a11y",
         "manual-nvda": "nvda-evidence",
         "manual-voiceover": "voiceover-evidence",
         "manual-talkback": "talkback-evidence",
@@ -506,16 +531,27 @@ def _validate_quality_evidence_inputs(value: Any, candidate: dict[str, Any]) -> 
             "path",
             "sha256",
             "case_count",
-            "provenance_sha256",
         }
         if label in FRONTEND_CATALOG_CONTRACTS:
             fields |= {
                 "case_catalog_version",
+                "case_catalog_schema_version",
                 "capture_surface",
                 "device_evidence",
+                "evidence_mode",
                 "fixture_ids",
+                "input_provenance_sha256",
+                "input_provenance_file_sha256",
                 "surface_case_counts",
             }
+            if label == "frontend-visual":
+                fields |= {
+                    "baseline_status",
+                    "baseline_set_sha256",
+                    "baseline_approval_sha256",
+                }
+        else:
+            fields.add("provenance_sha256")
         if label in {"home-visual", "home-axe-browser-a11y"}:
             fields |= {
                 "rendered_product_sha",
@@ -540,8 +576,10 @@ def _validate_quality_evidence_inputs(value: Any, candidate: dict[str, Any]) -> 
             exact = {
                 "path": catalog["path"],
                 "case_catalog_version": catalog["case_catalog_version"],
+                "case_catalog_schema_version": catalog["case_catalog_schema_version"],
                 "capture_surface": catalog["capture_surface"],
                 "device_evidence": catalog["device_evidence"],
+                "evidence_mode": catalog["evidence_mode"],
                 "fixture_ids": catalog["fixture_ids"],
                 "case_count": catalog["case_count"],
                 "surface_case_counts": catalog["surface_case_counts"],
@@ -549,14 +587,40 @@ def _validate_quality_evidence_inputs(value: Any, candidate: dict[str, Any]) -> 
             expected_exact = {
                 "path": expected["path"],
                 "case_catalog_version": expected["case_catalog_version"],
+                "case_catalog_schema_version": expected["case_catalog_schema_version"],
                 "capture_surface": expected["capture_surface"],
                 "device_evidence": expected["device_evidence"],
+                "evidence_mode": expected["evidence_mode"],
                 "fixture_ids": list(FRONTEND_FIXTURE_IDS),
                 "case_count": expected["case_count"],
                 "surface_case_counts": expected["surface_case_counts"],
             }
             if exact != expected_exact:
                 _fail(catalog_path, "must match the exact approved frontend catalog contract")
+            if catalog["device_evidence"] is not False:
+                _fail(
+                    f"{catalog_path}.device_evidence",
+                    "must be boolean false for Flutter-web projection evidence",
+                )
+            surface_counts = _object(
+                catalog["surface_case_counts"],
+                f"{catalog_path}.surface_case_counts",
+            )
+            _exact_keys(
+                surface_counts,
+                {"web", "admin", "mobile", "dp_design"},
+                f"{catalog_path}.surface_case_counts",
+            )
+            for surface, count in surface_counts.items():
+                _positive_int(
+                    count,
+                    f"{catalog_path}.surface_case_counts.{surface}",
+                )
+            if label == "frontend-visual" and catalog.get("baseline_status") != "approved":
+                _fail(
+                    catalog_path,
+                    "must be release-ready with an approved baseline",
+                )
         if (
             label in {"home-visual", "home-axe-browser-a11y"}
             and catalog["path"] != "e2e/visual/case-catalog.v2.json"
@@ -564,7 +628,14 @@ def _validate_quality_evidence_inputs(value: Any, candidate: dict[str, Any]) -> 
             _fail(f"{catalog_path}.path", "must bind the canonical Home v2 case catalog")
         _string(catalog["sha256"], f"{catalog_path}.sha256", SHA64)
         _positive_int(catalog["case_count"], f"{catalog_path}.case_count")
-        _string(catalog["provenance_sha256"], f"{catalog_path}.provenance_sha256", SHA64)
+        if label in FRONTEND_CATALOG_CONTRACTS:
+            for field in ("input_provenance_sha256", "input_provenance_file_sha256"):
+                _string(catalog[field], f"{catalog_path}.{field}", SHA64)
+            if label == "frontend-visual":
+                for field in ("baseline_set_sha256", "baseline_approval_sha256"):
+                    _string(catalog[field], f"{catalog_path}.{field}", SHA64)
+        else:
+            _string(catalog["provenance_sha256"], f"{catalog_path}.provenance_sha256", SHA64)
         if label in {"home-visual", "home-axe-browser-a11y"}:
             _string(catalog["rendered_product_sha"], f"{catalog_path}.rendered_product_sha", SHA40)
             _string(
@@ -573,6 +644,24 @@ def _validate_quality_evidence_inputs(value: Any, candidate: dict[str, Any]) -> 
                 SHA64,
             )
             _string(catalog["font_manifest_sha256"], f"{catalog_path}.font_manifest_sha256", SHA64)
+
+    frontend_digests = []
+    for label in FRONTEND_CATALOG_CONTRACTS:
+        catalog = catalogs[label]
+        frontend_digests.extend([
+            catalog["sha256"],
+            catalog["input_provenance_sha256"],
+            catalog["input_provenance_file_sha256"],
+        ])
+    frontend_digests.extend([
+        catalogs["frontend-visual"]["baseline_set_sha256"],
+        catalogs["frontend-visual"]["baseline_approval_sha256"],
+    ])
+    if len(frontend_digests) != len(set(frontend_digests)):
+        _fail(
+            f"{path}.catalogs",
+            "frontend generated, input-provenance, and baseline digests must be distinct",
+        )
 
     home_visual = catalogs["home-visual"]
     home_a11y = catalogs["home-axe-browser-a11y"]
@@ -994,6 +1083,14 @@ def validate_release_manifest(
             repository = "DevPathAi/devpath-gitops"
             head_sha = journeys["activation"]["head_sha"]
             artifact_name = quality_artifact_name(label, release_id, artifact["run_attempt"])
+        elif label in FRONTEND_CATALOG_CONTRACTS:
+            repository, head_sha = quality_source(candidate, label)
+            artifact_name = quality_artifact_name(
+                label,
+                release_id,
+                artifact["run_attempt"],
+                artifact["workflow_run_id"],
+            )
         else:
             repository, head_sha = quality_source(candidate, label)
             artifact_name = quality_artifact_name(label, release_id)
@@ -1006,6 +1103,22 @@ def validate_release_manifest(
             head_sha,
         )
         artifacts[label] = artifact
+
+    frontend_pair_fields = {
+        "repository",
+        "event",
+        "head_sha",
+        "run_attempt",
+        "workflow_path",
+        "workflow_sha256",
+        "workflow_run_id",
+    }
+    for field in frontend_pair_fields:
+        if artifacts["frontend-visual"][field] != artifacts["frontend-automated-a11y"][field]:
+            _fail(
+                "$.quality_evidence",
+                f"atomic frontend evidence pair {field} must match",
+            )
 
     shared_home_fields = {
         "candidate_spec_sha256",

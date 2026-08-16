@@ -18,6 +18,7 @@ from typing import Any
 
 from validate_release_manifest import (
     FRONTEND_CATALOG_CONTRACTS,
+    FRONTEND_EVIDENCE_FILES,
     FRONTEND_FIXTURE_IDS,
     PRODUCER_WORKFLOWS,
     QUALITY_EVIDENCE,
@@ -153,6 +154,285 @@ def _validate_surface_counts(value: Any, case_count: int, label: str) -> None:
 def _canonical_sha256(value: Any) -> str:
     encoded = json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _frontend_surface(fixture_id: str) -> str:
+    if fixture_id.startswith("web-"):
+        return "web"
+    if fixture_id.startswith("admin-"):
+        return "admin"
+    if fixture_id.startswith("mobile-"):
+        return "mobile"
+    return "dp_design"
+
+
+def _frontend_expected_case_identity(label: str) -> list[tuple[str, str, str]]:
+    kind = "visual" if label == "frontend-visual" else "a11y"
+    profiles = (
+        [(width, theme) for width in (320, 600, 840, 1240) for theme in ("light", "dark")]
+        if kind == "visual"
+        else [(320, "light"), (1240, "dark")]
+    )
+    result: list[tuple[str, str, str]] = []
+    extension = "png" if kind == "visual" else "json"
+    for fixture_id in FRONTEND_FIXTURE_IDS:
+        surface = _frontend_surface(fixture_id)
+        for width, theme in profiles:
+            suffix = (
+                f"visual--w{width}--{theme}"
+                if kind == "visual"
+                else f"a11y--w{width}--{theme}--text200"
+            )
+            case_id = f"{fixture_id}--{suffix}"
+            result.append((fixture_id, case_id, f"{kind}/{surface}/{case_id}.{extension}"))
+    return result
+
+
+def _read_frontend_json(path: Path, label: str) -> tuple[bytes, Any]:
+    raw = path.read_bytes()
+    if len(raw) > 2 * 1024 * 1024:
+        raise ValueError(f"{label}: packaged metadata exceeds the sanitized size limit")
+    try:
+        value = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"{label}: packaged metadata is not valid UTF-8 JSON") from exc
+    _validate_sanitized(value, f"{label} packaged metadata")
+    return raw, value
+
+
+def _frontend_expected_entries(label: str) -> list[str]:
+    files = set(FRONTEND_EVIDENCE_FILES[label])
+    directories: set[str] = set()
+    for filename in files:
+        parent = Path(filename).parent
+        while parent != Path("."):
+            directories.add(parent.as_posix())
+            parent = parent.parent
+    return sorted(files | directories)
+
+
+def validate_frontend_evidence_bundle(
+    label: str,
+    root: Path,
+    evidence: dict[str, Any],
+    candidate: dict[str, Any],
+) -> None:
+    """Verify the exact sanitized four-file frontend lane package and raw bindings."""
+    if label not in FRONTEND_EVIDENCE_FILES:
+        raise ValueError(f"{label}: not a frontend evidence lane")
+    archive_entries = list(root.rglob("*"))
+    if any(path.is_symlink() for path in archive_entries):
+        raise ValueError(f"{label}: packaged evidence may not contain links")
+    entries = sorted(path.relative_to(root).as_posix() for path in archive_entries)
+    expected_files = sorted(FRONTEND_EVIDENCE_FILES[label])
+    if entries != _frontend_expected_entries(label):
+        raise ValueError(f"{label}: exactly four sanitized files are required")
+    for filename in expected_files:
+        path = root / filename
+        if not path.is_file() or path.is_symlink():
+            raise ValueError(f"{label}: packaged evidence must be regular files")
+
+    lane = FRONTEND_CATALOG_CONTRACTS[label]
+    catalog_binding = _quality_catalog(candidate, label)
+    kind = "visual" if label == "frontend-visual" else "a11y"
+    catalog_file = lane["path"]
+    manifest_file = f"artifacts/et13/{kind}-manifest.v1.json"
+    manifest_schema = f"leva.et13.{kind}-manifest.v1"
+
+    evidence_raw, packaged_evidence = _read_frontend_json(root / "evidence.json", label)
+    if packaged_evidence != evidence:
+        raise ValueError(f"{label}: evidence.json does not match the verified payload")
+    if len(evidence_raw) > MAX_EVIDENCE_BYTES:
+        raise ValueError(f"{label}: evidence exceeds the sanitized size limit")
+
+    catalog_raw, generated = _read_frontend_json(root / catalog_file, label)
+    if hashlib.sha256(catalog_raw).hexdigest() != catalog_binding["sha256"]:
+        raise ValueError(f"{label}: catalog raw SHA does not match candidate prebinding")
+    generated = _exact_payload(
+        generated,
+        {
+            "schema_version", "case_catalog_version", "catalog_sha256", "fixture_ids",
+            "case_count", "surface_case_counts", "cases",
+        },
+        f"{label} generated catalog",
+    )
+    if (
+        generated["schema_version"] != lane["case_catalog_schema_version"]
+        or generated["case_catalog_version"] != lane["case_catalog_version"]
+        or generated["fixture_ids"] != list(FRONTEND_FIXTURE_IDS)
+        or generated["case_count"] != lane["case_count"]
+        or generated["surface_case_counts"] != lane["surface_case_counts"]
+    ):
+        raise ValueError(f"{label}: generated catalog identity or exact matrix is invalid")
+    if not isinstance(generated["catalog_sha256"], str) or SHA64.fullmatch(generated["catalog_sha256"]) is None:
+        raise ValueError(f"{label}: source catalog SHA is invalid")
+    _positive_int(generated["case_count"], f"{label} generated case_count")
+    _validate_surface_counts(
+        generated["surface_case_counts"], generated["case_count"], label
+    )
+    cases = generated["cases"]
+    expected_identities = _frontend_expected_case_identity(label)
+    if not isinstance(cases, list) or len(cases) != len(expected_identities):
+        raise ValueError(f"{label}: generated catalog does not contain the exact ordered cases")
+    generated_case_keys = {
+        "case_id", "fixture_id", "owner", "distribution", "route", "ready_semantics_label",
+        "surface_label", "width", "height", "device_pixel_ratio", "theme",
+        "text_scale_percent", "locale", "timezone", "reduced_motion", "artifact_path",
+    }
+    expected_width_theme = (
+        [(width, theme, 100) for width in (320, 600, 840, 1240) for theme in ("light", "dark")]
+        if kind == "visual"
+        else [(320, "light", 200), (1240, "dark", 200)]
+    )
+    for index, (case, identity) in enumerate(zip(cases, expected_identities, strict=True)):
+        row = _exact_payload(case, generated_case_keys, f"{label} generated case {index}")
+        fixture_id, case_id, artifact_path = identity
+        width, theme, text_scale = expected_width_theme[index % len(expected_width_theme)]
+        owner = _frontend_surface(fixture_id)
+        distribution = "web" if owner == "dp_design" else owner
+        for field in ("width", "height", "device_pixel_ratio", "text_scale_percent"):
+            _positive_int(row[field], f"{label} generated case {field}")
+        if (
+            row["fixture_id"] != fixture_id
+            or row["case_id"] != case_id
+            or row["artifact_path"] != artifact_path
+            or row["width"] != width
+            or row["theme"] != theme
+            or row["text_scale_percent"] != text_scale
+            or row["owner"] != owner
+            or row["distribution"] != distribution
+            or row["route"] != f"/?fixture={fixture_id}"
+            or row["ready_semantics_label"] != f"ET13_READY:{fixture_id}"
+            or row["surface_label"] != fixture_id
+            or row["height"] != 900
+            or row["device_pixel_ratio"] != 1
+            or row["locale"] != "ko-KR"
+            or row["timezone"] != "UTC"
+            or row["reduced_motion"] is not True
+        ):
+            raise ValueError(f"{label}: generated catalog does not contain the exact ordered cases")
+
+    provenance_raw, provenance = _read_frontend_json(root / "artifacts/et13/provenance.v1.json", label)
+    if hashlib.sha256(provenance_raw).hexdigest() != catalog_binding["input_provenance_file_sha256"]:
+        raise ValueError(f"{label}: input provenance raw SHA does not match candidate prebinding")
+    provenance = _exact_payload(
+        provenance,
+        {
+            "schema_version", "kind", "source_sha", "catalog_sha256", "case_catalog_sha256",
+            "assets_lock_sha256", "renderer_lock_sha256", "renderer_image_digest",
+            "build_marker_sha256", "provenance_sha256",
+        },
+        f"{label} input provenance",
+    )
+    provenance_inputs = {key: value for key, value in provenance.items() if key != "provenance_sha256"}
+    canonical_provenance = _canonical_sha256(provenance_inputs)
+    if (
+        provenance["schema_version"] != "leva.et13.input-provenance.v1"
+        or provenance["kind"] != kind
+        or provenance["source_sha"] != candidate["frontend"]["source_sha"]
+        or provenance["catalog_sha256"] != generated["catalog_sha256"]
+        or provenance["case_catalog_sha256"] != catalog_binding["sha256"]
+        or provenance["provenance_sha256"] != canonical_provenance
+        or canonical_provenance != catalog_binding["input_provenance_sha256"]
+        or evidence["input_provenance_sha256"] != canonical_provenance
+        or evidence["input_provenance_file_sha256"] != hashlib.sha256(provenance_raw).hexdigest()
+    ):
+        raise ValueError(f"{label}: canonical or raw input provenance binding mismatch")
+    for field in ("assets_lock_sha256", "renderer_lock_sha256", "build_marker_sha256"):
+        if not isinstance(provenance[field], str) or SHA64.fullmatch(provenance[field]) is None:
+            raise ValueError(f"{label}: {field} is invalid")
+    if not isinstance(provenance["renderer_image_digest"], str) or re.fullmatch(
+        r"sha256:[0-9a-f]{64}", provenance["renderer_image_digest"]
+    ) is None:
+        raise ValueError(f"{label}: renderer image digest is invalid")
+
+    manifest_raw, manifest = _read_frontend_json(root / manifest_file, label)
+    if hashlib.sha256(manifest_raw).hexdigest() != evidence["result_manifest_sha256"]:
+        raise ValueError(f"{label}: result manifest raw SHA mismatch")
+    manifest_keys = {
+        "schema_version", "case_catalog_version", "fixture_ids", "source_sha",
+        "catalog_sha256", "case_catalog_sha256", "assets_lock_sha256",
+        "renderer_lock_sha256", "input_provenance_sha256", "renderer_image",
+        "renderer_image_digest", "capture_network", "unexpected_request_policy",
+        "capture_surface", "device_evidence", "external_accessibility_status",
+        "evidence_mode", "case_count", "surface_case_counts", "cases",
+    }
+    if kind == "visual":
+        manifest_keys |= {"baseline_status", "baseline_set_sha256", "baseline_approval_sha256"}
+    manifest = _exact_payload(manifest, manifest_keys, f"{label} result manifest")
+    expected_manifest = {
+        "schema_version": manifest_schema,
+        "case_catalog_version": lane["case_catalog_version"],
+        "fixture_ids": list(FRONTEND_FIXTURE_IDS),
+        "source_sha": candidate["frontend"]["source_sha"],
+        "catalog_sha256": generated["catalog_sha256"],
+        "case_catalog_sha256": catalog_binding["sha256"],
+        "assets_lock_sha256": provenance["assets_lock_sha256"],
+        "renderer_lock_sha256": provenance["renderer_lock_sha256"],
+        "input_provenance_sha256": canonical_provenance,
+        "renderer_image_digest": provenance["renderer_image_digest"],
+        "capture_network": "none",
+        "unexpected_request_policy": "fail",
+        "capture_surface": "flutter_web_release_projection",
+        "device_evidence": False,
+        "external_accessibility_status": "not_satisfied",
+        "evidence_mode": "release_ready",
+        "case_count": lane["case_count"],
+        "surface_case_counts": lane["surface_case_counts"],
+    }
+    for field, expected in expected_manifest.items():
+        if manifest[field] != expected:
+            raise ValueError(f"{label}: result manifest {field} mismatch")
+    if manifest["device_evidence"] is not False:
+        raise ValueError(f"{label}: result manifest device_evidence mismatch")
+    _positive_int(manifest["case_count"], f"{label} result manifest case_count")
+    _validate_surface_counts(
+        manifest["surface_case_counts"], manifest["case_count"], label
+    )
+    if (
+        not isinstance(manifest["renderer_image"], str)
+        or not manifest["renderer_image"].endswith("@" + provenance["renderer_image_digest"])
+    ):
+        raise ValueError(f"{label}: renderer image is not digest pinned")
+    if kind == "visual":
+        for field, expected in (
+            ("baseline_status", "approved"),
+            ("baseline_set_sha256", catalog_binding["baseline_set_sha256"]),
+            ("baseline_approval_sha256", catalog_binding["baseline_approval_sha256"]),
+        ):
+            if manifest[field] != expected or evidence[field] != expected:
+                raise ValueError(f"{label}: approved baseline binding mismatch")
+
+    result_cases = manifest["cases"]
+    if not isinstance(result_cases, list) or len(result_cases) != len(cases):
+        raise ValueError(f"{label}: result manifest must contain exact ordered passed cases")
+    for index, (result, generated_case) in enumerate(zip(result_cases, cases, strict=True)):
+        result_keys = {"case_id", "status", "artifact_path", "sha256", "bytes"}
+        if kind == "a11y":
+            result_keys |= {
+                "standard", "critical_violations", "serious_violations", "other_violations",
+                "passes", "incomplete",
+            }
+        row = _exact_payload(result, result_keys, f"{label} result case {index}")
+        if (
+            row["case_id"] != generated_case["case_id"]
+            or row["artifact_path"] != generated_case["artifact_path"]
+            or row["status"] != "passed"
+            or not isinstance(row["sha256"], str)
+            or SHA64.fullmatch(row["sha256"]) is None
+            or row["sha256"] == "0" * 64
+        ):
+            raise ValueError(f"{label}: result manifest must contain exact ordered passed cases")
+        _positive_int(row["bytes"], f"{label} result case bytes")
+        if kind == "a11y":
+            if row["standard"] != "WCAG 2.2 AA":
+                raise ValueError(f"{label}: standard must be WCAG 2.2 AA")
+            for field in (
+                "critical_violations", "serious_violations", "other_violations", "passes", "incomplete",
+            ):
+                _nonnegative_int(row[field], f"{label} result case {field}")
+            if row["critical_violations"] != 0 or row["serious_violations"] != 0:
+                raise ValueError(f"{label}: result manifest contains blocking accessibility violations")
 
 
 def _validate_home_evidence_payload(
@@ -447,15 +727,18 @@ def validate_evidence_payload(
         extras: set[str]
         if label == "frontend-visual":
             extras = {
-                "case_catalog_version", "fixture_ids", "surface_case_counts",
-                "capture_surface", "device_evidence",
-                "render_provenance_sha256", "pixel_diff_percent",
+                "case_catalog_version", "case_catalog_schema_version", "fixture_ids",
+                "surface_case_counts", "capture_surface", "device_evidence", "evidence_mode",
+                "input_provenance_sha256", "input_provenance_file_sha256",
+                "result_manifest_sha256", "baseline_status", "baseline_set_sha256",
+                "baseline_approval_sha256", "pixel_diff_percent",
             }
         elif label == "frontend-automated-a11y":
             extras = {
-                "case_catalog_version", "fixture_ids", "surface_case_counts",
-                "capture_surface", "device_evidence",
-                "test_provenance_sha256", "standard",
+                "case_catalog_version", "case_catalog_schema_version", "fixture_ids",
+                "surface_case_counts", "capture_surface", "device_evidence", "evidence_mode",
+                "input_provenance_sha256", "input_provenance_file_sha256",
+                "result_manifest_sha256", "standard",
                 "critical_violations", "serious_violations",
             }
         elif label == "manual-nvda":
@@ -482,18 +765,38 @@ def validate_evidence_payload(
             raise ValueError(f"{label} case catalog hash mismatch")
         _validate_quality_counts(value, catalog, label)
 
-        # Frontend release evidence binds pre-run inputs only. Post-run manifest and
-        # artifact-set hashes stay in the producer's separate detailed artifact.
-        provenance_field = "render_provenance_sha256" if label == "frontend-visual" else "test_provenance_sha256"
-        if value[provenance_field] != catalog["provenance_sha256"]:
-            raise ValueError(f"{label} {provenance_field} mismatch")
         if label in {"frontend-visual", "frontend-automated-a11y"}:
             if (
                 value["case_catalog_version"] != catalog["case_catalog_version"]
+                or value["case_catalog_schema_version"] != catalog["case_catalog_schema_version"]
                 or value["fixture_ids"] != catalog["fixture_ids"]
                 or value["fixture_ids"] != list(FRONTEND_FIXTURE_IDS)
+                or value["evidence_mode"] != "release_ready"
+                or value["evidence_mode"] != catalog["evidence_mode"]
             ):
                 raise ValueError(f"{label} must bind the exact approved frontend catalog order")
+            for field in (
+                "input_provenance_sha256",
+                "input_provenance_file_sha256",
+            ):
+                if value[field] != catalog[field]:
+                    raise ValueError(f"{label} {field} mismatch")
+            if not isinstance(value["result_manifest_sha256"], str) or SHA64.fullmatch(
+                value["result_manifest_sha256"]
+            ) is None:
+                raise ValueError(f"{label} result_manifest_sha256 must be SHA-256")
+            prebound_digests = {
+                catalog["sha256"],
+                catalog["input_provenance_sha256"],
+                catalog["input_provenance_file_sha256"],
+            }
+            if label == "frontend-visual":
+                prebound_digests |= {
+                    catalog["baseline_set_sha256"],
+                    catalog["baseline_approval_sha256"],
+                }
+            if value["result_manifest_sha256"] in prebound_digests:
+                raise ValueError(f"{label} result and prebound input digests must be distinct")
             expected = FRONTEND_CATALOG_CONTRACTS[label]
             if (
                 value["capture_surface"] != expected["capture_surface"]
@@ -505,12 +808,21 @@ def validate_evidence_payload(
                     f"{label} is Flutter-web projection evidence, not native device evidence"
                 )
             _validate_surface_counts(value["surface_case_counts"], value["case_count"], label)
+        elif value["test_provenance_sha256"] != catalog["provenance_sha256"]:
+            raise ValueError(f"{label} test_provenance_sha256 mismatch")
         if label == "frontend-visual":
+            if (
+                value["baseline_status"] != "approved"
+                or value["baseline_status"] != catalog["baseline_status"]
+                or value["baseline_set_sha256"] != catalog["baseline_set_sha256"]
+                or value["baseline_approval_sha256"] != catalog["baseline_approval_sha256"]
+            ):
+                raise ValueError("frontend visual evidence must bind an approved baseline")
             if _bounded_number(value["pixel_diff_percent"], "frontend visual pixel diff", 0, 0) != 0:
                 raise ValueError("frontend visual pixel diff must be zero")
         if label == "frontend-automated-a11y":
-            if value["standard"] != "WCAG2.2AA":
-                raise ValueError("frontend automated a11y standard must be WCAG2.2AA")
+            if value["standard"] != "WCAG 2.2 AA":
+                raise ValueError("frontend automated a11y standard must be WCAG 2.2 AA")
             for field in ("critical_violations", "serious_violations"):
                 if isinstance(value[field], bool) or value[field] != 0:
                     raise ValueError(f"frontend automated a11y {field} must be integer zero")
@@ -899,9 +1211,16 @@ def verify_artifacts(root: Path, release_id: str, materialize_home: Path | None 
             )
             if label in {"home-visual", "home-axe-browser-a11y"}:
                 expected_files = ["a11y-evidence.v2.json", "visual-evidence.v2.json"]
+            elif label in FRONTEND_EVIDENCE_FILES:
+                expected_files = sorted(FRONTEND_EVIDENCE_FILES[label])
             else:
                 expected_files = ["dist.tar.gz", "evidence.json"] if has_payload else ["evidence.json"]
-            if entries != expected_files:
+            expected_entries = (
+                _frontend_expected_entries(label)
+                if label in FRONTEND_EVIDENCE_FILES
+                else expected_files
+            )
+            if entries != expected_entries:
                 raise ValueError(f"{label}: artifact contains an unexpected file set")
             for filename in expected_files:
                 path = destination / filename
@@ -925,6 +1244,8 @@ def verify_artifacts(root: Path, release_id: str, materialize_home: Path | None 
                 run_id,
                 run.get("run_attempt"),
             )
+            if label in FRONTEND_EVIDENCE_FILES:
+                validate_frontend_evidence_bundle(label, destination, payload, candidate)
             if not journey:
                 validate_sealed_metadata(label, payload, release)
             if has_payload:

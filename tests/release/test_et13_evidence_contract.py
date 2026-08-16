@@ -44,19 +44,23 @@ FRONTEND_FIXTURE_IDS = [
 FRONTEND_CATALOG_CONTRACTS = {
     "frontend-visual": {
         "path": "evidence/et13/generated/visual-cases.v1.json",
-        "case_catalog_version": "leva.et13.visual-cases.v1",
+        "case_catalog_version": "leva.et13.catalog.v1",
+        "case_catalog_schema_version": "leva.et13.visual-cases.v1",
         "case_count": 96,
         "surface_case_counts": {"web": 48, "admin": 16, "mobile": 16, "dp_design": 16},
         "capture_surface": "flutter_web_release_projection",
         "device_evidence": False,
+        "evidence_mode": "release_ready",
     },
     "frontend-automated-a11y": {
         "path": "evidence/et13/generated/a11y-cases.v1.json",
-        "case_catalog_version": "leva.et13.a11y-cases.v1",
+        "case_catalog_version": "leva.et13.catalog.v1",
+        "case_catalog_schema_version": "leva.et13.a11y-cases.v1",
         "case_count": 24,
         "surface_case_counts": {"web": 12, "admin": 4, "mobile": 4, "dp_design": 4},
         "capture_surface": "flutter_web_release_projection",
         "device_evidence": False,
+        "evidence_mode": "release_ready",
     },
 }
 
@@ -220,6 +224,10 @@ class Et13EvidenceContractTest(unittest.TestCase):
                 properties["case_catalog_version"],
                 {"const": expected["case_catalog_version"]},
             )
+            self.assertEqual(
+                properties["case_catalog_schema_version"],
+                {"const": expected["case_catalog_schema_version"]},
+            )
             self.assertEqual(properties["fixture_ids"], {"const": FRONTEND_FIXTURE_IDS})
             self.assertEqual(properties["case_count"], {"const": expected["case_count"]})
             self.assertEqual(
@@ -234,10 +242,8 @@ class Et13EvidenceContractTest(unittest.TestCase):
                 properties["device_evidence"],
                 {"const": expected["device_evidence"]},
             )
-            self.assertIn(
-                "Precomputable producer input-provenance",
-                properties["provenance_sha256"]["description"],
-            )
+            self.assertIn("Canonical SHA-256", properties["input_provenance_sha256"]["description"])
+            self.assertIn("Raw-byte SHA-256", properties["input_provenance_file_sha256"]["description"])
         self.assertNotIn("screenshot_count", json.dumps(schema, sort_keys=True))
         self.assertEqual(schema["$defs"]["artifact"]["properties"]["event"], {"const": "workflow_dispatch"})
         self.assertEqual(schema["$defs"]["artifact"]["properties"]["evidence_file"], {"const": "evidence.json"})
@@ -310,7 +316,7 @@ class Et13EvidenceContractTest(unittest.TestCase):
                     release["quality_evidence"]["home_axe_browser_a11y"][field] = "0" * 40
                 elif field == "workflow_path":
                     release["quality_evidence"]["home_axe_browser_a11y"][field] = (
-                        ".github/workflows/mission-spine-visual-evidence.yml"
+                        ".github/workflows/et13-evidence.yml"
                     )
                 elif field == "workflow_sha256":
                     release["quality_evidence"]["home_axe_browser_a11y"][field] = "0" * 64
@@ -371,14 +377,21 @@ class Et13EvidenceContractTest(unittest.TestCase):
         if label in FRONTEND_CATALOG_CONTRACTS:
             payload.update({
                 "case_catalog_version": catalog["case_catalog_version"],
+                "case_catalog_schema_version": catalog["case_catalog_schema_version"],
                 "fixture_ids": list(catalog["fixture_ids"]),
                 "capture_surface": catalog["capture_surface"],
                 "device_evidence": catalog["device_evidence"],
+                "evidence_mode": catalog["evidence_mode"],
+                "input_provenance_sha256": catalog["input_provenance_sha256"],
+                "input_provenance_file_sha256": catalog["input_provenance_file_sha256"],
+                "result_manifest_sha256": "e" * 64,
             })
         if label == "frontend-visual":
             payload.update({
                 "surface_case_counts": dict(catalog["surface_case_counts"]),
-                "render_provenance_sha256": catalog["provenance_sha256"],
+                "baseline_status": catalog["baseline_status"],
+                "baseline_set_sha256": catalog["baseline_set_sha256"],
+                "baseline_approval_sha256": catalog["baseline_approval_sha256"],
                 "pixel_diff_percent": 0,
             })
         elif label == "home-visual":
@@ -387,8 +400,7 @@ class Et13EvidenceContractTest(unittest.TestCase):
             if label == "home-axe-browser-a11y":
                 return self._home_payload("a11y", catalog)
             payload.update({
-                "test_provenance_sha256": catalog["provenance_sha256"],
-                "standard": "WCAG2.2AA",
+                "standard": "WCAG 2.2 AA",
                 "critical_violations": 0,
                 "serious_violations": 0,
             })
@@ -540,6 +552,7 @@ class Et13EvidenceContractTest(unittest.TestCase):
             candidate_mutations = (
                 ("path", "evidence/et13/generated/wrong-cases.v1.json"),
                 ("case_catalog_version", "leva.et13.wrong-cases.v1"),
+                ("case_catalog_schema_version", "leva.et13.wrong-cases.v1"),
                 ("fixture_ids", list(reversed(FRONTEND_FIXTURE_IDS))),
                 ("capture_surface", "native_mobile_device"),
                 ("device_evidence", True),
@@ -563,16 +576,23 @@ class Et13EvidenceContractTest(unittest.TestCase):
                             label, payload, self.candidate_sha, self.candidate, 501, 3
                         )
 
-    def test_frontend_release_evidence_keeps_result_artifact_hashes_separate(self):
+    def test_frontend_release_evidence_requires_result_manifest_but_rejects_raw_set_hash(self):
         for label in FRONTEND_CATALOG_CONTRACTS:
-            for field in ("result_manifest_sha256", "artifact_set_sha256"):
-                with self.subTest(label=label, field=field):
-                    payload = self._base_payload(label)
-                    payload[field] = "f" * 64
-                    with self.assertRaisesRegex(ValueError, "invalid key set"):
-                        self.artifacts.validate_evidence_payload(
-                            label, payload, self.candidate_sha, self.candidate, 501, 3
-                        )
+            payload = self._base_payload(label)
+            self.artifacts.validate_evidence_payload(
+                label, payload, self.candidate_sha, self.candidate, 501, 3
+            )
+            missing = copy.deepcopy(payload)
+            del missing["result_manifest_sha256"]
+            with self.assertRaisesRegex(ValueError, "invalid key set"):
+                self.artifacts.validate_evidence_payload(
+                    label, missing, self.candidate_sha, self.candidate, 501, 3
+                )
+            payload["artifact_set_sha256"] = "f" * 64
+            with self.assertRaisesRegex(ValueError, "invalid key set"):
+                self.artifacts.validate_evidence_payload(
+                    label, payload, self.candidate_sha, self.candidate, 501, 3
+                )
 
     def test_frontend_projection_evidence_cannot_claim_native_device_coverage(self):
         for label in FRONTEND_CATALOG_CONTRACTS:
@@ -673,9 +693,9 @@ class Et13EvidenceContractTest(unittest.TestCase):
 
     def test_producer_workflow_allowlist_is_exact_per_artifact(self):
         expected = {
-            "frontend-visual": ".github/workflows/mission-spine-visual-evidence.yml",
+            "frontend-visual": ".github/workflows/et13-evidence.yml",
             "home-visual": ".github/workflows/mission-spine-validate.yml",
-            "frontend-automated-a11y": ".github/workflows/mission-spine-accessibility-evidence.yml",
+            "frontend-automated-a11y": ".github/workflows/et13-evidence.yml",
             "home-axe-browser-a11y": ".github/workflows/mission-spine-validate.yml",
             "manual-nvda": ".github/workflows/mission-spine-manual-at-evidence.yml",
             "manual-voiceover": ".github/workflows/mission-spine-manual-at-evidence.yml",
