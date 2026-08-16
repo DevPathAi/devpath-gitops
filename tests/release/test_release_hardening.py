@@ -583,7 +583,7 @@ class ReleaseHardeningTest(unittest.TestCase):
 
     def test_canonical_composed_source_pins_are_bound_in_candidate_fixture(self):
         expected = {
-            "devpath-admin": "a18aee3d31e61dcd393517ef68125224eeb76c7a",
+            "devpath-admin": "a2c419cadb8d50095728e4e9613273f89ede5314",
             "devpath-ai-svc": "47adf75283a9a8ba75a93a51bf76113a1d8315a1",
             "devpath-community-svc": "d8bdff0df558e212a4974731d4614c4b626e3264",
             "devpath-gateway": "f55add639992fbe45fcc17adc210eb8e92277885",
@@ -611,7 +611,11 @@ class ReleaseHardeningTest(unittest.TestCase):
         )
         self.assertEqual(
             self.candidate["frontend"]["source_sha"],
-            "a18aee3d31e61dcd393517ef68125224eeb76c7a",
+            "a2c419cadb8d50095728e4e9613273f89ede5314",
+        )
+        self.assertEqual(
+            self.candidate["home"]["source_sha"],
+            "b130d7e58c5b3e96a64f729d4aa02dbab5d991aa",
         )
 
 

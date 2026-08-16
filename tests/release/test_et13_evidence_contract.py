@@ -18,6 +18,15 @@ ARTIFACT_VERIFIER = ROOT / "scripts" / "release" / "verify_release_artifacts.py"
 SEALER = ROOT / "scripts" / "release" / "seal_release_manifest.py"
 SCHEMA = ROOT / "release-manifests" / "schema-v1.json"
 VALIDATION_WORKFLOW = ROOT / ".github" / "workflows" / "mission-spine-validate.yml"
+FINAL_FRONTEND_SHA = "a2c419cadb8d50095728e4e9613273f89ede5314"
+FINAL_HOME_SOURCE_SHA = "b130d7e58c5b3e96a64f729d4aa02dbab5d991aa"
+FINAL_HOME_TREE_SHA256 = "64e51e148bde2962f1abdd06feffb2745fe062d47e6efbc9608c618fe9835368"
+STALE_FRONTEND_SHA = "a18aee3d31e61dcd3935" "17ef68125224eeb76c7a"
+STALE_HOME_SOURCE_SHA = "6821ab90b6625a15752f" "831cdce183dc0ffaa86f"
+STALE_HOME_TREE_SHA256 = (
+    "9f7f2c06c7caa9e77a155163654cc810" "7670fe8c9d9cc059d1f4a6ca427bcf25"
+)
+HOME_LOCAL_CANDIDATE_SHA = "90b" "988"
 
 
 def load_module(path: Path, name: str):
@@ -46,11 +55,11 @@ class Et13EvidenceContractTest(unittest.TestCase):
         home = inputs["catalogs"]["home-visual"]
         self.assertEqual(
             home["source_sha"],
-            "6821ab90b6625a15752f831cdce183dc0ffaa86f",
+            FINAL_HOME_SOURCE_SHA,
         )
         self.assertEqual(
             home["rendered_product_tree_sha256"],
-            "9f7f2c06c7caa9e77a155163654cc8107670fe8c9d9cc059d1f4a6ca427bcf25",
+            FINAL_HOME_TREE_SHA256,
         )
         self.assertEqual(
             home["rendered_product_sha"],
@@ -79,6 +88,86 @@ class Et13EvidenceContractTest(unittest.TestCase):
         mobile["signed_apk_sha256"] = mobile["build_provenance_sha256"]
         with self.assertRaisesRegex(ValueError, "must be distinct"):
             self.validator.validate_candidate_spec(invalid, CANDIDATE_FIXTURE)
+
+    def test_final_source_rebind_is_exact_and_removes_every_stale_pin(self):
+        inputs = self.candidate["quality_evidence_inputs"]
+        self.assertEqual(self.candidate["frontend"]["source_sha"], FINAL_FRONTEND_SHA)
+        self.assertEqual(
+            self.candidate["services"]["devpath-admin"]["source_sha"],
+            FINAL_FRONTEND_SHA,
+        )
+        self.assertEqual(
+            self.candidate["frontend"]["mission_off"]["tag"],
+            f"{FINAL_FRONTEND_SHA}-mission-off",
+        )
+        self.assertEqual(
+            self.candidate["frontend"]["mission_on"]["tag"],
+            f"{FINAL_FRONTEND_SHA}-mission-on",
+        )
+        self.assertEqual(self.candidate["home"]["source_sha"], FINAL_HOME_SOURCE_SHA)
+
+        for catalog in inputs["catalogs"].values():
+            if catalog["repository"] == "DevPathAi/devpath-frontend":
+                self.assertEqual(catalog["source_sha"], FINAL_FRONTEND_SHA)
+            elif catalog["repository"] == "DevPathAi/devpath-home-page":
+                self.assertEqual(catalog["source_sha"], FINAL_HOME_SOURCE_SHA)
+                self.assertEqual(
+                    catalog["rendered_product_tree_sha256"],
+                    FINAL_HOME_TREE_SHA256,
+                )
+                self.assertEqual(
+                    catalog["rendered_product_sha"],
+                    "084ab218698b0411f9bdea7c7c32c45fce87fd18",
+                )
+                self.assertEqual(
+                    catalog["sha256"],
+                    "a3c338c6dd9da493df0ee660772359bed76440ecf693e64ef5486f79eb3b6078",
+                )
+                self.assertEqual(
+                    catalog["font_manifest_sha256"],
+                    "9598c1a9656d3df6b48b7ff4038765e139cec8dd73cef0432f03a46cd1ebb662",
+                )
+        self.assertEqual(inputs["mobile_test_artifacts"]["source_sha"], FINAL_FRONTEND_SHA)
+
+        candidate_text = CANDIDATE_FIXTURE.read_text(encoding="utf-8")
+        release_text = RELEASE_FIXTURE.read_text(encoding="utf-8")
+        for stale in (
+            STALE_FRONTEND_SHA,
+            STALE_HOME_SOURCE_SHA,
+            STALE_HOME_TREE_SHA256,
+            HOME_LOCAL_CANDIDATE_SHA,
+        ):
+            self.assertNotIn(stale, candidate_text)
+            self.assertNotIn(stale, release_text)
+
+        self.assertEqual(self.release["home_dist_artifact"]["head_sha"], FINAL_HOME_SOURCE_SHA)
+        self.assertEqual(
+            self.release["validation_attestation"]["home_source_sha"],
+            FINAL_HOME_SOURCE_SHA,
+        )
+        for label, evidence in self.release["quality_evidence"].items():
+            if label.startswith("frontend_") or label.startswith("manual_"):
+                self.assertEqual(evidence["head_sha"], FINAL_FRONTEND_SHA)
+
+        bound_candidate_hashes = [self.release["candidate_spec"]["sha256"]]
+
+        def collect_candidate_hashes(value):
+            if isinstance(value, dict):
+                for key, nested in value.items():
+                    if key == "candidate_spec_sha256":
+                        bound_candidate_hashes.append(nested)
+                    collect_candidate_hashes(nested)
+            elif isinstance(value, list):
+                for nested in value:
+                    collect_candidate_hashes(nested)
+
+        collect_candidate_hashes(self.release)
+        self.assertEqual(len(bound_candidate_hashes), 14)
+        self.assertEqual(set(bound_candidate_hashes), {self.candidate_sha})
+        self.assertEqual(
+            (CANDIDATE_FIXTURE.with_suffix(".sha256")).read_text(encoding="utf-8").split(),
+            [self.candidate_sha, CANDIDATE_FIXTURE.name],
+        )
 
     def test_schema_uses_exact_catalog_counts_without_a_screenshot_cap(self):
         schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
