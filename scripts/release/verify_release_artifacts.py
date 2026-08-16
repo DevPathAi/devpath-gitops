@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -17,9 +18,10 @@ from typing import Any
 
 from validate_release_manifest import (
     PRODUCER_WORKFLOWS,
-    SHA40,
+    QUALITY_EVIDENCE,
     SHA64,
     _validate_sanitized,
+    quality_source,
     resolve_release_bundle,
 )
 
@@ -28,6 +30,7 @@ MAX_EVIDENCE_BYTES = 256 * 1024
 MAX_HOME_PAYLOAD_BYTES = 100 * 1024 * 1024
 JOURNEY_ROW_KEYS = {"route", "step", "result", "duration_ms", "candidate_spec_sha256"}
 PRODUCER_EVIDENCE_KEYS = {"producer_run_id", "producer_run_attempt"}
+HOME_CASE_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 JOURNEY_ALLOWLISTS = {
     "journey-activation": {
         "landing-prepermission-zero": ("/",),
@@ -105,6 +108,214 @@ def _bounded_number(value: Any, label: str, minimum: float, maximum: float) -> f
     return number
 
 
+def _nonnegative_int(value: Any, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{label} must be a non-negative integer")
+    return value
+
+
+def _positive_int(value: Any, label: str) -> int:
+    number = _nonnegative_int(value, label)
+    if number == 0:
+        raise ValueError(f"{label} must be a positive integer")
+    return number
+
+
+def _quality_catalog(candidate: dict[str, Any], label: str) -> dict[str, Any]:
+    return candidate["quality_evidence_inputs"]["catalogs"][label]
+
+
+def _validate_quality_counts(value: dict[str, Any], catalog: dict[str, Any], label: str) -> None:
+    case_count = _positive_int(value["case_count"], f"{label} case_count")
+    passed = _nonnegative_int(value["passed_case_count"], f"{label} passed_case_count")
+    failed = _nonnegative_int(value["failed_case_count"], f"{label} failed_case_count")
+    if case_count != catalog["case_count"]:
+        raise ValueError(f"{label} case_count does not match the bound catalog")
+    if passed != case_count or failed != 0:
+        raise ValueError(f"{label} all catalog cases must be passed with failed_case_count zero")
+
+
+def _validate_surface_counts(value: Any, case_count: int, label: str) -> None:
+    counts = _exact_payload(value, {"web", "admin", "mobile", "dp_design"}, f"{label} surfaces")
+    parsed = [_positive_int(count, f"{label} surface {surface}") for surface, count in counts.items()]
+    if sum(parsed) != case_count:
+        raise ValueError(f"{label} surface counts must sum to the exact catalog count")
+
+
+def _canonical_sha256(value: Any) -> str:
+    encoded = json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _validate_home_evidence_payload(
+    label: str,
+    payload: Any,
+    candidate_hash: str,
+    candidate: dict[str, Any],
+) -> None:
+    value = _exact_payload(
+        payload,
+        {
+            "$schema", "schema_version", "document_type", "evidence_mode", "binding",
+            "runtime", "theme_coverage", "baseline_review", "summary", "cases", "privacy",
+        },
+        label,
+    )
+    expected_kind = "visual" if label == "home-visual" else "a11y"
+    if value["$schema"] != "https://leva.ai.kr/schemas/home-visual-a11y-evidence-v2.json":
+        raise ValueError(f"{label} schema reference is not canonical")
+    if value["schema_version"] != 2 or value["document_type"] != f"home-{expected_kind}-evidence":
+        raise ValueError(f"{label} document identity is invalid")
+    if value["evidence_mode"] != "release_ready":
+        raise ValueError(f"{label} evidence is not release_ready")
+
+    catalog = _quality_catalog(candidate, label)
+    binding = _exact_payload(
+        value["binding"],
+        {
+            "repository", "rendered_product_sha", "rendered_product_tree_sha256",
+            "evidence_producer_sha", "candidate_spec_sha256", "case_catalog_sha256",
+            "font_manifest_sha256",
+        },
+        f"{label} binding",
+    )
+    expected_repository, expected_source = quality_source(candidate, label)
+    expected_binding = {
+        "repository": expected_repository,
+        "rendered_product_sha": catalog["rendered_product_sha"],
+        "rendered_product_tree_sha256": catalog["rendered_product_tree_sha256"],
+        "evidence_producer_sha": expected_source,
+        "candidate_spec_sha256": candidate_hash,
+        "case_catalog_sha256": catalog["sha256"],
+        "font_manifest_sha256": catalog["font_manifest_sha256"],
+    }
+    for field, expected in expected_binding.items():
+        if binding[field] != expected:
+            raise ValueError(f"{label} {field} mismatch")
+    runtime = _exact_payload(
+        value["runtime"],
+        {
+            "browser", "playwright_version", "locale", "timezone_id", "device_scale_factor",
+            "color_scheme", "reduced_motion", "animations", "clock", "network_policy",
+            "workers",
+        },
+        f"{label} runtime",
+    )
+    if _canonical_sha256(runtime) != catalog["provenance_sha256"]:
+        raise ValueError(f"{label} render provenance mismatch")
+    if (
+        runtime["browser"] != "chromium"
+        or runtime["playwright_version"] != "1.61.1"
+        or runtime["locale"] != "ko-KR"
+        or runtime["timezone_id"] != "UTC"
+        or runtime["device_scale_factor"] != 1
+        or runtime["color_scheme"] != "light"
+        or runtime["reduced_motion"] != "reduce"
+        or runtime["animations"] != "disabled"
+        or runtime["clock"] != "2026-08-16T00:00:00.000Z"
+        or runtime["network_policy"] != "loopback-only"
+        or runtime["workers"] != 1
+    ):
+        raise ValueError(f"{label} runtime provenance is not the approved deterministic render profile")
+
+    theme = _exact_payload(value["theme_coverage"], {"light", "dark"}, f"{label} themes")
+    if theme["light"] != "covered":
+        raise ValueError(f"{label} light theme is not covered")
+    dark = _exact_payload(theme["dark"], {"status", "reason", "approval"}, f"{label} dark theme")
+    approval = _exact_payload(
+        dark["approval"], {"required", "status", "owner", "artifact"}, f"{label} dark approval"
+    )
+    if (
+        dark["status"] != "not_applicable"
+        or not isinstance(dark["reason"], str)
+        or not 1 <= len(dark["reason"]) <= 240
+        or approval != {
+            "required": True,
+            "status": "pending",
+            "owner": "product-design",
+            "artifact": None,
+        }
+    ):
+        raise ValueError(f"{label} dark-theme non-applicability record is invalid")
+
+    baseline = _exact_payload(
+        value["baseline_review"], {"status", "review_id"}, f"{label} baseline review"
+    )
+    if (
+        baseline["status"] != "approved"
+        or not isinstance(baseline["review_id"], str)
+        or not 1 <= len(baseline["review_id"]) <= 80
+    ):
+        raise ValueError(f"{label} baseline review must be approved")
+
+    summary = _exact_payload(value["summary"], {"required", "passed", "failed"}, f"{label} summary")
+    required = _positive_int(summary["required"], f"{label} required cases")
+    passed = _nonnegative_int(summary["passed"], f"{label} passed cases")
+    failed = _nonnegative_int(summary["failed"], f"{label} failed cases")
+    if required != catalog["case_count"] or passed != required or failed != 0:
+        raise ValueError(f"{label} all exact catalog cases must be passed")
+    cases = value["cases"]
+    if not isinstance(cases, list) or len(cases) != required:
+        raise ValueError(f"{label} cases do not match the exact catalog count")
+    case_ids: set[str] = set()
+    for index, case in enumerate(cases):
+        common_keys = {
+            "case_id", "status", "theme", "viewport", "check_count", "failed_check_count",
+        }
+        expected_keys = common_keys | ({"artifact_sha256"} if expected_kind == "visual" else {"violation_counts"})
+        row = _exact_payload(case, expected_keys, f"{label} case {index}")
+        case_id = row["case_id"]
+        if (
+            not isinstance(case_id, str)
+            or len(case_id) > 80
+            or HOME_CASE_ID.fullmatch(case_id) is None
+            or case_id in case_ids
+        ):
+            raise ValueError(f"{label} case IDs must be bounded and unique")
+        case_ids.add(case_id)
+        if row["status"] != "passed" or row["theme"] != "light":
+            raise ValueError(f"{label} case {index} did not pass")
+        viewport = _exact_payload(row["viewport"], {"width", "height"}, f"{label} viewport")
+        if viewport["width"] not in {320, 600, 840, 1240}:
+            raise ValueError(f"{label} viewport width is not canonical")
+        height = _positive_int(viewport["height"], f"{label} viewport height")
+        if not 720 <= height <= 1200:
+            raise ValueError(f"{label} viewport height is outside the canonical range")
+        check_count = _positive_int(row["check_count"], f"{label} case check_count")
+        if check_count > 1000:
+            raise ValueError(f"{label} case check_count exceeds the schema bound")
+        if _nonnegative_int(row["failed_check_count"], f"{label} failed_check_count") != 0:
+            raise ValueError(f"{label} case {index} has failed checks")
+        if expected_kind == "visual":
+            if not isinstance(row["artifact_sha256"], str) or SHA64.fullmatch(row["artifact_sha256"]) is None:
+                raise ValueError(f"{label} visual artifact hash is invalid")
+            if row["artifact_sha256"] == "0" * 64:
+                raise ValueError(f"{label} passed visual artifact hash is a failure sentinel")
+        else:
+            violations = _exact_payload(
+                row["violation_counts"],
+                {"critical", "serious", "moderate", "minor", "total"},
+                f"{label} violations",
+            )
+            for field, count in violations.items():
+                if _nonnegative_int(count, f"{label} {field} violations") > 10_000:
+                    raise ValueError(f"{label} {field} violations exceed the schema bound")
+            if violations["critical"] != 0:
+                raise ValueError(f"{label} critical violations must be zero")
+            if violations["serious"] != 0:
+                raise ValueError(f"{label} serious violations must be zero")
+            if violations["total"] != sum(violations[field] for field in ("critical", "serious", "moderate", "minor")):
+                raise ValueError(f"{label} violation total is inconsistent")
+            if violations["total"] != 0:
+                raise ValueError(f"{label} passed with accessibility violations")
+
+    privacy = _exact_payload(
+        value["privacy"], {"classification", "contains_raw_content"}, f"{label} privacy"
+    )
+    if privacy != {"classification": "sanitized-aggregate-only", "contains_raw_content": False}:
+        raise ValueError(f"{label} evidence may not contain raw content")
+
+
 def validate_evidence_payload(
     label: str,
     payload: Any,
@@ -139,6 +350,9 @@ def validate_evidence_payload(
                 raise ValueError(f"journey evidence row {index} has a disallowed route")
         if actual_steps != expected_steps:
             raise ValueError("journey evidence step sequence is not the approved allowlist")
+        return
+    if label in {"home-visual", "home-axe-browser-a11y"}:
+        _validate_home_evidence_payload(label, payload, candidate_hash, candidate)
         return
     if not isinstance(payload, dict) or payload.get("candidate_spec_sha256") != candidate_hash:
         raise ValueError("evidence does not bind candidate-spec")
@@ -215,44 +429,74 @@ def validate_evidence_payload(
         _bounded_number(value["usefulness_percent"], "usefulness", 90, 100)
         _bounded_number(value["baseline_delta_points"], "baseline delta", -5, 100)
         return
-    if label == "visual":
-        value = _exact_payload(
-            payload,
-            {
-                "candidate_spec_sha256", "status", "frontend_source_sha", "viewport_profile",
-                "screenshot_count", "pixel_diff_percent",
-                *PRODUCER_EVIDENCE_KEYS,
-            },
-            label,
-        )
-        if value["frontend_source_sha"] != candidate["frontend"]["source_sha"]:
-            raise ValueError("visual frontend source mismatch")
-        if value["viewport_profile"] != "mission-spine.desktop-mobile.v1":
-            raise ValueError("visual viewport profile is not approved")
-        if isinstance(value["screenshot_count"], bool) or not isinstance(value["screenshot_count"], int):
-            raise ValueError("visual screenshot_count must be an integer")
-        if not 1 <= value["screenshot_count"] <= 64:
-            raise ValueError("visual screenshot_count is outside its approved range")
-        if _bounded_number(value["pixel_diff_percent"], "visual pixel diff", 0, 0) != 0:
-            raise ValueError("visual pixel diff must be zero")
-        return
-    if label == "accessibility":
-        value = _exact_payload(
-            payload,
-            {
-                "candidate_spec_sha256", "status", "frontend_source_sha", "standard",
+    if label in QUALITY_EVIDENCE:
+        catalog = _quality_catalog(candidate, label)
+        common_keys = {
+            "candidate_spec_sha256", "status", "producer_run_id", "producer_run_attempt",
+            "repository", "source_sha", "case_catalog_sha256", "case_count",
+            "passed_case_count", "failed_case_count",
+        }
+        extras: set[str]
+        if label == "frontend-visual":
+            extras = {"surface_case_counts", "render_provenance_sha256", "pixel_diff_percent"}
+        elif label == "frontend-automated-a11y":
+            extras = {
+                "surface_case_counts", "test_provenance_sha256", "standard",
                 "critical_violations", "serious_violations",
-                *PRODUCER_EVIDENCE_KEYS,
-            },
-            label,
-        )
-        if value["frontend_source_sha"] != candidate["frontend"]["source_sha"]:
-            raise ValueError("accessibility frontend source mismatch")
-        if value["standard"] != "WCAG2.2AA":
-            raise ValueError("accessibility standard must be WCAG2.2AA")
-        for field in ("critical_violations", "serious_violations"):
-            if isinstance(value[field], bool) or value[field] != 0:
-                raise ValueError(f"accessibility {field} must be integer zero")
+            }
+        elif label == "manual-nvda":
+            extras = {"assistive_technology", "test_provenance_sha256"}
+        elif label == "manual-voiceover":
+            extras = {
+                "assistive_technology", "test_provenance_sha256",
+                "build_provenance_sha256", "signed_ipa_sha256",
+            }
+        elif label == "manual-talkback":
+            extras = {
+                "assistive_technology", "test_provenance_sha256",
+                "build_provenance_sha256", "signed_apk_sha256",
+            }
+        else:  # Home labels return above.
+            raise ValueError(f"unknown evidence kind: {label}")
+        value = _exact_payload(payload, common_keys | extras, label)
+        expected_repository, expected_source = quality_source(candidate, label)
+        if value["repository"] != expected_repository:
+            raise ValueError(f"{label} repository mismatch")
+        if value["source_sha"] != expected_source:
+            raise ValueError(f"{label} source SHA mismatch")
+        if value["case_catalog_sha256"] != catalog["sha256"]:
+            raise ValueError(f"{label} case catalog hash mismatch")
+        _validate_quality_counts(value, catalog, label)
+
+        provenance_field = "render_provenance_sha256" if label == "frontend-visual" else "test_provenance_sha256"
+        if value[provenance_field] != catalog["provenance_sha256"]:
+            raise ValueError(f"{label} {provenance_field} mismatch")
+        if label in {"frontend-visual", "frontend-automated-a11y"}:
+            _validate_surface_counts(value["surface_case_counts"], value["case_count"], label)
+        if label == "frontend-visual":
+            if _bounded_number(value["pixel_diff_percent"], "frontend visual pixel diff", 0, 0) != 0:
+                raise ValueError("frontend visual pixel diff must be zero")
+        if label == "frontend-automated-a11y":
+            if value["standard"] != "WCAG2.2AA":
+                raise ValueError("frontend automated a11y standard must be WCAG2.2AA")
+            for field in ("critical_violations", "serious_violations"):
+                if isinstance(value[field], bool) or value[field] != 0:
+                    raise ValueError(f"frontend automated a11y {field} must be integer zero")
+        expected_at = {
+            "manual-nvda": "NVDA+Chromium",
+            "manual-voiceover": "VoiceOver+Safari+iOS",
+            "manual-talkback": "TalkBack+Android",
+        }
+        if label in expected_at and value["assistive_technology"] != expected_at[label]:
+            raise ValueError(f"{label} assistive technology mismatch")
+        if label in {"manual-voiceover", "manual-talkback"}:
+            mobile = candidate["quality_evidence_inputs"]["mobile_test_artifacts"]
+            for field in ("build_provenance_sha256",):
+                if value[field] != mobile[field]:
+                    raise ValueError(f"{label} {field} mismatch")
+            signed_field = "signed_ipa_sha256" if label == "manual-voiceover" else "signed_apk_sha256"
+            if value[signed_field] != mobile[signed_field]:
+                raise ValueError(f"{label} {signed_field} mismatch")
         return
     raise ValueError(f"unknown evidence kind: {label}")
 
@@ -281,12 +525,13 @@ def validate_run_provenance(
     expected_head: str,
     expected_workflow_path: str,
     workflow_bytes: bytes,
+    expected_event: str = "workflow_dispatch",
 ) -> None:
-    """Bind evidence to one successful manual run and its exact workflow blob."""
+    """Bind evidence to one successful producer run and its exact workflow blob."""
     if run.get("status") != "completed" or run.get("conclusion") != "success":
         raise ValueError(f"{label}: producer workflow did not complete successfully")
-    if run.get("event") != "workflow_dispatch" or reference.get("event") != "workflow_dispatch":
-        raise ValueError(f"{label}: producer event must be workflow_dispatch")
+    if run.get("event") != expected_event or reference.get("event") != expected_event:
+        raise ValueError(f"{label}: producer event must be {expected_event}")
     if run.get("head_sha") != expected_head or reference.get("head_sha") != expected_head:
         raise ValueError(f"{label}: producer head SHA mismatch")
     run_attempt = run.get("run_attempt")
@@ -413,15 +658,18 @@ def _run_json(command: list[str], env: dict[str, str]) -> dict[str, Any]:
 
 
 def _artifact_entries(release: dict[str, Any]) -> list[tuple[str, dict[str, Any], bool, bool]]:
-    return [
+    entries = [
         ("home-dist", release["home_dist_artifact"], False, True),
         ("privacy-approval", release["analytics_privacy_approval"]["evidence"], False, False),
         ("ai-release-eval", release["ai_release_eval"]["evidence"], False, False),
         ("journey-activation", release["journeys"]["activation"], True, False),
         ("journey-contextual-practice", release["journeys"]["contextual_practice"], True, False),
-        ("visual", release["quality_evidence"]["visual"], False, False),
-        ("accessibility", release["quality_evidence"]["accessibility"], False, False),
     ]
+    entries.extend(
+        (label, release["quality_evidence"][key], False, False)
+        for label, key in QUALITY_EVIDENCE.items()
+    )
+    return entries
 
 
 def _verify_validation_seal(
@@ -536,9 +784,15 @@ def verify_artifacts(root: Path, release_id: str, materialize_home: Path | None 
         "ai-release-eval": candidate["services"]["devpath-ai-svc"]["source_sha"],
         "journey-activation": release["validation_attestation"]["validator_head_sha"],
         "journey-contextual-practice": release["validation_attestation"]["validator_head_sha"],
-        "visual": candidate["frontend"]["source_sha"],
-        "accessibility": candidate["frontend"]["source_sha"],
     }
+    expected_head.update({
+        label: (
+            release["validation_attestation"]["validator_head_sha"]
+            if label in {"home-visual", "home-axe-browser-a11y"}
+            else quality_source(candidate, label)[1]
+        )
+        for label in QUALITY_EVIDENCE
+    })
 
     with tempfile.TemporaryDirectory(prefix="mission-spine-evidence-") as temp_dir:
         temp = Path(temp_dir)
@@ -574,6 +828,7 @@ def verify_artifacts(root: Path, release_id: str, materialize_home: Path | None 
                 expected_head[label],
                 workflow_path,
                 workflow_bytes,
+                artifact["event"],
             )
             if journey:
                 attestation = release["validation_attestation"]
@@ -610,14 +865,17 @@ def verify_artifacts(root: Path, release_id: str, materialize_home: Path | None 
                 path.relative_to(destination).as_posix()
                 for path in destination.rglob("*")
             )
-            expected_files = ["dist.tar.gz", "evidence.json"] if has_payload else ["evidence.json"]
+            if label in {"home-visual", "home-axe-browser-a11y"}:
+                expected_files = ["a11y-evidence.v2.json", "visual-evidence.v2.json"]
+            else:
+                expected_files = ["dist.tar.gz", "evidence.json"] if has_payload else ["evidence.json"]
             if entries != expected_files:
                 raise ValueError(f"{label}: artifact contains an unexpected file set")
             for filename in expected_files:
                 path = destination / filename
                 if not path.is_file() or path.is_symlink():
                     raise ValueError(f"{label}: artifact file must be a regular file")
-            evidence_path = destination / "evidence.json"
+            evidence_path = destination / artifact["evidence_file"]
             raw = evidence_path.read_bytes()
             if len(raw) > MAX_EVIDENCE_BYTES:
                 raise ValueError(f"{label}: evidence exceeds the sanitized size limit")
@@ -654,7 +912,7 @@ def verify_artifacts(root: Path, release_id: str, materialize_home: Path | None 
         candidate_hash,
         candidate["gitops"]["base_sha"],
     )
-    print(f"verified seven sealed artifacts and final validation seal for {release_id}")
+    print(f"verified twelve logical evidence manifests and final validation seal for {release_id}")
 
 
 def main(argv: list[str] | None = None) -> int:

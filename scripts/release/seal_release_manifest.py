@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Seal a final release-manifest after the two pinned Home journeys pass."""
+"""Seal a final release after candidate-bound Home quality evidence and journeys pass."""
 
 from __future__ import annotations
 
@@ -17,8 +17,13 @@ from typing import Any
 
 from validate_release_manifest import (
     PRODUCER_WORKFLOWS,
+    QUALITY_EVIDENCE,
+    QUALITY_EVIDENCE_EVENTS,
+    QUALITY_EVIDENCE_FILES,
     SHA40,
     SHA64,
+    quality_artifact_name,
+    quality_source,
     resolve_candidate_spec,
     validate_release_manifest,
 )
@@ -34,8 +39,6 @@ EXTERNAL_ARTIFACTS = {
     "home_dist_artifact": ("home-dist", "DevPathAi/devpath-home-page", "home-dist", "home"),
     "privacy": ("privacy-approval", "DevPathAi/documents", "privacy-approval", "privacy"),
     "ai": ("ai-release-eval", "DevPathAi/devpath-ai-svc", "ai-eval", "ai"),
-    "visual": ("visual", "DevPathAi/devpath-frontend", "visual", "frontend"),
-    "accessibility": ("accessibility", "DevPathAi/devpath-frontend", "accessibility", "frontend"),
 }
 
 
@@ -52,33 +55,46 @@ def _gh_json(args: list[str], env: dict[str, str]) -> dict[str, Any]:
 def _discover_external_artifact(
     env: dict[str, str],
     label: str,
-    release_id: str,
     repository: str,
-    suffix: str,
+    artifact_name: str,
     candidate_hash: str,
     expected_head: str,
     candidate: dict[str, Any],
     expected_payload_hash: str | None = None,
+    *,
+    expected_event: str = "workflow_dispatch",
+    evidence_file: str = "evidence.json",
+    expected_files: list[str] | None = None,
 ) -> dict[str, Any]:
-    name = f"{release_id}-{suffix}"
+    name = artifact_name
     listing = _gh_json(
         ["api", f"repos/{repository}/actions/artifacts?name={name}&per_page=100"],
         env,
     )
     artifacts = [item for item in listing.get("artifacts", []) if item.get("expired") is False]
-    if len(artifacts) != 1:
-        raise ValueError(f"{suffix}: exactly one active artifact is required")
-    metadata = artifacts[0]
-    if metadata.get("name") != name or not isinstance(metadata.get("id"), int):
-        raise ValueError(f"{suffix}: artifact identity mismatch")
-    run_id = (metadata.get("workflow_run") or {}).get("id")
-    if not isinstance(run_id, int) or run_id <= 0:
-        raise ValueError(f"{suffix}: artifact has no workflow run")
-    run = _gh_json(["api", f"repos/{repository}/actions/runs/{run_id}"], env)
     workflow_path = PRODUCER_WORKFLOWS[label]
     workflow = _workflow_bytes(repository, workflow_path, expected_head, env)
+    matches: list[tuple[dict[str, Any], int, dict[str, Any]]] = []
+    for metadata in artifacts:
+        if metadata.get("name") != name or not isinstance(metadata.get("id"), int):
+            continue
+        run_id = (metadata.get("workflow_run") or {}).get("id")
+        if not isinstance(run_id, int) or run_id <= 0:
+            continue
+        run = _gh_json(["api", f"repos/{repository}/actions/runs/{run_id}"], env)
+        if (
+            run.get("status") == "completed"
+            and run.get("conclusion") == "success"
+            and run.get("event") == expected_event
+            and run.get("head_sha") == expected_head
+            and run.get("path") == workflow_path
+        ):
+            matches.append((metadata, run_id, run))
+    if len(matches) != 1:
+        raise ValueError(f"{label}: exactly one active artifact from the exact producer run is required")
+    metadata, run_id, run = matches[0]
     reference_provenance = {
-        "event": "workflow_dispatch",
+        "event": expected_event,
         "head_sha": expected_head,
         "run_attempt": run.get("run_attempt"),
         "workflow_path": workflow_path,
@@ -91,9 +107,10 @@ def _discover_external_artifact(
         expected_head,
         workflow_path,
         workflow,
+        expected_event,
     )
 
-    with tempfile.TemporaryDirectory(prefix=f"mission-spine-{suffix}-") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix=f"mission-spine-{label}-") as temp_dir:
         download = subprocess.run(
             [
                 "gh",
@@ -113,19 +130,19 @@ def _discover_external_artifact(
             check=False,
         )
         if download.returncode != 0:
-            raise ValueError(f"{suffix}: artifact download failed")
+            raise ValueError(f"{label}: artifact download failed")
         root = Path(temp_dir)
         entries = sorted(path.name for path in root.iterdir())
-        expected_files = ["dist.tar.gz", "evidence.json"] if expected_payload_hash else ["evidence.json"]
-        if entries != expected_files:
-            raise ValueError(f"{suffix}: artifact file set is not canonical")
-        for filename in expected_files:
+        files = expected_files or (["dist.tar.gz", "evidence.json"] if expected_payload_hash else [evidence_file])
+        if entries != sorted(files):
+            raise ValueError(f"{label}: artifact file set is not canonical")
+        for filename in files:
             path = root / filename
             if not path.is_file() or path.is_symlink():
-                raise ValueError(f"{suffix}: artifact file must be a regular file")
-        evidence_bytes = (root / "evidence.json").read_bytes()
+                raise ValueError(f"{label}: artifact file must be a regular file")
+        evidence_bytes = (root / evidence_file).read_bytes()
         if len(evidence_bytes) > 256 * 1024:
-            raise ValueError(f"{suffix}: evidence exceeds sanitized size limit")
+            raise ValueError(f"{label}: evidence exceeds sanitized size limit")
         payload = json.loads(evidence_bytes.decode("utf-8"))
         validate_evidence_payload(
             label,
@@ -142,7 +159,7 @@ def _discover_external_artifact(
             "workflow_run_id": run_id,
             "artifact_id": metadata["id"],
             "artifact_name": name,
-            "evidence_file": "evidence.json",
+            "evidence_file": evidence_file,
             "sha256": hashlib.sha256(evidence_bytes).hexdigest(),
         }
         if expected_payload_hash is not None:
@@ -154,6 +171,42 @@ def _discover_external_artifact(
                 raise ValueError("home-dist: payload does not match candidate home.dist_sha256")
             reference.update({"payload_file": "dist.tar.gz", "payload_sha256": payload_hash})
         return reference
+
+
+def load_home_quality_manifests(
+    visual_path: Path,
+    a11y_path: Path,
+    candidate_hash: str,
+    candidate: dict[str, Any],
+) -> dict[str, bytes]:
+    """Read the exact two regular manifests from one validator-owned artifact."""
+    paths = {
+        "home-visual": visual_path.absolute(),
+        "home-axe-browser-a11y": a11y_path.absolute(),
+    }
+    for label, path in paths.items():
+        if path.name != QUALITY_EVIDENCE_FILES[label] or path.is_symlink() or not path.is_file():
+            raise ValueError(f"{label}: evidence path is not the exact regular manifest file")
+    parents = {path.parent for path in paths.values()}
+    if len(parents) != 1:
+        raise ValueError("Home quality manifests must come from one downloaded artifact")
+    parent = parents.pop()
+    expected_files = sorted(QUALITY_EVIDENCE_FILES[label] for label in paths)
+    if sorted(path.name for path in parent.iterdir()) != expected_files:
+        raise ValueError("Home quality artifact file set is not canonical")
+
+    manifests: dict[str, bytes] = {}
+    for label, path in paths.items():
+        raw = path.read_bytes()
+        if len(raw) > 256 * 1024:
+            raise ValueError(f"{label}: evidence exceeds sanitized size limit")
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"{label}: evidence is not UTF-8 JSON") from exc
+        validate_evidence_payload(label, payload, candidate_hash, candidate)
+        manifests[label] = raw
+    return manifests
 
 
 def build_release_manifest(
@@ -170,12 +223,17 @@ def build_release_manifest(
     activation_sha256: str,
     contextual_artifact_id: int,
     contextual_sha256: str,
+    home_quality_artifact_id: int,
+    home_visual_sha256: str,
+    home_a11y_sha256: str,
     created_at: str,
 ) -> dict[str, Any]:
     release_id = candidate["release_id"]
     for value, path in (
         (activation_sha256, "activation_sha256"),
         (contextual_sha256, "contextual_sha256"),
+        (home_visual_sha256, "home_visual_sha256"),
+        (home_a11y_sha256, "home_a11y_sha256"),
         (validator_workflow_sha256, "validator_workflow_sha256"),
     ):
         if SHA64.fullmatch(value) is None:
@@ -191,6 +249,7 @@ def build_release_manifest(
         (validator_run_attempt, "validator_run_attempt"),
         (activation_artifact_id, "activation_artifact_id"),
         (contextual_artifact_id, "contextual_artifact_id"),
+        (home_quality_artifact_id, "home_quality_artifact_id"),
     ):
         if not isinstance(value, int) or value <= 0:
             raise ValueError(f"{path} must be a positive integer")
@@ -212,6 +271,40 @@ def build_release_manifest(
             "evidence_file": "evidence.json",
             "sha256": evidence_hash,
         }
+
+    def home_quality_ref(label: str, evidence_hash: str) -> dict[str, Any]:
+        return {
+            "candidate_spec_sha256": candidate_hash,
+            "repository": validator_repository,
+            "event": "workflow_dispatch",
+            "head_sha": validator_head_sha,
+            "run_attempt": validator_run_attempt,
+            "workflow_path": PRODUCER_WORKFLOWS[label],
+            "workflow_sha256": validator_workflow_sha256,
+            "workflow_run_id": validator_run_id,
+            "artifact_id": home_quality_artifact_id,
+            "artifact_name": quality_artifact_name(
+                label,
+                release_id,
+                validator_run_attempt,
+            ),
+            "evidence_file": QUALITY_EVIDENCE_FILES[label],
+            "sha256": evidence_hash,
+        }
+
+    quality_evidence = {
+        key: external["quality_evidence"][key]
+        for label, key in QUALITY_EVIDENCE.items()
+        if label not in {"home-visual", "home-axe-browser-a11y"}
+    }
+    quality_evidence[QUALITY_EVIDENCE["home-visual"]] = home_quality_ref(
+        "home-visual",
+        home_visual_sha256,
+    )
+    quality_evidence[QUALITY_EVIDENCE["home-axe-browser-a11y"]] = home_quality_ref(
+        "home-axe-browser-a11y",
+        home_a11y_sha256,
+    )
 
     return {
         "$schema": "../schema-v1.json",
@@ -239,10 +332,7 @@ def build_release_manifest(
                 contextual_sha256,
             ),
         },
-        "quality_evidence": {
-            "visual": external["visual"],
-            "accessibility": external["accessibility"],
-        },
+        "quality_evidence": quality_evidence,
         "validation_attestation": {
             "validator_repository": validator_repository,
             "validator_run_id": validator_run_id,
@@ -283,13 +373,32 @@ def seal(root: Path, args: argparse.Namespace) -> Path:
         discovered[key] = _discover_external_artifact(
             gh_env,
             label,
-            args.release_id,
             repository,
-            suffix,
+            f"{args.release_id}-{suffix}",
             candidate_hash,
             source[source_key],
             candidate,
             candidate["home"]["dist_sha256"] if key == "home_dist_artifact" else None,
+        )
+    for label, key in QUALITY_EVIDENCE.items():
+        if label in {"home-visual", "home-axe-browser-a11y"}:
+            continue
+        repository, source_sha = quality_source(candidate, label)
+        discovered[key] = _discover_external_artifact(
+            gh_env,
+            label,
+            repository,
+            quality_artifact_name(label, args.release_id),
+            candidate_hash,
+            source_sha,
+            candidate,
+            expected_event=QUALITY_EVIDENCE_EVENTS[label],
+            evidence_file=QUALITY_EVIDENCE_FILES[label],
+            expected_files=(
+                ["a11y-evidence.v2.json", "visual-evidence.v2.json"]
+                if label in {"home-visual", "home-axe-browser-a11y"}
+                else None
+            ),
         )
 
     # Approval/eval scores are sanitized metadata inside their evidence objects.
@@ -323,8 +432,11 @@ def seal(root: Path, args: argparse.Namespace) -> Path:
             "baseline_delta_points": ai_payload.get("baseline_delta_points"),
             "reference": discovered["ai"],
         },
-        "visual": discovered["visual"],
-        "accessibility": discovered["accessibility"],
+        "quality_evidence": {
+            key: discovered[key]
+            for label, key in QUALITY_EVIDENCE.items()
+            if label not in {"home-visual", "home-axe-browser-a11y"}
+        },
     }
     created_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
     workflow_path = PRODUCER_WORKFLOWS["journey-activation"]
@@ -352,6 +464,12 @@ def seal(root: Path, args: argparse.Namespace) -> Path:
             raise ValueError(f"{label}: evidence is not UTF-8 JSON") from exc
         validate_evidence_payload(label, payload, candidate_hash, candidate)
         journey_bytes[label] = raw
+    home_bytes = load_home_quality_manifests(
+        args.home_visual_evidence,
+        args.home_a11y_evidence,
+        candidate_hash,
+        candidate,
+    )
     relative_candidate = candidate_path.relative_to(root).as_posix()
     release = build_release_manifest(
         candidate,
@@ -367,6 +485,9 @@ def seal(root: Path, args: argparse.Namespace) -> Path:
         hashlib.sha256(journey_bytes["journey-activation"]).hexdigest(),
         args.contextual_artifact_id,
         hashlib.sha256(journey_bytes["journey-contextual-practice"]).hexdigest(),
+        args.home_quality_artifact_id,
+        hashlib.sha256(home_bytes["home-visual"]).hexdigest(),
+        hashlib.sha256(home_bytes["home-axe-browser-a11y"]).hexdigest(),
         created_at,
     )
     validate_release_manifest(release, candidate, candidate_hash)
@@ -386,6 +507,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--activation-evidence", type=Path, required=True)
     parser.add_argument("--contextual-artifact-id", type=int, required=True)
     parser.add_argument("--contextual-evidence", type=Path, required=True)
+    parser.add_argument("--home-quality-artifact-id", type=int, required=True)
+    parser.add_argument("--home-visual-evidence", type=Path, required=True)
+    parser.add_argument("--home-a11y-evidence", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
         release_path = seal(args.root.resolve(), args)

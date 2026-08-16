@@ -86,7 +86,7 @@ class ReleaseManifestContractTest(unittest.TestCase):
 
     def test_evidence_and_ai_release_gate_fail_closed(self):
         invalid = copy.deepcopy(self.release)
-        invalid["quality_evidence"]["visual"]["artifact_id"] = 0
+        invalid["quality_evidence"]["frontend_visual"]["artifact_id"] = 0
         with self.assertRaises(ValueError):
             self.validate_bundle(release=invalid)
         invalid = copy.deepcopy(self.release)
@@ -104,7 +104,7 @@ class ReleaseManifestContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "immutable candidate-spec bytes"):
             self.validate_bundle(release=invalid)
         invalid = copy.deepcopy(self.release)
-        invalid["quality_evidence"]["visual"]["repository"] = "DevPathAi/untrusted"
+        invalid["quality_evidence"]["frontend_visual"]["repository"] = "DevPathAi/untrusted"
         with self.assertRaisesRegex(ValueError, "DevPathAi/devpath-frontend"):
             self.validate_bundle(release=invalid)
 
@@ -360,8 +360,7 @@ images:
                 "baseline_delta_points": 0,
                 "reference": copy.deepcopy(self.release["ai_release_eval"]["evidence"]),
             },
-            "visual": copy.deepcopy(self.release["quality_evidence"]["visual"]),
-            "accessibility": copy.deepcopy(self.release["quality_evidence"]["accessibility"]),
+            "quality_evidence": copy.deepcopy(self.release["quality_evidence"]),
         }
         sealed = self.sealer.build_release_manifest(
             copy.deepcopy(self.candidate),
@@ -377,6 +376,9 @@ images:
             "6" * 64,
             205,
             "7" * 64,
+            207,
+            self.release["quality_evidence"]["home_visual"]["sha256"],
+            self.release["quality_evidence"]["home_axe_browser_a11y"]["sha256"],
             "2099-01-02T00:00:00Z",
         )
         self.validator.validate_release_manifest(sealed, self.candidate, self.candidate_sha)

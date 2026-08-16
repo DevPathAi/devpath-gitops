@@ -315,22 +315,29 @@ class ReleaseHardeningTest(unittest.TestCase):
             "candidate_spec_sha256": self.candidate_hash,
             "status": "passed",
             **producer,
-            "frontend_source_sha": self.candidate["frontend"]["source_sha"],
-            "viewport_profile": "mission-spine.desktop-mobile.v1",
-            "screenshot_count": 8,
+            "repository": self.candidate["frontend"]["repository"],
+            "source_sha": self.candidate["frontend"]["source_sha"],
+            "case_catalog_sha256": self.candidate["quality_evidence_inputs"]["catalogs"]["frontend-visual"]["sha256"],
+            "case_count": 96,
+            "passed_case_count": 96,
+            "failed_case_count": 0,
+            "surface_case_counts": {"web": 48, "admin": 16, "mobile": 16, "dp_design": 16},
+            "render_provenance_sha256": self.candidate["quality_evidence_inputs"][
+                "catalogs"
+            ]["frontend-visual"]["provenance_sha256"],
             "pixel_diff_percent": 0,
         }
         self.artifacts.validate_evidence_payload(
-            "visual", visual, self.candidate_hash, self.candidate, 501, 3
+            "frontend-visual", visual, self.candidate_hash, self.candidate, 501, 3
         )
         with self.assertRaisesRegex(ValueError, "producer run attempt"):
             self.artifacts.validate_evidence_payload(
-                "visual", visual, self.candidate_hash, self.candidate, 501, 4
+                "frontend-visual", visual, self.candidate_hash, self.candidate, 501, 4
             )
         visual["notes"] = "raw screenshot details"
         with self.assertRaisesRegex(ValueError, "key set"):
             self.artifacts.validate_evidence_payload(
-                "visual", visual, self.candidate_hash, self.candidate
+                "frontend-visual", visual, self.candidate_hash, self.candidate
             )
 
         exact_payloads = {
@@ -354,11 +361,22 @@ class ReleaseHardeningTest(unittest.TestCase):
                     )
                 },
             },
-            "accessibility": {
+            "frontend-automated-a11y": {
                 "candidate_spec_sha256": self.candidate_hash,
                 "status": "passed",
                 **producer,
-                "frontend_source_sha": self.candidate["frontend"]["source_sha"],
+                "repository": self.candidate["frontend"]["repository"],
+                "source_sha": self.candidate["frontend"]["source_sha"],
+                "case_catalog_sha256": self.candidate["quality_evidence_inputs"][
+                    "catalogs"
+                ]["frontend-automated-a11y"]["sha256"],
+                "case_count": 24,
+                "passed_case_count": 24,
+                "failed_case_count": 0,
+                "surface_case_counts": {"web": 12, "admin": 4, "mobile": 4, "dp_design": 4},
+                "test_provenance_sha256": self.candidate["quality_evidence_inputs"][
+                    "catalogs"
+                ]["frontend-automated-a11y"]["provenance_sha256"],
                 "standard": "WCAG2.2AA",
                 "critical_violations": 0,
                 "serious_violations": 0,

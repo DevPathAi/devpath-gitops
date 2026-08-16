@@ -19,6 +19,7 @@
     "ai_release_eval_config": {"$ref": "#/$defs/aiEvalConfig"},
     "environments": {"$ref": "#/$defs/environments"},
     "journey_harness": {"$ref": "#/$defs/journeyHarness"},
+    "quality_evidence_inputs": {"$ref": "#/$defs/qualityEvidenceInputs"},
     "rollout": {"$ref": "#/$defs/rollout"},
     "candidate_spec": {"$ref": "#/$defs/candidateRef"},
     "home_dist_artifact": {"$ref": "#/$defs/homeArtifact"},
@@ -228,6 +229,70 @@
       },
       "additionalProperties": false
     },
+    "qualityCatalog": {
+      "type": "object",
+      "required": ["repository", "source_sha", "path", "sha256", "case_count", "provenance_sha256"],
+      "properties": {
+        "repository": {"$ref": "#/$defs/repository"},
+        "source_sha": {"$ref": "#/$defs/sha40"},
+        "path": {"type": "string", "pattern": "^[A-Za-z0-9_./-]+\\.json$"},
+        "sha256": {"$ref": "#/$defs/sha64"},
+        "case_count": {"type": "integer", "minimum": 1},
+        "provenance_sha256": {"$ref": "#/$defs/sha64"}
+      },
+      "additionalProperties": false
+    },
+    "homeQualityCatalog": {
+      "type": "object",
+      "required": ["repository", "source_sha", "rendered_product_sha", "rendered_product_tree_sha256", "path", "sha256", "case_count", "provenance_sha256", "font_manifest_sha256"],
+      "properties": {
+        "repository": {"const": "DevPathAi/devpath-home-page"},
+        "source_sha": {"$ref": "#/$defs/sha40"},
+        "rendered_product_sha": {"$ref": "#/$defs/sha40"},
+        "rendered_product_tree_sha256": {"$ref": "#/$defs/sha64"},
+        "path": {"const": "e2e/visual/case-catalog.v2.json"},
+        "sha256": {"$ref": "#/$defs/sha64"},
+        "case_count": {"type": "integer", "minimum": 1},
+        "provenance_sha256": {"$ref": "#/$defs/sha64"},
+        "font_manifest_sha256": {"$ref": "#/$defs/sha64"}
+      },
+      "additionalProperties": false
+    },
+    "qualityCatalogs": {
+      "type": "object",
+      "required": ["frontend-visual", "home-visual", "frontend-automated-a11y", "home-axe-browser-a11y", "manual-nvda", "manual-voiceover", "manual-talkback"],
+      "properties": {
+        "frontend-visual": {"$ref": "#/$defs/qualityCatalog"},
+        "home-visual": {"$ref": "#/$defs/homeQualityCatalog"},
+        "frontend-automated-a11y": {"$ref": "#/$defs/qualityCatalog"},
+        "home-axe-browser-a11y": {"$ref": "#/$defs/homeQualityCatalog"},
+        "manual-nvda": {"$ref": "#/$defs/qualityCatalog"},
+        "manual-voiceover": {"$ref": "#/$defs/qualityCatalog"},
+        "manual-talkback": {"$ref": "#/$defs/qualityCatalog"}
+      },
+      "additionalProperties": false
+    },
+    "mobileTestArtifacts": {
+      "type": "object",
+      "required": ["repository", "source_sha", "build_provenance_sha256", "signed_apk_sha256", "signed_ipa_sha256"],
+      "properties": {
+        "repository": {"const": "DevPathAi/devpath-frontend"},
+        "source_sha": {"$ref": "#/$defs/sha40"},
+        "build_provenance_sha256": {"$ref": "#/$defs/sha64"},
+        "signed_apk_sha256": {"$ref": "#/$defs/sha64"},
+        "signed_ipa_sha256": {"$ref": "#/$defs/sha64"}
+      },
+      "additionalProperties": false
+    },
+    "qualityEvidenceInputs": {
+      "type": "object",
+      "required": ["catalogs", "mobile_test_artifacts"],
+      "properties": {
+        "catalogs": {"$ref": "#/$defs/qualityCatalogs"},
+        "mobile_test_artifacts": {"$ref": "#/$defs/mobileTestArtifacts"}
+      },
+      "additionalProperties": false
+    },
     "rollout": {
       "type": "object",
       "required": ["sync_timeout_seconds", "canary_seconds", "rollback_budget_seconds", "synthetic_probe_path", "production_order", "rollback_order"],
@@ -263,6 +328,37 @@
         "sha256": {"$ref": "#/$defs/sha64"}
       },
       "additionalProperties": false
+    },
+    "homeQualityArtifact": {
+      "type": "object",
+      "required": ["candidate_spec_sha256", "repository", "event", "head_sha", "run_attempt", "workflow_path", "workflow_sha256", "workflow_run_id", "artifact_id", "artifact_name", "evidence_file", "sha256"],
+      "properties": {
+        "candidate_spec_sha256": {"$ref": "#/$defs/sha64"},
+        "repository": {"const": "DevPathAi/devpath-gitops"},
+        "event": {"const": "workflow_dispatch"},
+        "head_sha": {"$ref": "#/$defs/sha40"},
+        "run_attempt": {"type": "integer", "minimum": 1},
+        "workflow_path": {"const": ".github/workflows/mission-spine-validate.yml"},
+        "workflow_sha256": {"$ref": "#/$defs/sha64"},
+        "workflow_run_id": {"type": "integer", "minimum": 1},
+        "artifact_id": {"type": "integer", "minimum": 1},
+        "artifact_name": {"$ref": "#/$defs/safeId"},
+        "evidence_file": {"enum": ["visual-evidence.v2.json", "a11y-evidence.v2.json"]},
+        "sha256": {"$ref": "#/$defs/sha64"}
+      },
+      "additionalProperties": false
+    },
+    "homeVisualArtifact": {
+      "allOf": [
+        {"$ref": "#/$defs/homeQualityArtifact"},
+        {"properties": {"evidence_file": {"const": "visual-evidence.v2.json"}}}
+      ]
+    },
+    "homeA11yArtifact": {
+      "allOf": [
+        {"$ref": "#/$defs/homeQualityArtifact"},
+        {"properties": {"evidence_file": {"const": "a11y-evidence.v2.json"}}}
+      ]
     },
     "homeArtifact": {
       "type": "object",
@@ -325,10 +421,15 @@
     },
     "qualityEvidence": {
       "type": "object",
-      "required": ["visual", "accessibility"],
+      "required": ["frontend_visual", "home_visual", "frontend_automated_a11y", "home_axe_browser_a11y", "manual_nvda", "manual_voiceover", "manual_talkback"],
       "properties": {
-        "visual": {"$ref": "#/$defs/artifact"},
-        "accessibility": {"$ref": "#/$defs/artifact"}
+        "frontend_visual": {"$ref": "#/$defs/artifact"},
+        "home_visual": {"$ref": "#/$defs/homeVisualArtifact"},
+        "frontend_automated_a11y": {"$ref": "#/$defs/artifact"},
+        "home_axe_browser_a11y": {"$ref": "#/$defs/homeA11yArtifact"},
+        "manual_nvda": {"$ref": "#/$defs/artifact"},
+        "manual_voiceover": {"$ref": "#/$defs/artifact"},
+        "manual_talkback": {"$ref": "#/$defs/artifact"}
       },
       "additionalProperties": false
     },
@@ -352,7 +453,7 @@
     },
     "candidateSpec": {
       "type": "object",
-      "required": ["$schema", "schema_version", "document_type", "release_id", "created_at", "gitops", "services", "shared_migration", "frontend", "home", "analytics_privacy", "ai_release_eval_config", "environments", "journey_harness", "rollout"],
+      "required": ["$schema", "schema_version", "document_type", "release_id", "created_at", "gitops", "services", "shared_migration", "frontend", "home", "analytics_privacy", "ai_release_eval_config", "environments", "journey_harness", "quality_evidence_inputs", "rollout"],
       "properties": {
         "$schema": {"type": "string"},
         "schema_version": {"const": 1},
@@ -368,6 +469,7 @@
         "ai_release_eval_config": {"$ref": "#/$defs/aiEvalConfig"},
         "environments": {"$ref": "#/$defs/environments"},
         "journey_harness": {"$ref": "#/$defs/journeyHarness"},
+        "quality_evidence_inputs": {"$ref": "#/$defs/qualityEvidenceInputs"},
         "rollout": {"$ref": "#/$defs/rollout"}
       },
       "additionalProperties": false

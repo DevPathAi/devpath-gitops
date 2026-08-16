@@ -34,8 +34,39 @@ PRODUCER_WORKFLOWS = {
     "ai-release-eval": ".github/workflows/mission-spine-release-eval.yml",
     "journey-activation": ".github/workflows/mission-spine-validate.yml",
     "journey-contextual-practice": ".github/workflows/mission-spine-validate.yml",
-    "visual": ".github/workflows/mission-spine-visual-evidence.yml",
-    "accessibility": ".github/workflows/mission-spine-accessibility-evidence.yml",
+    "frontend-visual": ".github/workflows/mission-spine-visual-evidence.yml",
+    "home-visual": ".github/workflows/mission-spine-validate.yml",
+    "frontend-automated-a11y": ".github/workflows/mission-spine-accessibility-evidence.yml",
+    "home-axe-browser-a11y": ".github/workflows/mission-spine-validate.yml",
+    "manual-nvda": ".github/workflows/mission-spine-manual-at-evidence.yml",
+    "manual-voiceover": ".github/workflows/mission-spine-manual-at-evidence.yml",
+    "manual-talkback": ".github/workflows/mission-spine-manual-at-evidence.yml",
+}
+
+QUALITY_EVIDENCE = {
+    "frontend-visual": "frontend_visual",
+    "home-visual": "home_visual",
+    "frontend-automated-a11y": "frontend_automated_a11y",
+    "home-axe-browser-a11y": "home_axe_browser_a11y",
+    "manual-nvda": "manual_nvda",
+    "manual-voiceover": "manual_voiceover",
+    "manual-talkback": "manual_talkback",
+}
+QUALITY_EVIDENCE_LABELS = tuple(QUALITY_EVIDENCE)
+QUALITY_EVIDENCE_KEYS = tuple(QUALITY_EVIDENCE.values())
+
+QUALITY_EVIDENCE_FILES = {
+    "frontend-visual": "evidence.json",
+    "home-visual": "visual-evidence.v2.json",
+    "frontend-automated-a11y": "evidence.json",
+    "home-axe-browser-a11y": "a11y-evidence.v2.json",
+    "manual-nvda": "evidence.json",
+    "manual-voiceover": "evidence.json",
+    "manual-talkback": "evidence.json",
+}
+
+QUALITY_EVIDENCE_EVENTS = {
+    label: "workflow_dispatch" for label in QUALITY_EVIDENCE_LABELS
 }
 
 REQUIRED_SERVICES = {
@@ -82,6 +113,7 @@ CANDIDATE_TOP_LEVEL = {
     "ai_release_eval_config",
     "environments",
     "journey_harness",
+    "quality_evidence_inputs",
     "rollout",
 }
 
@@ -203,6 +235,34 @@ def _require_artifact_identity(
         _fail(f"{path}.head_sha", "must bind the exact producer source SHA")
 
 
+def quality_artifact_name(
+    label: str,
+    release_id: str,
+    run_attempt: int | None = None,
+) -> str:
+    if label in {"home-visual", "home-axe-browser-a11y"}:
+        if isinstance(run_attempt, bool) or not isinstance(run_attempt, int) or run_attempt <= 0:
+            raise ValueError("Home quality evidence requires an exact positive run attempt")
+        return f"{release_id}-home-visual-a11y-attempt-{run_attempt}"
+    names = {
+        "frontend-visual": f"{release_id}-frontend-visual",
+        "frontend-automated-a11y": f"{release_id}-frontend-automated-a11y",
+        "manual-nvda": "nvda-evidence",
+        "manual-voiceover": "voiceover-evidence",
+        "manual-talkback": "talkback-evidence",
+    }
+    try:
+        return names[label]
+    except KeyError as exc:
+        raise ValueError(f"unknown quality evidence label: {label}") from exc
+
+
+def quality_source(candidate: dict[str, Any], label: str) -> tuple[str, str]:
+    if label in {"home-visual", "home-axe-browser-a11y"}:
+        return candidate["home"]["repository"], candidate["home"]["source_sha"]
+    return candidate["frontend"]["repository"], candidate["frontend"]["source_sha"]
+
+
 def _validate_sanitized(value: Any, path: str = "$") -> None:
     if isinstance(value, dict):
         for key, nested in value.items():
@@ -221,7 +281,16 @@ def _validate_sanitized(value: Any, path: str = "$") -> None:
             _fail(path, "embedded or local payload URIs are forbidden")
 
 
-def _validate_artifact(value: Any, path: str, release_id: str, candidate_sha256: str) -> None:
+def _validate_artifact(
+    value: Any,
+    path: str,
+    release_id: str,
+    candidate_sha256: str,
+    *,
+    expected_event: str = "workflow_dispatch",
+    expected_evidence_file: str = "evidence.json",
+    require_release_scope: bool = True,
+) -> None:
     obj = _object(value, path)
     _exact_keys(
         obj,
@@ -245,8 +314,8 @@ def _validate_artifact(value: Any, path: str, release_id: str, candidate_sha256:
     if bound_sha != candidate_sha256:
         _fail(f"{path}.candidate_spec_sha256", "must exactly bind the immutable candidate-spec bytes")
     _string(obj["repository"], f"{path}.repository", REPOSITORY)
-    if obj["event"] != "workflow_dispatch":
-        _fail(f"{path}.event", "must be workflow_dispatch")
+    if obj["event"] != expected_event:
+        _fail(f"{path}.event", f"must be {expected_event}")
     _string(obj["head_sha"], f"{path}.head_sha", SHA40)
     _positive_int(obj["run_attempt"], f"{path}.run_attempt")
     _string(obj["workflow_path"], f"{path}.workflow_path", WORKFLOW_PATH)
@@ -254,10 +323,10 @@ def _validate_artifact(value: Any, path: str, release_id: str, candidate_sha256:
     _positive_int(obj["workflow_run_id"], f"{path}.workflow_run_id")
     _positive_int(obj["artifact_id"], f"{path}.artifact_id")
     name = _string(obj["artifact_name"], f"{path}.artifact_name", SAFE_IDENTIFIER)
-    if not name.startswith(f"{release_id}-"):
+    if require_release_scope and not name.startswith(f"{release_id}-"):
         _fail(f"{path}.artifact_name", "must be release-id scoped")
-    if obj["evidence_file"] != "evidence.json":
-        _fail(f"{path}.evidence_file", "must be exactly evidence.json")
+    if obj["evidence_file"] != expected_evidence_file:
+        _fail(f"{path}.evidence_file", f"must be exactly {expected_evidence_file}")
     _string(obj["sha256"], f"{path}.sha256", SHA64)
 
 
@@ -385,6 +454,104 @@ def _validate_journey_harness(value: Any, path: str, environments: dict[str, Any
     }
     if actual_hosts != expected_hosts:
         _fail(f"{path}.dns_overrides", "must cover exactly the canonical Landing and app hostnames")
+
+
+def _validate_quality_evidence_inputs(value: Any, candidate: dict[str, Any]) -> None:
+    path = "$.quality_evidence_inputs"
+    obj = _object(value, path)
+    _exact_keys(obj, {"catalogs", "mobile_test_artifacts"}, path)
+
+    catalogs = _object(obj["catalogs"], f"{path}.catalogs")
+    _exact_keys(catalogs, QUALITY_EVIDENCE_LABELS, f"{path}.catalogs")
+    for label in QUALITY_EVIDENCE_LABELS:
+        catalog_path = f"{path}.catalogs.{label}"
+        catalog = _object(catalogs[label], catalog_path)
+        fields = {
+            "repository",
+            "source_sha",
+            "path",
+            "sha256",
+            "case_count",
+            "provenance_sha256",
+        }
+        if label in {"home-visual", "home-axe-browser-a11y"}:
+            fields |= {
+                "rendered_product_sha",
+                "rendered_product_tree_sha256",
+                "font_manifest_sha256",
+            }
+        _exact_keys(
+            catalog,
+            fields,
+            catalog_path,
+        )
+        expected_repository, expected_source = quality_source(candidate, label)
+        if catalog["repository"] != expected_repository:
+            _fail(f"{catalog_path}.repository", f"must be {expected_repository}")
+        if catalog["source_sha"] != expected_source:
+            _fail(f"{catalog_path}.source_sha", "must bind the exact candidate producer source")
+        relative = Path(_string(catalog["path"], f"{catalog_path}.path"))
+        if relative.is_absolute() or ".." in relative.parts or relative.suffix != ".json":
+            _fail(f"{catalog_path}.path", "must be a safe repository-relative JSON path")
+        if (
+            label in {"home-visual", "home-axe-browser-a11y"}
+            and catalog["path"] != "e2e/visual/case-catalog.v2.json"
+        ):
+            _fail(f"{catalog_path}.path", "must bind the canonical Home v2 case catalog")
+        _string(catalog["sha256"], f"{catalog_path}.sha256", SHA64)
+        _positive_int(catalog["case_count"], f"{catalog_path}.case_count")
+        _string(catalog["provenance_sha256"], f"{catalog_path}.provenance_sha256", SHA64)
+        if label in {"home-visual", "home-axe-browser-a11y"}:
+            _string(catalog["rendered_product_sha"], f"{catalog_path}.rendered_product_sha", SHA40)
+            _string(
+                catalog["rendered_product_tree_sha256"],
+                f"{catalog_path}.rendered_product_tree_sha256",
+                SHA64,
+            )
+            _string(catalog["font_manifest_sha256"], f"{catalog_path}.font_manifest_sha256", SHA64)
+
+    home_visual = catalogs["home-visual"]
+    home_a11y = catalogs["home-axe-browser-a11y"]
+    if (
+        home_visual["path"] != home_a11y["path"]
+        or home_visual["sha256"] != home_a11y["sha256"]
+        or home_visual["provenance_sha256"] != home_a11y["provenance_sha256"]
+        or home_visual["rendered_product_sha"] != home_a11y["rendered_product_sha"]
+        or home_visual["rendered_product_tree_sha256"]
+        != home_a11y["rendered_product_tree_sha256"]
+        or home_visual["font_manifest_sha256"] != home_a11y["font_manifest_sha256"]
+    ):
+        _fail(
+            f"{path}.catalogs",
+            "Home visual and axe/browser evidence must bind the same combined catalog and render provenance",
+        )
+
+    mobile_path = f"{path}.mobile_test_artifacts"
+    mobile = _object(obj["mobile_test_artifacts"], mobile_path)
+    _exact_keys(
+        mobile,
+        {
+            "repository",
+            "source_sha",
+            "build_provenance_sha256",
+            "signed_apk_sha256",
+            "signed_ipa_sha256",
+        },
+        mobile_path,
+    )
+    if mobile["repository"] != candidate["frontend"]["repository"]:
+        _fail(f"{mobile_path}.repository", "must be DevPathAi/devpath-frontend")
+    if mobile["source_sha"] != candidate["frontend"]["source_sha"]:
+        _fail(f"{mobile_path}.source_sha", "must bind the exact frontend source")
+    for field in ("build_provenance_sha256", "signed_apk_sha256", "signed_ipa_sha256"):
+        _string(mobile[field], f"{mobile_path}.{field}", SHA64)
+    mobile_hashes = {
+        mobile["build_provenance_sha256"],
+        mobile["signed_apk_sha256"],
+        mobile["signed_ipa_sha256"],
+    }
+    if len(mobile_hashes) != 3:
+        _fail(mobile_path, "build provenance, signed APK, and signed IPA hashes must be distinct")
 
 
 def validate_candidate_spec(data: Any, source: Path | None = None) -> dict[str, Any]:
@@ -527,6 +694,8 @@ def validate_candidate_spec(data: Any, source: Path | None = None) -> dict[str, 
     prior_id = _string(home["prior_production_deployment_id"], "$.home.prior_production_deployment_id", CF_ID)
     if candidate_id == prior_id:
         _fail("$.home", "candidate and prior Cloudflare deployment IDs must be distinct")
+
+    _validate_quality_evidence_inputs(root["quality_evidence_inputs"], root)
 
     privacy = _object(root["analytics_privacy"], "$.analytics_privacy")
     _exact_keys(
@@ -743,30 +912,65 @@ def validate_release_manifest(
         _fail("$.journeys", "the two journey artifact IDs must be distinct")
 
     quality = _object(root["quality_evidence"], "$.quality_evidence")
-    _exact_keys(quality, {"visual", "accessibility"}, "$.quality_evidence")
-    _validate_artifact(quality["visual"], "$.quality_evidence.visual", release_id, candidate_hash)
-    _validate_artifact(
-        quality["accessibility"],
-        "$.quality_evidence.accessibility",
-        release_id,
-        candidate_hash,
-    )
-    _require_artifact_identity(
-        quality["visual"],
-        "$.quality_evidence.visual",
-        candidate["frontend"]["repository"],
-        f"{release_id}-visual",
-        PRODUCER_WORKFLOWS["visual"],
-        candidate["frontend"]["source_sha"],
-    )
-    _require_artifact_identity(
-        quality["accessibility"],
-        "$.quality_evidence.accessibility",
-        candidate["frontend"]["repository"],
-        f"{release_id}-accessibility",
-        PRODUCER_WORKFLOWS["accessibility"],
-        candidate["frontend"]["source_sha"],
-    )
+    _exact_keys(quality, QUALITY_EVIDENCE_KEYS, "$.quality_evidence")
+    artifacts: dict[str, dict[str, Any]] = {}
+    for label, key in QUALITY_EVIDENCE.items():
+        artifact_path = f"$.quality_evidence.{key}"
+        artifact = _object(quality[key], artifact_path)
+        _validate_artifact(
+            artifact,
+            artifact_path,
+            release_id,
+            candidate_hash,
+            expected_event=QUALITY_EVIDENCE_EVENTS[label],
+            expected_evidence_file=QUALITY_EVIDENCE_FILES[label],
+            require_release_scope=label in {"frontend-visual", "frontend-automated-a11y"},
+        )
+        if label in {"home-visual", "home-axe-browser-a11y"}:
+            repository = "DevPathAi/devpath-gitops"
+            head_sha = journeys["activation"]["head_sha"]
+            artifact_name = quality_artifact_name(label, release_id, artifact["run_attempt"])
+        else:
+            repository, head_sha = quality_source(candidate, label)
+            artifact_name = quality_artifact_name(label, release_id)
+        _require_artifact_identity(
+            artifact,
+            artifact_path,
+            repository,
+            artifact_name,
+            PRODUCER_WORKFLOWS[label],
+            head_sha,
+        )
+        artifacts[label] = artifact
+
+    shared_home_fields = {
+        "candidate_spec_sha256",
+        "repository",
+        "event",
+        "head_sha",
+        "run_attempt",
+        "workflow_path",
+        "workflow_sha256",
+        "workflow_run_id",
+        "artifact_id",
+        "artifact_name",
+    }
+    for field in shared_home_fields:
+        if artifacts["home-visual"][field] != artifacts["home-axe-browser-a11y"][field]:
+            _fail("$.quality_evidence", f"Home combined artifact {field} must match")
+    if artifacts["home-visual"]["sha256"] == artifacts["home-axe-browser-a11y"]["sha256"]:
+        _fail("$.quality_evidence", "Home visual and axe/browser manifest hashes must be distinct")
+
+    logical_hashes = [artifact["sha256"] for artifact in artifacts.values()]
+    if len(set(logical_hashes)) != len(logical_hashes):
+        _fail("$.quality_evidence", "all seven logical evidence manifest hashes must be distinct")
+    physical_ids = {
+        label: (artifact["repository"], artifact["artifact_id"])
+        for label, artifact in artifacts.items()
+        if label != "home-axe-browser-a11y"
+    }
+    if len(set(physical_ids.values())) != len(physical_ids):
+        _fail("$.quality_evidence", "quality evidence artifacts must be distinct except Home's two manifests")
 
     attestation = _object(root["validation_attestation"], "$.validation_attestation")
     _exact_keys(
@@ -824,6 +1028,28 @@ def validate_release_manifest(
             _fail(f"$.journeys.{name}.workflow_path", "must match validation workflow path")
         if artifact["workflow_sha256"] != attestation["validator_workflow_sha256"]:
             _fail(f"$.journeys.{name}.workflow_sha256", "must match validation workflow bytes")
+    for label in ("home-visual", "home-axe-browser-a11y"):
+        key = QUALITY_EVIDENCE[label]
+        artifact = quality[key]
+        artifact_path = f"$.quality_evidence.{key}"
+        expected = {
+            "repository": attestation["validator_repository"],
+            "workflow_run_id": attestation["validator_run_id"],
+            "run_attempt": attestation["validator_run_attempt"],
+            "event": attestation["validator_event"],
+            "head_sha": attestation["validator_head_sha"],
+            "workflow_path": attestation["validator_workflow_path"],
+            "workflow_sha256": attestation["validator_workflow_sha256"],
+        }
+        for field, expected_value in expected.items():
+            if artifact[field] != expected_value:
+                _fail(
+                    f"{artifact_path}.{field}",
+                    "must match the candidate validation run that produced Home evidence",
+                )
+    journey_ids = {journeys["activation"]["artifact_id"], journeys["contextual_practice"]["artifact_id"]}
+    if artifacts["home-visual"]["artifact_id"] in journey_ids:
+        _fail("$.quality_evidence.home_visual.artifact_id", "must be distinct from journey artifacts")
     return root
 
 

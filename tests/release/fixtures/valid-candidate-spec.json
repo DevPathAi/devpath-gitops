@@ -101,7 +101,7 @@
   },
   "home": {
     "repository": "DevPathAi/devpath-home-page",
-    "source_sha": "dddddddddddddddddddddddddddddddddddddddd",
+    "source_sha": "6821ab90b6625a15752f831cdce183dc0ffaa86f",
     "dist_sha256": "dededededededededededededededededededededededededededededededede",
     "cloudflare_account_id": "0123456789abcdef0123456789abcdef",
     "cloudflare_project": "devpath-home-page",
@@ -160,6 +160,79 @@
         "address": "192.0.2.11"
       }
     ]
+  },
+  "quality_evidence_inputs": {
+    "catalogs": {
+      "frontend-visual": {
+        "repository": "DevPathAi/devpath-frontend",
+        "source_sha": "a18aee3d31e61dcd393517ef68125224eeb76c7a",
+        "path": "tool/release-evidence/catalogs/frontend-visual.v1.json",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "case_count": 96,
+        "provenance_sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "home-visual": {
+        "repository": "DevPathAi/devpath-home-page",
+        "source_sha": "6821ab90b6625a15752f831cdce183dc0ffaa86f",
+        "rendered_product_sha": "084ab218698b0411f9bdea7c7c32c45fce87fd18",
+        "rendered_product_tree_sha256": "9f7f2c06c7caa9e77a155163654cc8107670fe8c9d9cc059d1f4a6ca427bcf25",
+        "path": "e2e/visual/case-catalog.v2.json",
+        "sha256": "a3c338c6dd9da493df0ee660772359bed76440ecf693e64ef5486f79eb3b6078",
+        "case_count": 4,
+        "provenance_sha256": "d04f74b3ca23d2fee41757ba53b365f1422ba92ad7c37f7365bbf7eae0b0919b",
+        "font_manifest_sha256": "9598c1a9656d3df6b48b7ff4038765e139cec8dd73cef0432f03a46cd1ebb662"
+      },
+      "frontend-automated-a11y": {
+        "repository": "DevPathAi/devpath-frontend",
+        "source_sha": "a18aee3d31e61dcd393517ef68125224eeb76c7a",
+        "path": "tool/release-evidence/catalogs/frontend-automated-a11y.v1.json",
+        "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "case_count": 24,
+        "provenance_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+      },
+      "home-axe-browser-a11y": {
+        "repository": "DevPathAi/devpath-home-page",
+        "source_sha": "6821ab90b6625a15752f831cdce183dc0ffaa86f",
+        "rendered_product_sha": "084ab218698b0411f9bdea7c7c32c45fce87fd18",
+        "rendered_product_tree_sha256": "9f7f2c06c7caa9e77a155163654cc8107670fe8c9d9cc059d1f4a6ca427bcf25",
+        "path": "e2e/visual/case-catalog.v2.json",
+        "sha256": "a3c338c6dd9da493df0ee660772359bed76440ecf693e64ef5486f79eb3b6078",
+        "case_count": 11,
+        "provenance_sha256": "d04f74b3ca23d2fee41757ba53b365f1422ba92ad7c37f7365bbf7eae0b0919b",
+        "font_manifest_sha256": "9598c1a9656d3df6b48b7ff4038765e139cec8dd73cef0432f03a46cd1ebb662"
+      },
+      "manual-nvda": {
+        "repository": "DevPathAi/devpath-frontend",
+        "source_sha": "a18aee3d31e61dcd393517ef68125224eeb76c7a",
+        "path": "tool/release-evidence/catalogs/manual-nvda.v1.json",
+        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "case_count": 2,
+        "provenance_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+      },
+      "manual-voiceover": {
+        "repository": "DevPathAi/devpath-frontend",
+        "source_sha": "a18aee3d31e61dcd393517ef68125224eeb76c7a",
+        "path": "tool/release-evidence/catalogs/manual-voiceover.v1.json",
+        "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "case_count": 4,
+        "provenance_sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+      },
+      "manual-talkback": {
+        "repository": "DevPathAi/devpath-frontend",
+        "source_sha": "a18aee3d31e61dcd393517ef68125224eeb76c7a",
+        "path": "tool/release-evidence/catalogs/manual-talkback.v1.json",
+        "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "case_count": 4,
+        "provenance_sha256": "5555555555555555555555555555555555555555555555555555555555555555"
+      }
+    },
+    "mobile_test_artifacts": {
+      "repository": "DevPathAi/devpath-frontend",
+      "source_sha": "a18aee3d31e61dcd393517ef68125224eeb76c7a",
+      "build_provenance_sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+      "signed_apk_sha256": "7777777777777777777777777777777777777777777777777777777777777777",
+      "signed_ipa_sha256": "8888888888888888888888888888888888888888888888888888888888888888"
+    }
   },
   "rollout": {
     "sync_timeout_seconds": 300,

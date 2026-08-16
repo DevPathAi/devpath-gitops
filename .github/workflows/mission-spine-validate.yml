@@ -23,7 +23,7 @@ concurrency:
 jobs:
   candidate-journeys:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     environment: mission-spine-staging
     permissions:
       actions: read
@@ -32,6 +32,7 @@ jobs:
     outputs:
       activation_artifact_id: ${{ steps.upload_activation.outputs.artifact-id }}
       contextual_artifact_id: ${{ steps.upload_contextual.outputs.artifact-id }}
+      home_quality_artifact_id: ${{ steps.upload_home_quality.outputs.artifact-id }}
       candidate_spec_sha256: ${{ steps.candidate.outputs.candidate_spec_sha256 }}
       home_source_sha: ${{ steps.candidate.outputs.home_source_sha }}
       validator_run_attempt: ${{ steps.candidate.outputs.validator_run_attempt }}
@@ -81,11 +82,39 @@ jobs:
           token: ${{ secrets.RELEASE_EVIDENCE_TOKEN }}
           persist-credentials: false
           path: home
-      - name: Prove pinned Home checkout and install deterministic harness
+      - name: Prove pinned Home checkout
         working-directory: home
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ steps.candidate.outputs.home_source_sha }}"
+      - name: Generate candidate-bound Home visual and accessibility evidence
+        working-directory: home
+        env:
+          MISSION_CANDIDATE_SPEC_PATH: ${{ steps.candidate.outputs.candidate_spec_path }}
+          MISSION_CANDIDATE_SPEC_SHA256: ${{ steps.candidate.outputs.candidate_spec_sha256 }}
+        run: |
+          set -euo pipefail
+          test -f "$MISSION_CANDIDATE_SPEC_PATH"
+          test "$(sha256sum "$MISSION_CANDIDATE_SPEC_PATH" | awk '{print $1}')" = \
+            "$MISSION_CANDIDATE_SPEC_SHA256"
+          test ! -e test-results/visual-a11y/manifests
+          npm run visual:evidence:docker
+          test "$(sha256sum "$MISSION_CANDIDATE_SPEC_PATH" | awk '{print $1}')" = \
+            "$MISSION_CANDIDATE_SPEC_SHA256"
+          test -f test-results/visual-a11y/manifests/visual-evidence.v2.json
+          test -f test-results/visual-a11y/manifests/a11y-evidence.v2.json
+      - name: Upload candidate-bound Home quality evidence
+        id: upload_home_quality
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: ${{ inputs.release_id }}-home-visual-a11y-attempt-${{ github.run_attempt }}
+          path: home/test-results/visual-a11y/manifests/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Install deterministic Home journey harness
+        working-directory: home
+        run: |
+          set -euo pipefail
           npm ci
           npx playwright install --with-deps chromium
       - name: Run exactly two live cross-service journeys
@@ -157,6 +186,12 @@ jobs:
           artifact-ids: ${{ needs.candidate-journeys.outputs.contextual_artifact_id }}
           path: ${{ runner.temp }}/downloaded-contextual
           merge-multiple: true
+      - name: Download exact Home quality artifact from this validator run
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          artifact-ids: ${{ needs.candidate-journeys.outputs.home_quality_artifact_id }}
+          path: ${{ runner.temp }}/downloaded-home-quality
+          merge-multiple: true
       - name: Recheck candidate head and seal final release-manifest
         working-directory: gitops
         env:
@@ -178,7 +213,10 @@ jobs:
             --activation-artifact-id "${{ needs.candidate-journeys.outputs.activation_artifact_id }}" \
             --activation-evidence "$RUNNER_TEMP/downloaded-activation/evidence.json" \
             --contextual-artifact-id "${{ needs.candidate-journeys.outputs.contextual_artifact_id }}" \
-            --contextual-evidence "$RUNNER_TEMP/downloaded-contextual/evidence.json"
+            --contextual-evidence "$RUNNER_TEMP/downloaded-contextual/evidence.json" \
+            --home-quality-artifact-id "${{ needs.candidate-journeys.outputs.home_quality_artifact_id }}" \
+            --home-visual-evidence "$RUNNER_TEMP/downloaded-home-quality/visual-evidence.v2.json" \
+            --home-a11y-evidence "$RUNNER_TEMP/downloaded-home-quality/a11y-evidence.v2.json"
       - name: Commit only the newly sealed final manifest
         working-directory: gitops
         run: |
