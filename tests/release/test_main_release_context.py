@@ -219,6 +219,11 @@ class MainReleaseContextTest(unittest.TestCase):
             self._git(root, "add", candidate.as_posix())
             self._git(root, "update-index", "--chmod=+x", candidate.as_posix())
             self._git(root, "commit", "-m", "executable candidate blob")
+            os.chmod(candidate, candidate.stat().st_mode | 0o111)
+            self.assertEqual(
+                self._git(root, "status", "--porcelain=v1", "--untracked-files=all"),
+                "",
+            )
             executable_candidate = self._git(root, "rev-parse", "HEAD")
             original_candidate = module.resolve_candidate_spec
             module.resolve_candidate_spec = lambda *_: (

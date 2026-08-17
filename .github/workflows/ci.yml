@@ -20,7 +20,7 @@ jobs:
       - name: Validate release schema, fixtures, mutator, and workflow contract
         run: |
           set -euo pipefail
-          python -m pip install --disable-pip-version-check jsonschema==4.25.1
+          python -m pip install --disable-pip-version-check jsonschema==4.25.1 PyYAML==6.0.2
           python -m unittest discover -s tests/release -p 'test_*.py' -v
           python -m json.tool release-manifests/schema-v1.json >/dev/null
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
