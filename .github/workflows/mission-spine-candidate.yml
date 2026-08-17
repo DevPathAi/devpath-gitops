@@ -52,7 +52,7 @@ jobs:
             --emit-github-output "$GITHUB_OUTPUT"
 
           base_sha="$(jq -er '.gitops.base_sha' "$candidate_path")"
-          git fetch origin main
+          git fetch --no-tags origin main:refs/remotes/origin/main
           test "$(git rev-parse origin/main)" = "$base_sha"
           test "$(git rev-parse HEAD^)" = "$base_sha"
           test "$(git rev-list --count "$base_sha"..HEAD)" -eq 1

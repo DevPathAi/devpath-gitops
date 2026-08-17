@@ -728,6 +728,7 @@ class SignedMobileManualTrustTest(unittest.TestCase):
         environment = {
             "id": claim["approval_environment_id"],
             "name": claim["approval_environment"],
+            "can_admins_bypass": False,
             "protection_rules": [
                 {
                     "type": "required_reviewers",
@@ -790,9 +791,10 @@ class SignedMobileManualTrustTest(unittest.TestCase):
 
         for mutation, message in (
             (("environment", "prevent_self_review", False), "prevent self-review"),
+            (("environment-root", "can_admins_bypass", True), "identity"),
             (("run", "actor", {"id": 4001, "login": "release-reviewer"}), "initiator"),
             (("run", "run_attempt", 2), "attempt must be 1"),
-            (("run", "head_branch", "feature/retry"), "head_branch must be main"),
+            (("run", "head_branch", "feature/retry"), "head_branch"),
             (("job", "conclusion", "failure"), "successful"),
             (("approval", "state", "rejected"), "approved"),
         ):
@@ -804,6 +806,8 @@ class SignedMobileManualTrustTest(unittest.TestCase):
                 target, field, value = mutation
                 if target == "environment":
                     bad_environment["protection_rules"][0][field] = value
+                elif target == "environment-root":
+                    bad_environment[field] = value
                 elif target == "run":
                     bad_run[field] = value
                 elif target == "job":

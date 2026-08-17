@@ -14,215 +14,692 @@ permissions:
 
 env:
   RELEASE_ID: ${{ inputs.release_id }}
+  PYTHONDONTWRITEBYTECODE: "1"
 
 concurrency:
-  # Promotion, Landing-last, and rollback share this repository-wide lock.
   group: mission-spine-production
   cancel-in-progress: false
 
 jobs:
   resolve:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       base_sha: ${{ steps.release.outputs.gitops_base_sha }}
       candidate_sha: ${{ steps.release.outputs.candidate_spec_sha256 }}
+      initial_phase: ${{ steps.chain.outputs.phase }}
+      initial_commit: ${{ steps.chain.outputs.current_commit }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
+          persist-credentials: false
+          path: control
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.13"
-      - name: Resolve sealed release
-        id: release
-        run: |
-          set -euo pipefail
-          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
-          python scripts/release/validate_release_manifest.py --root "$GITHUB_WORKSPACE" \
-            --release-id "$RELEASE_ID" --emit-github-output "$GITHUB_OUTPUT"
-      - name: Compare-and-swap current main against sealed GitOps base
-        env:
-          BASE_SHA: ${{ steps.release.outputs.gitops_base_sha }}
-        run: |
-          set -euo pipefail
-          git fetch origin main
-          test "$(git rev-parse origin/main)" = "$BASE_SHA"
-          git merge-base --is-ancestor "$BASE_SHA" HEAD
-          mapfile -t branch_changes < <(git diff --name-only "$BASE_SHA"...HEAD)
-          test "${#branch_changes[@]}" -eq 2
-          test "${branch_changes[0]}" = "release-manifests/candidates/$RELEASE_ID.candidate-spec.json"
-          test "${branch_changes[1]}" = "release-manifests/releases/$RELEASE_ID.json"
-
-  production_off:
-    needs: resolve
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    environment: mission-spine-production-off
-    permissions:
-      actions: read
-      contents: write
-      deployments: write
-    outputs:
-      off_commit: ${{ steps.commit.outputs.off_commit }}
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Checkout sealed release branch as data only
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          ref: release/candidate-${{ inputs.release_id }}
           fetch-depth: 0
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
-        with:
-          python-version: "3.13"
-      - name: Require protected OFF approval
+          persist-credentials: false
+          path: sealed-release
+      - name: Authenticate current main control and sealed data branch
+        id: context
         env:
           GH_TOKEN: ${{ github.token }}
-          ENVIRONMENT_NAME: mission-spine-production-off
         run: |
           set -euo pipefail
-          gh api "repos/${GITHUB_REPOSITORY}/environments/${ENVIRONMENT_NAME}" \
-            | jq -e '[.protection_rules[]? | select(.type == "required_reviewers" and .prevent_self_review == true and ((.reviewers // []) | length > 0))] | length == 1' >/dev/null
-      - name: Install exact AI release renderer
+          python control/scripts/release/verify_main_release_context.py \
+            --control-root "$GITHUB_WORKSPACE/control" --data-root "$GITHUB_WORKSPACE/sealed-release" \
+            --workflow-path .github/workflows/mission-spine-promote.yml \
+            --release-id "$RELEASE_ID" --mode sealed --github-output "$GITHUB_OUTPUT"
+      - name: Install the exact release renderer for phase resolution
         run: |
           set -euo pipefail
-          python scripts/release/install_pinned_kustomize.py \
+          python control/scripts/release/install_pinned_kustomize.py \
             --destination "$RUNNER_TEMP/mission-spine-kustomize"
           echo "MISSION_SPINE_KUSTOMIZE_BIN=$RUNNER_TEMP/mission-spine-kustomize/kustomize" \
             >> "$GITHUB_ENV"
-      - name: Verify successful validation and every sealed artifact
+      - name: Resolve the exact sealed release and current main phase
+        id: release
+        run: |
+          set -euo pipefail
+          python control/scripts/release/validate_release_manifest.py --root "$GITHUB_WORKSPACE/sealed-release" \
+            --release-id "$RELEASE_ID" --emit-github-output "$GITHUB_OUTPUT"
+      - name: Authenticate the exact resumable phase at dispatch
+        id: chain
+        run: |
+          set -euo pipefail
+          python control/scripts/release/verify_promotion_chain.py --root "$GITHUB_WORKSPACE/control" \
+            --release-root "$GITHUB_WORKSPACE/sealed-release" \
+            --release-id "$RELEASE_ID" --current "$GITHUB_SHA" \
+            --github-output "$GITHUB_OUTPUT" >/dev/null
+          case "$(sed -n 's/^phase=//p' "$GITHUB_OUTPUT" | tail -1)" in
+            migration|services|mission-off|mission-on) ;;
+            *) echo 'dispatch requires an exact resumable migration/services/OFF/ON phase' >&2; exit 1 ;;
+          esac
+
+  production_off:
+    name: Promote migration, services, and mission-OFF
+    needs: resolve
+    if: >-
+      needs.resolve.outputs.initial_phase == 'migration' ||
+      needs.resolve.outputs.initial_phase == 'services'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    environment: mission-spine-production-off
+    permissions:
+      actions: read
+      contents: read
+      deployments: write
+    outputs:
+      migration_commit: ${{ steps.migration.outputs.migration_commit_sha }}
+      services_commit: ${{ steps.off_chain.outputs.services_commit }}
+      off_commit: ${{ steps.off_chain.outputs.off_commit }}
+      current_commit: ${{ steps.off_chain.outputs.current_commit }}
+      phase: ${{ steps.off_chain.outputs.phase }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: control
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+      - name: Authenticate current protected main control before OFF approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/verify_main_release_context.py \
+            --control-root "$GITHUB_WORKSPACE/control" \
+            --workflow-path .github/workflows/mission-spine-promote.yml \
+            --release-id "$RELEASE_ID" --mode control
+      - name: Authenticate this attempt-one protected OFF approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/verify_current_protected_approval.py \
+            --environment mission-spine-production-off \
+            --job-name 'Promote migration, services, and mission-OFF' \
+            --workflow-path .github/workflows/mission-spine-promote.yml
+      - name: Checkout sealed release branch as data only
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: release/candidate-${{ inputs.release_id }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: sealed-release
+      - name: Authenticate unchanged current main control and sealed data
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/verify_main_release_context.py \
+            --control-root "$GITHUB_WORKSPACE/control" --data-root "$GITHUB_WORKSPACE/sealed-release" \
+            --workflow-path .github/workflows/mission-spine-promote.yml \
+            --release-id "$RELEASE_ID" --mode sealed
+      - uses: azure/setup-kubectl@829323503d1be3d00ca8346e5391ca0b07a9ab0d # v5.1.0
+        with:
+          version: v1.36.2
+      - name: Install the exact release renderer
+        run: |
+          set -euo pipefail
+          python control/scripts/release/install_pinned_kustomize.py \
+            --destination "$RUNNER_TEMP/mission-spine-kustomize"
+          echo "MISSION_SPINE_KUSTOMIZE_BIN=$RUNNER_TEMP/mission-spine-kustomize/kustomize" \
+            >> "$GITHUB_ENV"
+      - name: Verify every sealed pre-production artifact
         env:
           RELEASE_EVIDENCE_TOKEN: ${{ secrets.RELEASE_EVIDENCE_TOKEN }}
         run: |
           set -euo pipefail
           test -n "${RELEASE_EVIDENCE_TOKEN:-}"
-          python scripts/release/verify_release_artifacts.py --root "$GITHUB_WORKSPACE" \
+          python control/scripts/release/verify_release_artifacts.py --root "$GITHUB_WORKSPACE/sealed-release" \
             --release-id "$RELEASE_ID"
-      - name: Configure production cluster
+      - name: Authenticate all nine immutable image producer artifacts
+        env:
+          RELEASE_EVIDENCE_TOKEN: ${{ secrets.RELEASE_EVIDENCE_TOKEN }}
+          MISSION_SPINE_GHCR_READ_ACTOR: ${{ secrets.MISSION_SPINE_GHCR_READ_ACTOR }}
+          MISSION_SPINE_GHCR_READ_TOKEN: ${{ secrets.MISSION_SPINE_GHCR_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${RELEASE_EVIDENCE_TOKEN:-}"
+          test -n "${MISSION_SPINE_GHCR_READ_ACTOR:-}"
+          test -n "${MISSION_SPINE_GHCR_READ_TOKEN:-}"
+          evidence_dir="$RUNNER_TEMP/service-image-provenance"
+          install -d -m 0700 "$evidence_dir"
+          python control/scripts/release/verify_service_image_evidence.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID" \
+            --evidence-out "$evidence_dir/evidence.json" >/dev/null
+      - name: Mint the environment-scoped GitOps release App token
+        id: app_token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.GITOPS_RELEASE_APP_ID }}
+          private-key: ${{ secrets.GITOPS_RELEASE_APP_PRIVATE_KEY }}
+          owner: DevPathAi
+          permission-administration: read
+          permission-contents: write
+      - name: Authenticate the exact App installation and effective main rulesets
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          APP_ID: ${{ secrets.GITOPS_RELEASE_APP_ID }}
+          APP_SLUG: ${{ steps.app_token.outputs.app-slug }}
+          INSTALLATION_ID: ${{ steps.app_token.outputs.installation-id }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/verify_gitops_write_authority.py \
+            --expected-app-id "$APP_ID" --app-slug "$APP_SLUG" \
+            --installation-id "$INSTALLATION_ID"
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          repository: DevPathAi/devpath-gitops
+          ref: main
+          token: ${{ steps.app_token.outputs.token }}
+          path: gitops-main
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Authenticate protected Shared migration result and exact retained M
+        id: migration
+        env:
+          RELEASE_EVIDENCE_TOKEN: ${{ secrets.RELEASE_EVIDENCE_TOKEN }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/verify_migration_result.py --root "$GITHUB_WORKSPACE/sealed-release" \
+            --gitops-root "$GITHUB_WORKSPACE/gitops-main" \
+            --release-id "$RELEASE_ID" --github-output "$GITHUB_OUTPUT"
+      - name: Configure the production cluster
         env:
           PRODUCTION_KUBECONFIG_B64: ${{ secrets.PRODUCTION_KUBECONFIG_B64 }}
         run: |
           set -euo pipefail
           test -n "${PRODUCTION_KUBECONFIG_B64:-}"
-          umask 077
-          printf '%s' "$PRODUCTION_KUBECONFIG_B64" | base64 --decode > "$RUNNER_TEMP/production-kubeconfig"
-          chmod 600 "$RUNNER_TEMP/production-kubeconfig"
-          echo "KUBECONFIG=$RUNNER_TEMP/production-kubeconfig" >> "$GITHUB_ENV"
-      - name: Require sealed legacy tag and exact live prior digest before OFF
+          python control/scripts/release/manage_production_kubeconfig.py create \
+            --runner-temp "$RUNNER_TEMP" --github-env "$GITHUB_ENV"
+      - name: Inspect the exact resumable chain
+        id: initial_chain
         run: |
           set -euo pipefail
-          python scripts/release/wait_web_rollout.py --root "$GITHUB_WORKSPACE" \
-            --release-id "$RELEASE_ID" --environment production \
-            --phase prior --canary-seconds 0
-      - name: Compare-and-swap exact mission-OFF digest
-        id: commit
+          git -C gitops-main fetch --no-tags origin main:refs/remotes/origin/main
+          test "$(git -C gitops-main rev-parse refs/remotes/origin/main)" = "$GITHUB_SHA"
+          test "$(git -C gitops-main rev-parse HEAD)" = "$GITHUB_SHA"
+          python control/scripts/release/verify_promotion_chain.py --root "$GITHUB_WORKSPACE/gitops-main" \
+            --release-root "$GITHUB_WORKSPACE/sealed-release" \
+            --release-id "$RELEASE_ID" --current refs/remotes/origin/main \
+            --github-output "$GITHUB_OUTPUT" >/dev/null
+          case "$(sed -n 's/^phase=//p' "$GITHUB_OUTPUT" | tail -1)" in
+            migration|services|mission-off|mission-on) ;;
+            *) echo 'promotion cannot resume from this exact chain phase' >&2; exit 1 ;;
+          esac
+      - name: Require completed exact migration runtime before services
         env:
-          BASE_SHA: ${{ needs.resolve.outputs.base_sha }}
+          MISSION_SPINE_GHCR_READ_ACTOR: ${{ secrets.MISSION_SPINE_GHCR_READ_ACTOR }}
+          MISSION_SPINE_GHCR_READ_TOKEN: ${{ secrets.MISSION_SPINE_GHCR_READ_TOKEN }}
+          MIGRATION_COMMIT: ${{ steps.migration.outputs.migration_commit_sha }}
         run: |
           set -euo pipefail
-          git fetch origin main
-          test "$(git rev-parse origin/main)" = "$BASE_SHA"
-          main_worktree="$RUNNER_TEMP/gitops-main-off"
-          git worktree add --detach "$main_worktree" "$BASE_SHA"
-          python scripts/release/set_web_digest.py --root "$main_worktree" \
-            --manifest-root "$GITHUB_WORKSPACE" --release-id "$RELEASE_ID" \
-            --target mission-off --expected-current base
-          test "$(git -C "$main_worktree" diff --name-only)" = "apps/devpath-web/base/kustomization.yaml"
-          kubectl kustomize "$main_worktree/apps/devpath-web/base" >/dev/null
-          git -C "$main_worktree" config user.name "devpath-release-bot"
-          git -C "$main_worktree" config user.email "release-bot@users.noreply.github.com"
-          git -C "$main_worktree" add apps/devpath-web/base/kustomization.yaml
-          git -C "$main_worktree" commit -m "release(web): promote $RELEASE_ID mission-off"
-          git -C "$main_worktree" push origin HEAD:main
-          echo "off_commit=$(git -C "$main_worktree" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - name: Detect OFF sync within 300 seconds
+          evidence_dir="$RUNNER_TEMP/migration-runtime"
+          install -d -m 0700 "$evidence_dir"
+          python control/scripts/release/wait_release_rollouts.py --root "$GITHUB_WORKSPACE/sealed-release" \
+            --gitops-root "$GITHUB_WORKSPACE/gitops-main" \
+            --release-id "$RELEASE_ID" --phase migration \
+            --introduced-commit "$MIGRATION_COMMIT" \
+            --observed-commit "${{ steps.initial_chain.outputs.current_commit }}" \
+            --evidence-out "$evidence_dir/evidence.json"
+      - name: Create or reuse the all-nine additive-services commit
+        id: services
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          APP_ID: ${{ secrets.GITOPS_RELEASE_APP_ID }}
+          APP_SLUG: ${{ steps.app_token.outputs.app-slug }}
+          INSTALLATION_ID: ${{ steps.app_token.outputs.installation-id }}
+          PHASE: ${{ steps.initial_chain.outputs.phase }}
+          CURRENT_MAIN: ${{ steps.initial_chain.outputs.current_commit }}
+          EXISTING_SERVICES: ${{ steps.initial_chain.outputs.services_commit }}
+        run: |
+          set -euo pipefail
+          if test "$PHASE" != "migration"; then
+            test -n "$EXISTING_SERVICES"
+            echo "services_commit=$EXISTING_SERVICES" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          test "$(git -C gitops-main rev-parse HEAD)" = "$CURRENT_MAIN"
+          test -z "$(git -C gitops-main status --porcelain=v1 --untracked-files=all)"
+          python control/scripts/release/promote_service_digests.py --root "$GITHUB_WORKSPACE/gitops-main" \
+            --manifest-root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID" \
+            --kustomize-bin "$MISSION_SPINE_KUSTOMIZE_BIN"
+          while IFS= read -r changed_path; do
+            case "$changed_path" in
+              apps/devpath-admin/base/kustomization.yaml|\
+              apps/devpath-ai-svc/base/kustomization.yaml|\
+              apps/devpath-community-svc/base/kustomization.yaml|\
+              apps/devpath-gateway/base/kustomization.yaml|\
+              apps/devpath-lcs-svc/base/kustomization.yaml|\
+              apps/devpath-learning-svc/base/kustomization.yaml|\
+              apps/devpath-notification-svc/base/kustomization.yaml|\
+              apps/devpath-platform-svc/base/kustomization.yaml|\
+              apps/devpath-sandbox-svc/base/kustomization.yaml) ;;
+              *) echo "unexpected additive-service path" >&2; exit 1 ;;
+            esac
+          done < <(git -C gitops-main diff --name-only)
+          git -C gitops-main config user.name 'devpath-gitops-release[bot]'
+          git -C gitops-main config user.email 'devpath-gitops-release[bot]@users.noreply.github.com'
+          git -C gitops-main add \
+            apps/devpath-admin/base/kustomization.yaml \
+            apps/devpath-ai-svc/base/kustomization.yaml \
+            apps/devpath-community-svc/base/kustomization.yaml \
+            apps/devpath-gateway/base/kustomization.yaml \
+            apps/devpath-lcs-svc/base/kustomization.yaml \
+            apps/devpath-learning-svc/base/kustomization.yaml \
+            apps/devpath-notification-svc/base/kustomization.yaml \
+            apps/devpath-platform-svc/base/kustomization.yaml \
+            apps/devpath-sandbox-svc/base/kustomization.yaml
+          git -C gitops-main commit --allow-empty \
+            -m "release(services): promote $RELEASE_ID additive-services"
+          python control/scripts/release/verify_gitops_write_authority.py \
+            --expected-app-id "$APP_ID" --app-slug "$APP_SLUG" \
+            --installation-id "$INSTALLATION_ID"
+          git -C gitops-main fetch --no-tags origin main:refs/remotes/origin/main
+          test "$(git -C gitops-main rev-parse origin/main)" = "$CURRENT_MAIN"
+          git -C gitops-main push origin HEAD:main
+          services_commit="$(git -C gitops-main rev-parse HEAD)"
+          git -C gitops-main fetch --no-tags origin main:refs/remotes/origin/main
+          test "$(git -C gitops-main rev-parse origin/main)" = "$services_commit"
+          echo "services_commit=$services_commit" >> "$GITHUB_OUTPUT"
+      - name: Re-authenticate chain after additive services
+        id: services_chain
+        run: |
+          set -euo pipefail
+          git -C gitops-main fetch --no-tags origin main:refs/remotes/origin/main
+          python control/scripts/release/verify_promotion_chain.py --root "$GITHUB_WORKSPACE/gitops-main" \
+            --release-root "$GITHUB_WORKSPACE/sealed-release" \
+            --release-id "$RELEASE_ID" --current refs/remotes/origin/main \
+            --github-output "$GITHUB_OUTPUT" >/dev/null
+          case "$(sed -n 's/^phase=//p' "$GITHUB_OUTPUT" | tail -1)" in
+            services|mission-off|mission-on) ;;
+            *) echo 'additive services did not reach an exact resumable phase' >&2; exit 1 ;;
+          esac
+      - name: Require exact runtime rollout of all nine services
+        env:
+          MISSION_SPINE_GHCR_READ_ACTOR: ${{ secrets.MISSION_SPINE_GHCR_READ_ACTOR }}
+          MISSION_SPINE_GHCR_READ_TOKEN: ${{ secrets.MISSION_SPINE_GHCR_READ_TOKEN }}
+          SERVICES_COMMIT: ${{ steps.services_chain.outputs.services_commit }}
+        run: |
+          set -euo pipefail
+          evidence_dir="$RUNNER_TEMP/services-runtime"
+          install -d -m 0700 "$evidence_dir"
+          python control/scripts/release/wait_release_rollouts.py --root "$GITHUB_WORKSPACE/sealed-release" \
+            --gitops-root "$GITHUB_WORKSPACE/gitops-main" \
+            --release-id "$RELEASE_ID" --phase services \
+            --introduced-commit "$SERVICES_COMMIT" \
+            --observed-commit "${{ steps.services_chain.outputs.current_commit }}" \
+            --evidence-out "$evidence_dir/evidence.json"
+      - name: Create or reuse exact mission-OFF
+        id: off
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          APP_ID: ${{ secrets.GITOPS_RELEASE_APP_ID }}
+          APP_SLUG: ${{ steps.app_token.outputs.app-slug }}
+          INSTALLATION_ID: ${{ steps.app_token.outputs.installation-id }}
+          PHASE: ${{ steps.services_chain.outputs.phase }}
+          WEB_PHASE: ${{ steps.services_chain.outputs.web_phase }}
+          CURRENT_MAIN: ${{ steps.services_chain.outputs.current_commit }}
+          EXISTING_OFF: ${{ steps.services_chain.outputs.off_commit }}
+        run: |
+          set -euo pipefail
+          if test "$PHASE" = "mission-off" || test "$PHASE" = "mission-on"; then
+            test -n "$EXISTING_OFF"
+            echo "off_commit=$EXISTING_OFF" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          test "$PHASE" = "services"
+          case "$WEB_PHASE" in base|prior) ;; *) exit 1 ;; esac
+          git -C gitops-main fetch --no-tags origin main:refs/remotes/origin/main
+          test "$(git -C gitops-main rev-parse HEAD)" = "$(git -C gitops-main rev-parse origin/main)"
+          test "$(git -C gitops-main rev-parse HEAD)" = "$CURRENT_MAIN"
+          python control/scripts/release/set_web_digest.py --root "$GITHUB_WORKSPACE/gitops-main" \
+            --manifest-root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID" \
+            --target mission-off --expected-current "$WEB_PHASE"
+          test "$(git -C gitops-main diff --name-only)" = 'apps/devpath-web/base/kustomization.yaml'
+          "$MISSION_SPINE_KUSTOMIZE_BIN" build gitops-main/apps/devpath-web/base >/dev/null
+          git -C gitops-main config user.name 'devpath-gitops-release[bot]'
+          git -C gitops-main config user.email 'devpath-gitops-release[bot]@users.noreply.github.com'
+          git -C gitops-main add apps/devpath-web/base/kustomization.yaml
+          git -C gitops-main commit -m "release(web): promote $RELEASE_ID mission-off"
+          python control/scripts/release/verify_gitops_write_authority.py \
+            --expected-app-id "$APP_ID" --app-slug "$APP_SLUG" \
+            --installation-id "$INSTALLATION_ID"
+          git -C gitops-main fetch --no-tags origin main:refs/remotes/origin/main
+          test "$(git -C gitops-main rev-parse origin/main)" = "$CURRENT_MAIN"
+          git -C gitops-main push origin HEAD:main
+          off_commit="$(git -C gitops-main rev-parse HEAD)"
+          git -C gitops-main fetch --no-tags origin main:refs/remotes/origin/main
+          test "$(git -C gitops-main rev-parse origin/main)" = "$off_commit"
+          echo "off_commit=$off_commit" >> "$GITHUB_OUTPUT"
+      - name: Re-authenticate exact chain after OFF
+        id: off_chain
+        run: |
+          set -euo pipefail
+          git -C gitops-main fetch --no-tags origin main:refs/remotes/origin/main
+          python control/scripts/release/verify_promotion_chain.py --root "$GITHUB_WORKSPACE/gitops-main" \
+            --release-root "$GITHUB_WORKSPACE/sealed-release" \
+            --release-id "$RELEASE_ID" --current refs/remotes/origin/main \
+            --github-output "$GITHUB_OUTPUT" >/dev/null
+          case "$(sed -n 's/^phase=//p' "$GITHUB_OUTPUT" | tail -1)" in
+            mission-off|mission-on) ;;
+            *) echo 'web is not in an exact OFF/ON resumable phase' >&2; exit 1 ;;
+          esac
+      - name: Run candidate-bound compatibility smoke after exact OFF
+        if: steps.off_chain.outputs.phase == 'mission-off'
         env:
           MISSION_SYNTHETIC_PROBE_TOKEN: ${{ secrets.MISSION_SYNTHETIC_PROBE_TOKEN }}
         run: |
           set -euo pipefail
           test -n "${MISSION_SYNTHETIC_PROBE_TOKEN:-}"
-          python scripts/release/wait_web_rollout.py --root "$GITHUB_WORKSPACE" \
+          python control/scripts/release/wait_web_rollout.py --root "$GITHUB_WORKSPACE/sealed-release" \
             --release-id "$RELEASE_ID" --environment production \
-            --phase mission-off --canary-seconds 0
+            --phase mission-off --canary-seconds 0 \
+            --commit "${{ steps.off_chain.outputs.off_commit }}"
+      - name: Remove the exact production kubeconfig
+        if: always()
+        run: |
+          set -euo pipefail
+          python control/scripts/release/manage_production_kubeconfig.py cleanup \
+            --runner-temp "$RUNNER_TEMP" --path "${KUBECONFIG:-}"
 
   production_on:
-    needs: [resolve, production_off]
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    name: Promote mission-ON and hold the exact canary
+    needs: resolve
+    if: >-
+      needs.resolve.outputs.initial_phase == 'mission-off' ||
+      needs.resolve.outputs.initial_phase == 'mission-on'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
     environment: mission-spine-production-on
     permissions:
       actions: read
-      contents: write
+      contents: read
       deployments: write
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
+          persist-credentials: false
+          path: control
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.13"
-      - name: Require protected manual ON approval
+      - name: Authenticate current protected main control before ON approval
         env:
           GH_TOKEN: ${{ github.token }}
-          ENVIRONMENT_NAME: mission-spine-production-on
         run: |
           set -euo pipefail
-          gh api "repos/${GITHUB_REPOSITORY}/environments/${ENVIRONMENT_NAME}" \
-            | jq -e '[.protection_rules[]? | select(.type == "required_reviewers" and .prevent_self_review == true and ((.reviewers // []) | length > 0))] | length == 1' >/dev/null
-      - name: Compare-and-swap exact mission-ON digest
-        id: commit
+          python control/scripts/release/verify_main_release_context.py \
+            --control-root "$GITHUB_WORKSPACE/control" \
+            --workflow-path .github/workflows/mission-spine-promote.yml \
+            --release-id "$RELEASE_ID" --mode control
+      - name: Authenticate this attempt-one protected ON approval
         env:
-          OFF_COMMIT: ${{ needs.production_off.outputs.off_commit }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          git fetch origin main
-          test "$(git rev-parse origin/main)" = "$OFF_COMMIT"
-          main_worktree="$RUNNER_TEMP/gitops-main-on"
-          git worktree add --detach "$main_worktree" "$OFF_COMMIT"
-          python scripts/release/set_web_digest.py --root "$main_worktree" \
-            --manifest-root "$GITHUB_WORKSPACE" --release-id "$RELEASE_ID" \
-            --target mission-on --expected-current mission-off
-          test "$(git -C "$main_worktree" diff --name-only)" = "apps/devpath-web/base/kustomization.yaml"
-          kubectl kustomize "$main_worktree/apps/devpath-web/base" >/dev/null
-          git -C "$main_worktree" config user.name "devpath-release-bot"
-          git -C "$main_worktree" config user.email "release-bot@users.noreply.github.com"
-          git -C "$main_worktree" add apps/devpath-web/base/kustomization.yaml
-          git -C "$main_worktree" commit -m "release(web): promote $RELEASE_ID mission-on"
-          git -C "$main_worktree" push origin HEAD:main
-          echo "on_commit=$(git -C "$main_worktree" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - name: Configure production cluster
+          python control/scripts/release/verify_current_protected_approval.py \
+            --environment mission-spine-production-on \
+            --job-name 'Promote mission-ON and hold the exact canary' \
+            --workflow-path .github/workflows/mission-spine-promote.yml
+      - name: Checkout sealed release branch as data only
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: release/candidate-${{ inputs.release_id }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: sealed-release
+      - name: Authenticate unchanged current main control and sealed data
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/verify_main_release_context.py \
+            --control-root "$GITHUB_WORKSPACE/control" --data-root "$GITHUB_WORKSPACE/sealed-release" \
+            --workflow-path .github/workflows/mission-spine-promote.yml \
+            --release-id "$RELEASE_ID" --mode sealed
+      - uses: azure/setup-kubectl@829323503d1be3d00ca8346e5391ca0b07a9ab0d # v5.1.0
+        with:
+          version: v1.36.2
+      - name: Install the exact release renderer
+        run: |
+          set -euo pipefail
+          python control/scripts/release/install_pinned_kustomize.py \
+            --destination "$RUNNER_TEMP/mission-spine-kustomize"
+          echo "MISSION_SPINE_KUSTOMIZE_BIN=$RUNNER_TEMP/mission-spine-kustomize/kustomize" \
+            >> "$GITHUB_ENV"
+      - name: Re-authenticate every sealed artifact before ON
+        env:
+          RELEASE_EVIDENCE_TOKEN: ${{ secrets.RELEASE_EVIDENCE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${RELEASE_EVIDENCE_TOKEN:-}"
+          python control/scripts/release/verify_release_artifacts.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID"
+      - name: Mint the environment-scoped GitOps release App token
+        id: app_token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.GITOPS_RELEASE_APP_ID }}
+          private-key: ${{ secrets.GITOPS_RELEASE_APP_PRIVATE_KEY }}
+          owner: DevPathAi
+          permission-administration: read
+          permission-contents: write
+      - name: Authenticate the exact App installation and effective main rulesets
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          APP_ID: ${{ secrets.GITOPS_RELEASE_APP_ID }}
+          APP_SLUG: ${{ steps.app_token.outputs.app-slug }}
+          INSTALLATION_ID: ${{ steps.app_token.outputs.installation-id }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/verify_gitops_write_authority.py \
+            --expected-app-id "$APP_ID" --app-slug "$APP_SLUG" \
+            --installation-id "$INSTALLATION_ID"
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          repository: DevPathAi/devpath-gitops
+          ref: main
+          token: ${{ steps.app_token.outputs.token }}
+          path: gitops-main
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Inspect the exact OFF/ON resumable chain
+        id: chain
+        run: |
+          set -euo pipefail
+          git -C gitops-main fetch --no-tags origin main:refs/remotes/origin/main
+          test "$(git -C gitops-main rev-parse refs/remotes/origin/main)" = "$GITHUB_SHA"
+          python control/scripts/release/verify_promotion_chain.py --root "$GITHUB_WORKSPACE/gitops-main" \
+            --release-root "$GITHUB_WORKSPACE/sealed-release" \
+            --release-id "$RELEASE_ID" --current refs/remotes/origin/main \
+            --github-output "$GITHUB_OUTPUT" >/dev/null
+          case "$(sed -n 's/^phase=//p' "$GITHUB_OUTPUT" | tail -1)" in
+            mission-off|mission-on) ;;
+            *) echo 'ON promotion requires exact OFF or existing ON' >&2; exit 1 ;;
+          esac
+      - name: Authenticate retained migration evidence
+        env:
+          RELEASE_EVIDENCE_TOKEN: ${{ secrets.RELEASE_EVIDENCE_TOKEN }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/verify_migration_result.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" \
+            --gitops-root "$GITHUB_WORKSPACE/gitops-main" \
+            --release-id "$RELEASE_ID" >/dev/null
+      - name: Configure the production cluster
         env:
           PRODUCTION_KUBECONFIG_B64: ${{ secrets.PRODUCTION_KUBECONFIG_B64 }}
         run: |
           set -euo pipefail
           test -n "${PRODUCTION_KUBECONFIG_B64:-}"
-          umask 077
-          printf '%s' "$PRODUCTION_KUBECONFIG_B64" | base64 --decode > "$RUNNER_TEMP/production-kubeconfig"
-          chmod 600 "$RUNNER_TEMP/production-kubeconfig"
-          echo "KUBECONFIG=$RUNNER_TEMP/production-kubeconfig" >> "$GITHUB_ENV"
-      - name: Detect sync within 300 seconds and hold exact 900-second canary
+          python control/scripts/release/manage_production_kubeconfig.py create \
+            --runner-temp "$RUNNER_TEMP" --github-env "$GITHUB_ENV"
+      - name: Re-observe migration and nine services before ON
+        env:
+          MISSION_SPINE_GHCR_READ_ACTOR: ${{ secrets.MISSION_SPINE_GHCR_READ_ACTOR }}
+          MISSION_SPINE_GHCR_READ_TOKEN: ${{ secrets.MISSION_SPINE_GHCR_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          migration_dir="$RUNNER_TEMP/migration-runtime-on"
+          services_dir="$RUNNER_TEMP/services-runtime-on"
+          install -d -m 0700 "$migration_dir" "$services_dir"
+          python control/scripts/release/wait_release_rollouts.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" \
+            --gitops-root "$GITHUB_WORKSPACE/gitops-main" \
+            --release-id "$RELEASE_ID" --phase migration \
+            --introduced-commit "${{ steps.chain.outputs.migration_commit }}" \
+            --observed-commit "${{ steps.chain.outputs.current_commit }}" \
+            --evidence-out "$migration_dir/evidence.json"
+          python control/scripts/release/wait_release_rollouts.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" \
+            --gitops-root "$GITHUB_WORKSPACE/gitops-main" \
+            --release-id "$RELEASE_ID" --phase services \
+            --introduced-commit "${{ steps.chain.outputs.services_commit }}" \
+            --observed-commit "${{ steps.chain.outputs.current_commit }}" \
+            --evidence-out "$services_dir/evidence.json"
+      - name: Re-run candidate-bound compatibility smoke before ON
+        if: steps.chain.outputs.phase == 'mission-off'
+        env:
+          MISSION_SYNTHETIC_PROBE_TOKEN: ${{ secrets.MISSION_SYNTHETIC_PROBE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${MISSION_SYNTHETIC_PROBE_TOKEN:-}"
+          python control/scripts/release/wait_web_rollout.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" \
+            --release-id "$RELEASE_ID" --environment production \
+            --phase mission-off --canary-seconds 0 \
+            --commit "${{ steps.chain.outputs.off_commit }}"
+      - name: Create or reuse exact mission-ON
+        id: commit
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          APP_ID: ${{ secrets.GITOPS_RELEASE_APP_ID }}
+          APP_SLUG: ${{ steps.app_token.outputs.app-slug }}
+          INSTALLATION_ID: ${{ steps.app_token.outputs.installation-id }}
+          PHASE: ${{ steps.chain.outputs.phase }}
+          CURRENT_MAIN: ${{ steps.chain.outputs.current_commit }}
+          EXISTING_ON: ${{ steps.chain.outputs.on_commit }}
+        run: |
+          set -euo pipefail
+          if test "$PHASE" = "mission-on"; then
+            test "$EXISTING_ON" = "$CURRENT_MAIN"
+            echo "on_commit=$EXISTING_ON" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          test "$PHASE" = "mission-off"
+          test "$(git -C gitops-main rev-parse HEAD)" = "$CURRENT_MAIN"
+          python control/scripts/release/set_web_digest.py --root "$GITHUB_WORKSPACE/gitops-main" \
+            --manifest-root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID" \
+            --target mission-on --expected-current mission-off
+          test "$(git -C gitops-main diff --name-only)" = 'apps/devpath-web/base/kustomization.yaml'
+          "$MISSION_SPINE_KUSTOMIZE_BIN" build gitops-main/apps/devpath-web/base >/dev/null
+          git -C gitops-main config user.name 'devpath-gitops-release[bot]'
+          git -C gitops-main config user.email 'devpath-gitops-release[bot]@users.noreply.github.com'
+          git -C gitops-main add apps/devpath-web/base/kustomization.yaml
+          git -C gitops-main commit -m "release(web): promote $RELEASE_ID mission-on"
+          python control/scripts/release/verify_gitops_write_authority.py \
+            --expected-app-id "$APP_ID" --app-slug "$APP_SLUG" \
+            --installation-id "$INSTALLATION_ID"
+          git -C gitops-main fetch --no-tags origin main:refs/remotes/origin/main
+          test "$(git -C gitops-main rev-parse origin/main)" = "$CURRENT_MAIN"
+          git -C gitops-main push origin HEAD:main
+          on_commit="$(git -C gitops-main rev-parse HEAD)"
+          git -C gitops-main fetch --no-tags origin main:refs/remotes/origin/main
+          test "$(git -C gitops-main rev-parse origin/main)" = "$on_commit"
+          echo "on_commit=$on_commit" >> "$GITHUB_OUTPUT"
+      - name: Re-authenticate exact mission-ON chain
+        id: on_chain
+        env:
+          ON_COMMIT: ${{ steps.commit.outputs.on_commit }}
+        run: |
+          set -euo pipefail
+          git -C gitops-main fetch --no-tags origin main:refs/remotes/origin/main
+          test "$(git -C gitops-main rev-parse refs/remotes/origin/main)" = "$ON_COMMIT"
+          python control/scripts/release/verify_promotion_chain.py --root "$GITHUB_WORKSPACE/gitops-main" \
+            --release-root "$GITHUB_WORKSPACE/sealed-release" \
+            --release-id "$RELEASE_ID" --current "$ON_COMMIT" \
+            --github-output "$GITHUB_OUTPUT" >/dev/null
+          test "$(sed -n 's/^phase=//p' "$GITHUB_OUTPUT" | tail -1)" = 'mission-on'
+      - name: Detect ON sync and hold the exact canary
         id: rollout
         env:
           MISSION_SYNTHETIC_PROBE_TOKEN: ${{ secrets.MISSION_SYNTHETIC_PROBE_TOKEN }}
         run: |
           set -euo pipefail
           test -n "${MISSION_SYNTHETIC_PROBE_TOKEN:-}"
-          python scripts/release/wait_web_rollout.py --root "$GITHUB_WORKSPACE" \
+          python control/scripts/release/wait_web_rollout.py --root "$GITHUB_WORKSPACE/sealed-release" \
             --release-id "$RELEASE_ID" --environment production \
-            --phase mission-on --canary-seconds 900 --github-output "$GITHUB_OUTPUT"
-      - name: Record sanitized production canary evidence
+            --phase mission-on --canary-seconds 900 --github-output "$GITHUB_OUTPUT" \
+            --commit "${{ steps.commit.outputs.on_commit }}"
+      - name: Re-authenticate all service evidence for the canary record
         env:
-          CANDIDATE_SHA: ${{ needs.resolve.outputs.candidate_sha }}
+          RELEASE_EVIDENCE_TOKEN: ${{ secrets.RELEASE_EVIDENCE_TOKEN }}
+          MISSION_SPINE_GHCR_READ_ACTOR: ${{ secrets.MISSION_SPINE_GHCR_READ_ACTOR }}
+          MISSION_SPINE_GHCR_READ_TOKEN: ${{ secrets.MISSION_SPINE_GHCR_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          evidence_dir="$RUNNER_TEMP/service-image-provenance"
+          install -d -m 0700 "$evidence_dir"
+          python control/scripts/release/verify_service_image_evidence.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID" \
+            --evidence-out "$evidence_dir/evidence.json" >/dev/null
+      - name: Re-observe all nine exact service runtimes after the web canary
+        env:
+          MISSION_SPINE_GHCR_READ_ACTOR: ${{ secrets.MISSION_SPINE_GHCR_READ_ACTOR }}
+          MISSION_SPINE_GHCR_READ_TOKEN: ${{ secrets.MISSION_SPINE_GHCR_READ_TOKEN }}
+          SERVICES_COMMIT: ${{ steps.on_chain.outputs.services_commit }}
+        run: |
+          set -euo pipefail
+          evidence_dir="$RUNNER_TEMP/services-runtime-final"
+          install -d -m 0700 "$evidence_dir"
+          python control/scripts/release/wait_release_rollouts.py --root "$GITHUB_WORKSPACE/sealed-release" \
+            --gitops-root "$GITHUB_WORKSPACE/gitops-main" \
+            --release-id "$RELEASE_ID" --phase services \
+            --introduced-commit "$SERVICES_COMMIT" \
+            --observed-commit "${{ steps.on_chain.outputs.current_commit }}" \
+            --evidence-out "$evidence_dir/evidence.json"
+      - name: Record the exact run-scoped production canary
+        env:
           ON_COMMIT: ${{ steps.commit.outputs.on_commit }}
           SYNC_SECONDS: ${{ steps.rollout.outputs.sync_detection_seconds }}
           CANARY_SECONDS: ${{ steps.rollout.outputs.canary_seconds }}
         run: |
           set -euo pipefail
-          promoter_workflow_sha="$(git show "$GITHUB_SHA:.github/workflows/mission-spine-promote.yml" | sha256sum | awk '{print $1}')"
-          mkdir -p "$RUNNER_TEMP/production-canary"
-          printf '{"release_id":"%s","candidate_spec_sha256":"%s","status":"passed","on_commit":"%s","sync_detection_seconds":%s,"canary_seconds":%s,"promoter_run_id":%s,"promoter_run_attempt":%s,"promoter_head_sha":"%s","promoter_workflow_sha256":"%s"}\n' \
-            "$RELEASE_ID" "$CANDIDATE_SHA" "$ON_COMMIT" "$SYNC_SECONDS" "$CANARY_SECONDS" \
-            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" "$promoter_workflow_sha" \
-            > "$RUNNER_TEMP/production-canary/evidence.json"
+          evidence_dir="$RUNNER_TEMP/production-canary"
+          install -d -m 0700 "$evidence_dir"
+          python control/scripts/release/build_production_canary.py --root "$GITHUB_WORKSPACE/sealed-release" \
+            --gitops-root "$GITHUB_WORKSPACE/gitops-main" \
+            --control-root "$GITHUB_WORKSPACE/control" \
+            --release-id "$RELEASE_ID" --on-commit "$ON_COMMIT" \
+            --service-evidence "$RUNNER_TEMP/service-image-provenance/evidence.json" \
+            --service-runtime "$RUNNER_TEMP/services-runtime-final/evidence.json" \
+            --sync-seconds "$SYNC_SECONDS" --canary-seconds "$CANARY_SECONDS" \
+            --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --output "$evidence_dir/evidence.json"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: ${{ inputs.release_id }}-production-canary
+          name: ${{ inputs.release_id }}-production-canary-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/production-canary/evidence.json
           if-no-files-found: error
           retention-days: 30
+          overwrite: false
+          include-hidden-files: false
+      - name: Remove the exact production kubeconfig
+        if: always()
+        run: |
+          set -euo pipefail
+          python control/scripts/release/manage_production_kubeconfig.py cleanup \
+            --runner-temp "$RUNNER_TEMP" --path "${KUBECONFIG:-}"

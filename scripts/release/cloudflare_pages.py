@@ -18,6 +18,9 @@ from validate_release_manifest import CF_ID, resolve_release_bundle
 
 API_ROOT = "https://api.cloudflare.com/client/v4"
 MARKER_KEYS = {"release_id", "candidate_spec_sha256", "dist_sha256"}
+PRODUCTION_BRANCH = "develop"
+MAX_DEPLOYMENT_PAGES = 10
+MAX_API_RESPONSE_BYTES = 1024 * 1024
 
 
 class _NoRedirectHandler(HTTPRedirectHandler):
@@ -28,6 +31,19 @@ class _NoRedirectHandler(HTTPRedirectHandler):
 
 
 _NO_REDIRECT_OPENER = build_opener(_NoRedirectHandler())
+
+
+def _unique_json_object(pairs):  # noqa: ANN001
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError("Cloudflare API JSON contains a duplicate key")
+        value[key] = item
+    return value
+
+
+def _reject_json_constant(value: str):
+    raise ValueError(f"Cloudflare API JSON contains invalid constant {value}")
 
 
 def _api(token: str, method: str, path: str) -> dict:
@@ -43,9 +59,56 @@ def _api(token: str, method: str, path: str) -> dict:
     )
     try:
         with _NO_REDIRECT_OPENER.open(request, timeout=20) as response:
-            payload = json.loads(response.read().decode("utf-8"))
+            status = getattr(response, "status", None)
+            if (
+                isinstance(status, bool)
+                or not isinstance(status, int)
+                or status < 200
+                or status >= 300
+            ):
+                raise ValueError("Cloudflare API response status is invalid")
+            content_type = response.headers.get("Content-Type")
+            if not isinstance(content_type, str):
+                raise ValueError("Cloudflare API response content type is missing")
+            content_type_parts = [
+                part.strip().lower() for part in content_type.split(";")
+            ]
+            if content_type_parts[0] != "application/json" or any(
+                part != "charset=utf-8" for part in content_type_parts[1:]
+            ):
+                raise ValueError("Cloudflare API response content type is invalid")
+            content_encoding = response.headers.get("Content-Encoding")
+            if content_encoding not in (None, "", "identity"):
+                raise ValueError("Cloudflare API response encoding is invalid")
+            declared_length = response.headers.get("Content-Length")
+            expected_length = None
+            if declared_length is not None:
+                if (
+                    not isinstance(declared_length, str)
+                    or not declared_length.isascii()
+                    or not declared_length.isdecimal()
+                ):
+                    raise ValueError("Cloudflare API response length is invalid")
+                expected_length = int(declared_length)
+                if expected_length > MAX_API_RESPONSE_BYTES:
+                    raise ValueError("Cloudflare API response size exceeds its bound")
+            raw = response.read(MAX_API_RESPONSE_BYTES + 1)
     except OSError as exc:
         raise ValueError("Cloudflare API request failed") from exc
+    if len(raw) > MAX_API_RESPONSE_BYTES:
+        raise ValueError("Cloudflare API response size exceeds its bound")
+    if expected_length is not None and expected_length != len(raw):
+        raise ValueError("Cloudflare API response length does not match its body")
+    try:
+        payload = json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=_unique_json_object,
+            parse_constant=_reject_json_constant,
+        )
+    except UnicodeDecodeError as exc:
+        raise ValueError("Cloudflare API response is not UTF-8") from exc
+    except (json.JSONDecodeError, RecursionError) as exc:
+        raise ValueError("Cloudflare API response is not valid JSON") from exc
     if not isinstance(payload, dict) or payload.get("success") is not True:
         raise ValueError("Cloudflare API rejected the release operation")
     return payload
@@ -85,12 +148,29 @@ def _successful(deployment: dict, environment: str, source_sha: str | None = Non
             raise ValueError("Cloudflare candidate source SHA mismatch")
 
 
-def _current_production(token: str, base: str) -> dict:
+def _project(token: str, base: str) -> dict:
     suffix = "/deployments"
     if not base.endswith(suffix):
         raise ValueError("Cloudflare deployment collection path is invalid")
     payload = _api(token, "GET", base[: -len(suffix)])
     project = payload.get("result")
+    source = project.get("source") if isinstance(project, dict) else None
+    config = source.get("config") if isinstance(source, dict) else None
+    if (
+        not isinstance(project, dict)
+        or project.get("production_branch") != PRODUCTION_BRANCH
+        or not isinstance(config, dict)
+        or config.get("production_branch") != PRODUCTION_BRANCH
+        or config.get("production_deployments_enabled") is not False
+    ):
+        raise ValueError(
+            "Cloudflare project must disable external production deployments on the exact branch"
+        )
+    return project
+
+
+def _current_production(token: str, base: str) -> dict:
+    project = _project(token, base)
     current = project.get("canonical_deployment") if isinstance(project, dict) else None
     if (
         not isinstance(current, dict)
@@ -103,14 +183,48 @@ def _current_production(token: str, base: str) -> dict:
 
 def _production_deployments(token: str, base: str) -> list[dict]:
     """Return a bounded production deployment census for exact creation CAS."""
-    query = urlencode({"env": "production", "page": 1, "per_page": 100})
-    payload = _api(token, "GET", f"{base}?{query}")
-    results = payload.get("result")
-    if not isinstance(results, list) or not results:
+    deployments: list[dict] = []
+    seen: set[str] = set()
+    total_pages: int | None = None
+    page = 1
+    while total_pages is None or page <= total_pages:
+        if page > MAX_DEPLOYMENT_PAGES:
+            raise ValueError("Cloudflare production deployment census exceeds its page bound")
+        query = urlencode({"env": "production", "page": page, "per_page": 100})
+        payload = _api(token, "GET", f"{base}?{query}")
+        results = payload.get("result")
+        info = payload.get("result_info")
+        if not isinstance(results, list) or not isinstance(info, dict):
+            raise ValueError("Cloudflare production deployment census is unavailable")
+        if (
+            isinstance(info.get("page"), bool)
+            or info.get("page") != page
+            or info.get("per_page") != 100
+            or isinstance(info.get("total_pages"), bool)
+            or not isinstance(info.get("total_pages"), int)
+            or info["total_pages"] < 1
+            or info["total_pages"] > MAX_DEPLOYMENT_PAGES
+            or info.get("count") != len(results)
+        ):
+            raise ValueError("Cloudflare production deployment pagination is invalid")
+        if total_pages is None:
+            total_pages = info["total_pages"]
+        elif info["total_pages"] != total_pages:
+            raise ValueError("Cloudflare production deployment pagination drifted")
+        for item in results:
+            deployment_id = item.get("id") if isinstance(item, dict) else None
+            if (
+                not isinstance(deployment_id, str)
+                or CF_ID.fullmatch(deployment_id) is None
+                or deployment_id in seen
+            ):
+                raise ValueError("Cloudflare production deployment census is invalid")
+            seen.add(deployment_id)
+            deployments.append(item)
+        page += 1
+    if not deployments:
         raise ValueError("Cloudflare production deployment census is unavailable")
-    if any(not isinstance(item, dict) for item in results):
-        raise ValueError("Cloudflare production deployment census is invalid")
-    return results
+    return deployments
 
 
 def _wait_production_quiescent(token: str, base: str, deadline: float) -> None:
@@ -154,14 +268,15 @@ def _created_production(
         if (
             not isinstance(deployment_id, str)
             or CF_ID.fullmatch(deployment_id) is None
-            or deployment_id == prior_id
         ):
-            continue
+            raise ValueError("Cloudflare deploy-window deployment ID is invalid")
         if _created_epoch(deployment) < not_before_epoch:
             continue
+        if deployment.get("environment") != "production" or deployment_id == prior_id:
+            raise ValueError("Cloudflare deploy window contains an unrelated deployment")
         metadata = ((deployment.get("deployment_trigger") or {}).get("metadata") or {})
         if metadata.get("commit_hash") != source_sha:
-            continue
+            raise ValueError("Cloudflare deploy window contains a foreign source deployment")
         _successful(deployment, "production", source_sha)
         matches.append(deployment)
     if len(matches) != 1:
@@ -296,9 +411,28 @@ def execute(
         _successful(candidate_deployment, "preview", source_sha)
         prior = _deployment(token, base, prior_id)
         _successful(prior, "production")
-        if _current_production(token, base).get("id") != prior_id:
-            raise ValueError("recorded prior deployment is not current production")
-        print("verified Landing candidate and prior production CAS")
+        current = _current_production(token, base)
+        current_id = current.get("id")
+        mode = "deploy"
+        selected_id = ""
+        if current_id == prior_id:
+            pass
+        else:
+            current_deployment = _deployment(token, base, current_id)
+            _successful(current_deployment, "production", source_sha)
+            _probe_marker(landing_origin, release_id, candidate_hash, dist_sha256)
+            if _current_production(token, base).get("id") != current_id:
+                raise ValueError("reusable Landing production drifted during preflight")
+            mode = "reuse"
+            selected_id = current_id
+        if github_output is not None:
+            if github_output.is_symlink() or not github_output.is_file():
+                raise ValueError("GITHUB_OUTPUT must be an existing regular file")
+            with github_output.open("a", encoding="utf-8", newline="\n") as output:
+                output.write(f"deploy_mode={mode}\n")
+                if selected_id:
+                    output.write(f"deployment_id={selected_id}\n")
+        print(f"verified Landing candidate and exact production CAS mode={mode}")
         return
 
     if action == "capture-new-production":
@@ -340,17 +474,29 @@ def execute(
             current = _current_production(token, base)
             if current.get("id") == prior_id:
                 break
-            # Never roll back an unrelated Landing deployment. The only permitted
-            # current successor is this candidate's successful production source.
+            # A fresh protected rollback may resume after Cloudflare already
+            # reached prior but before the first GitOps rollback commit. When it
+            # has not, bind the sole successor to authenticated Landing evidence.
+            if deployment_id is None or current.get("id") != deployment_id:
+                raise ValueError("Landing production is neither exact candidate nor prior")
             _successful(current, "production", source_sha)
             _probe_marker(landing_origin, release_id, candidate_hash, dist_sha256)
             if _current_production(token, base).get("id") != current.get("id"):
                 raise ValueError("Landing production drifted before rollback CAS")
-            _api(token, "POST", f"{base}/{quote(prior_id, safe='')}/rollback")
+            rolled_back = _api(
+                token, "POST", f"{base}/{quote(prior_id, safe='')}/rollback"
+            ).get("result")
+            if not isinstance(rolled_back, dict) or rolled_back.get("id") != prior_id:
+                raise ValueError("Cloudflare rollback response did not bind the prior deployment")
+            _successful(rolled_back, "production")
             while _current_production(token, base).get("id") != prior_id:
                 if time.monotonic() >= deadline:
                     raise ValueError("Landing prior rollback was not observed within 300 seconds")
                 time.sleep(10)
+        final_prior = _deployment(token, base, prior_id)
+        _successful(final_prior, "production")
+        if _current_production(token, base).get("id") != prior_id:
+            raise ValueError("Landing prior rollback final CAS drifted")
         _probe(landing_origin)
         print("verified Landing prior rollback before web rollback")
         return

@@ -3,6 +3,9 @@ kind: Job
 metadata:
   name: devpath-flyway-migrate
 spec:
+  # Base/main is inert. Only the protected sealed M commit may unsuspend a
+  # digest-derived Job name after selecting the candidate image digest.
+  suspend: true
   backoffLimit: 3
   template:
     spec:
@@ -65,7 +68,7 @@ spec:
           # SQL과 nontransactional Java runner는 이미지에 내장된다
           # (shared Dockerfile.migration: /flyway/sql + /flyway/drivers).
           # 자격은 platform-db SealedSecret(Flyway 표준 env FLYWAY_URL/USER/PASSWORD).
-          # Job은 immutable — 이미지 태그 교체 시 sync 실패하면 Job 삭제 후 재sync(runbook 참조).
+          # sealed migration commit이 digest-derived Job 이름으로 패치해 새 Job을 생성한다.
           image: ghcr.io/devpathai/devpath-migration:main
           securityContext:
             runAsNonRoot: true
@@ -114,6 +117,7 @@ spec:
               migration_locations="filesystem:/flyway/sql,classpath:db/migration"
               flyway -locations="$migration_locations" -target="$TARGET_FLYWAY_VERSION" migrate
               flyway -locations="$migration_locations" validate
+              printf 'mission-spine-flyway-target=%s status=validated\n' "$TARGET_FLYWAY_VERSION"
       volumes:
         - name: sandbox-migration-preflight
           configMap:

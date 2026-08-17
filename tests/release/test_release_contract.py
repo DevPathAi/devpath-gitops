@@ -217,6 +217,26 @@ class ReleaseManifestContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "production_order"):
             self.validator.validate_candidate_spec(invalid, CANDIDATE_FIXTURE)
 
+    def test_admin_image_source_is_the_exact_frontend_source(self):
+        invalid = copy.deepcopy(self.candidate)
+        invalid["services"]["devpath-admin"]["source_sha"] = "0" * 40
+        with self.assertRaisesRegex(ValueError, "devpath-admin.*frontend source"):
+            self.validator.validate_candidate_spec(invalid, CANDIDATE_FIXTURE)
+
+    def test_migration_job_base_is_inert_and_emits_only_the_validated_target_marker(self):
+        job = (ROOT / "apps/devpath-migration/base/job.yaml").read_text(encoding="utf-8")
+        self.assertIn("metadata:\n  name: devpath-flyway-migrate\n", job)
+        self.assertNotIn("argocd.argoproj.io/sync-options", job)
+        self.assertNotIn("Force=true", job)
+        self.assertRegex(job, r"spec:\n(?:  #.*\n)+  suspend: true\n  backoffLimit: 3\n")
+        validate = 'flyway -locations="$migration_locations" validate'
+        marker = (
+            "printf 'mission-spine-flyway-target=%s status=validated\\n' "
+            '"$TARGET_FLYWAY_VERSION"'
+        )
+        self.assertIn(marker, job)
+        self.assertLess(job.index(validate), job.index(marker))
+
     def test_journey_harness_uses_canonical_production_origins_and_exact_dns_overrides(self):
         invalid = copy.deepcopy(self.candidate)
         invalid["journey_harness"]["app_origin"] = "https://different.example.test"
@@ -392,9 +412,21 @@ images:
     def test_workflows_accept_release_id_only_and_encode_release_order(self):
         expected = {
             "mission-spine-validate.yml": ["mission-spine-staging", "reverse", "600"],
-            "mission-spine-promote.yml": ["mission-spine-production-off", "mission-spine-production-on", "300", "900"],
+            "mission-spine-promote.yml": [
+                "mission-spine-production-off",
+                "mission-spine-production-on",
+                "--phase migration",
+                "promote_service_digests.py",
+                "--phase services",
+                "--phase mission-off",
+                "--canary-seconds 900",
+            ],
             "mission-spine-rollback.yml": ["landing-prior", "frontend-mission-off", "frontend-prior"],
-            "mission-spine-landing-last.yml": ["mission-spine-production-landing", "candidate_deployment_id", "prior_production_deployment_id"],
+            "mission-spine-landing-last.yml": [
+                "mission-spine-production-landing",
+                "--action preflight",
+                "--action verify-new-production",
+            ],
         }
         for filename, needles in expected.items():
             text = (ROOT / ".github" / "workflows" / filename).read_text(encoding="utf-8")
@@ -402,13 +434,22 @@ images:
             self.assertIn("release_id:", inputs)
             self.assertNotIn("digest:", inputs)
             self.assertNotIn("image:", inputs)
-            self.assertIn("base_sha", text)
-            self.assertIn("prevent_self_review == true", text)
-            self.assertIn("git diff --name-only", text)
+            self.assertTrue(
+                "base_sha" in text or "verify_main_release_context.py" in text
+            )
+            self.assertTrue(
+                "prevent_self_review == true" in text
+                or "verify_current_protected_approval.py" in text
+            )
+            self.assertTrue(
+                "git diff --name-only" in text
+                or "git -C gitops-main diff --name-only" in text
+                or "verify_main_release_context.py" in text
+            )
             for line in text.splitlines():
                 if "${{ inputs.release_id }}" in line:
                     self.assertTrue(
-                        line.strip().startswith(("RELEASE_ID:", "name:")),
+                        line.strip().startswith(("RELEASE_ID:", "name:", "ref:")),
                         f"untrusted workflow input was interpolated into shell text: {line}",
                     )
             for needle in needles:
@@ -417,7 +458,7 @@ images:
         validate = (ROOT / ".github" / "workflows" / "mission-spine-validate.yml").read_text(encoding="utf-8")
         ordered = [
             "--candidate-id",
-            "ref: ${{ steps.candidate.outputs.home_source_sha }}",
+            "ref: ${{ steps.candidate_manifest.outputs.home_source_sha }}",
             "npm run test:release",
             "prepare_journey_evidence.py",
             "-journey-activation",
@@ -430,7 +471,10 @@ images:
         ]
         positions = [validate.index(needle) for needle in ordered]
         self.assertEqual(positions, sorted(positions))
-        self.assertIn('test "$(git status --porcelain=v1 --untracked-files=all)" = "?? $release_path"', validate)
+        self.assertIn(
+            'test "$(git -C candidate-data status --porcelain=v1 --untracked-files=all)" = "?? $release_path"',
+            validate,
+        )
         self.assertEqual(validate.count("npm run test:release\n"), 1)
 
         production_workflows = [
@@ -443,7 +487,7 @@ images:
             self.assertNotIn("--force", text)
         rollback = (ROOT / ".github" / "workflows" / "mission-spine-rollback.yml").read_text(encoding="utf-8")
         self.assertIn("group: mission-spine-production", rollback)
-        self.assertIn("cancel-in-progress: true", rollback)
+        self.assertIn("cancel-in-progress: false", rollback)
         self.assertIn("verify_release_artifacts.py", rollback)
         self.assertNotIn("--force", rollback)
 

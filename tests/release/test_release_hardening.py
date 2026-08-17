@@ -52,8 +52,37 @@ class ReleaseHardeningTest(unittest.TestCase):
     def healthy_snapshot(self):
         digest = self.candidate["frontend"]["selected_on_digest"]
         image = f"ghcr.io/devpathai/devpath-web@{digest}"
+        commit = "c" * 40
+        application = {
+            "metadata": {"name": "devpath-web", "namespace": "argocd"},
+            "spec": {
+                "project": "devpath",
+                "source": {
+                    "repoURL": "https://github.com/DevPathAi/devpath-gitops.git",
+                    "targetRevision": "main",
+                    "path": "apps/devpath-web/base",
+                },
+                "destination": {
+                    "server": "https://kubernetes.default.svc",
+                    "namespace": "devpath",
+                },
+            },
+            "status": {
+                "sync": {"status": "Synced", "revision": commit},
+                "health": {"status": "Healthy"},
+                "operationState": {
+                    "phase": "Succeeded",
+                    "syncResult": {"revision": commit},
+                },
+            },
+        }
         deployment = {
-            "metadata": {"generation": 7},
+            "metadata": {
+                "name": "devpath-web",
+                "namespace": "devpath",
+                "uid": "deployment-uid",
+                "generation": 7,
+            },
             "spec": {
                 "replicas": 1,
                 "selector": {"matchLabels": {"app": "devpath-web"}},
@@ -68,10 +97,57 @@ class ReleaseHardeningTest(unittest.TestCase):
                 "unavailableReplicas": 0,
             },
         }
+        replicasets = {
+            "items": [
+                {
+                    "metadata": {
+                        "name": "devpath-web-abc",
+                        "namespace": "devpath",
+                        "uid": "replicaset-uid",
+                        "ownerReferences": [
+                            {
+                                "apiVersion": "apps/v1",
+                                "kind": "Deployment",
+                                "name": "devpath-web",
+                                "uid": "deployment-uid",
+                                "controller": True,
+                                "blockOwnerDeletion": True,
+                            }
+                        ],
+                    },
+                    "spec": {
+                        "replicas": 1,
+                        "template": {
+                            "spec": {
+                                "containers": [
+                                    {"name": "devpath-web", "image": image}
+                                ]
+                            }
+                        },
+                    },
+                    "status": {"replicas": 1, "readyReplicas": 1, "availableReplicas": 1},
+                }
+            ]
+        }
         pods = {
             "items": [
                 {
-                    "metadata": {"uid": "pod-uid-1", "name": "web-abc", "deletionTimestamp": None},
+                    "metadata": {
+                        "uid": "pod-uid-1",
+                        "name": "web-abc",
+                        "deletionTimestamp": None,
+                        "ownerReferences": [
+                            {
+                                "apiVersion": "apps/v1",
+                                "kind": "ReplicaSet",
+                                "name": "devpath-web-abc",
+                                "uid": "replicaset-uid",
+                                "controller": True,
+                                "blockOwnerDeletion": True,
+                            }
+                        ],
+                    },
+                    "spec": {"containers": [{"name": "devpath-web", "image": image}]},
                     "status": {
                         "phase": "Running",
                         "conditions": [{"type": "Ready", "status": "True"}],
@@ -88,13 +164,21 @@ class ReleaseHardeningTest(unittest.TestCase):
                 }
             ]
         }
-        return deployment, pods, image
+        return application, deployment, replicasets, pods, image, commit
 
     def test_rollout_requires_actual_ready_nonterminating_digest_and_stable_restarts(self):
-        deployment, pods, image = self.healthy_snapshot()
+        application, deployment, replicasets, pods, image, commit = self.healthy_snapshot()
         baseline = {}
         self.rollout.validate_rollout_snapshot(
-            deployment, pods, "devpath-web", {image}, image, baseline
+            application,
+            deployment,
+            replicasets,
+            pods,
+            "devpath-web",
+            {image},
+            image,
+            baseline,
+            commit,
         )
         self.assertEqual(baseline, {("pod-uid-1", "devpath-web"): 0})
 
@@ -102,13 +186,15 @@ class ReleaseHardeningTest(unittest.TestCase):
         terminating["items"][0]["metadata"]["deletionTimestamp"] = "2099-01-01T00:01:00Z"
         with self.assertRaisesRegex(ValueError, "terminating"):
             self.rollout.validate_rollout_snapshot(
-                deployment, terminating, "devpath-web", {image}, image, baseline
+                application, deployment, replicasets, terminating,
+                "devpath-web", {image}, image, baseline, commit
             )
         restarted = copy.deepcopy(pods)
         restarted["items"][0]["status"]["containerStatuses"][0]["restartCount"] = 1
         with self.assertRaisesRegex(ValueError, "restart"):
             self.rollout.validate_rollout_snapshot(
-                deployment, restarted, "devpath-web", {image}, image, baseline
+                application, deployment, replicasets, restarted,
+                "devpath-web", {image}, image, baseline, commit
             )
         wrong_runtime = copy.deepcopy(pods)
         wrong_runtime["items"][0]["status"]["containerStatuses"][0]["imageID"] = (
@@ -116,14 +202,43 @@ class ReleaseHardeningTest(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "imageID"):
             self.rollout.validate_rollout_snapshot(
-                deployment, wrong_runtime, "devpath-web", {image}, image, baseline
+                application, deployment, replicasets, wrong_runtime,
+                "devpath-web", {image}, image, baseline, commit
             )
         not_available = copy.deepcopy(deployment)
         not_available["status"]["availableReplicas"] = 0
         with self.assertRaisesRegex(ValueError, "available"):
             self.rollout.validate_rollout_snapshot(
-                not_available, pods, "devpath-web", {image}, image, baseline
+                application, not_available, replicasets, pods,
+                "devpath-web", {image}, image, baseline, commit
             )
+
+        for label, mutated in (
+            ("wrong Argo revision", (copy.deepcopy(application), copy.deepcopy(deployment), copy.deepcopy(replicasets), copy.deepcopy(pods))),
+            ("wrong applied Argo revision", (copy.deepcopy(application), copy.deepcopy(deployment), copy.deepcopy(replicasets), copy.deepcopy(pods))),
+            ("extra Deployment sidecar", (copy.deepcopy(application), copy.deepcopy(deployment), copy.deepcopy(replicasets), copy.deepcopy(pods))),
+            ("Pod init container", (copy.deepcopy(application), copy.deepcopy(deployment), copy.deepcopy(replicasets), copy.deepcopy(pods))),
+            ("wrong Pod owner", (copy.deepcopy(application), copy.deepcopy(deployment), copy.deepcopy(replicasets), copy.deepcopy(pods))),
+        ):
+            app, dep, rss, pod_set = mutated
+            if label == "wrong Argo revision":
+                app["status"]["sync"]["revision"] = "d" * 40
+            elif label == "wrong applied Argo revision":
+                app["status"]["operationState"]["syncResult"]["revision"] = "d" * 40
+            elif label == "extra Deployment sidecar":
+                dep["spec"]["template"]["spec"]["containers"].append(
+                    {"name": "sidecar", "image": image}
+                )
+            elif label == "Pod init container":
+                pod_set["items"][0]["spec"]["initContainers"] = [
+                    {"name": "unexpected", "image": image}
+                ]
+            else:
+                pod_set["items"][0]["metadata"]["ownerReferences"][0]["uid"] = "wrong"
+            with self.subTest(label=label), self.assertRaises(ValueError):
+                self.rollout.validate_rollout_snapshot(
+                    app, dep, rss, pod_set, "devpath-web", {image}, image, {}, commit
+                )
 
     def test_synthetic_probe_identity_is_exact_and_release_specific(self):
         digest = self.candidate["frontend"]["selected_on_digest"]
@@ -244,17 +359,17 @@ class ReleaseHardeningTest(unittest.TestCase):
             root = Path(directory)
             base_sha, candidate_sha = make_tree(root)
             self.artifacts.verify_validation_tree(
-                root, self.candidate["release_id"], base_sha, candidate_sha
+                root, self.candidate["release_id"], base_sha, "f" * 40
             )
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             base_sha, candidate_sha = make_tree(root, extra_candidate_file=True)
             with self.assertRaisesRegex(ValueError, "candidate tree delta"):
                 self.artifacts.verify_validation_tree(
-                    root, self.candidate["release_id"], base_sha, candidate_sha
+                    root, self.candidate["release_id"], base_sha, "f" * 40
                 )
 
-    def test_all_production_workflows_share_one_preemptible_lease(self):
+    def test_all_production_workflows_share_one_nonpreemptible_lease(self):
         texts = {
             path.name: path.read_text(encoding="utf-8")
             for path in WORKFLOWS
@@ -266,7 +381,14 @@ class ReleaseHardeningTest(unittest.TestCase):
             "mission-spine-rollback.yml",
         ):
             self.assertIn("group: mission-spine-production", texts[name])
-        self.assertIn("cancel-in-progress: true", texts["mission-spine-rollback.yml"])
+        for name in (
+            "mission-spine-promote.yml",
+            "mission-spine-landing-last.yml",
+            "mission-spine-rollback.yml",
+        ):
+            text = texts[name]
+            self.assertIn("cancel-in-progress: false", text)
+            self.assertNotIn("cancel-in-progress: true", text)
         self.assertIn("--action verify-prior", texts["mission-spine-rollback.yml"])
 
     def test_legacy_tag_must_equal_sealed_base_tag_before_digest_mutation(self):
@@ -280,7 +402,16 @@ class ReleaseHardeningTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "trusted base tag"):
             self.promoter.render_kustomization(arbitrary, manifest, "mission-off", "base")
         promote = (ROOT / ".github/workflows/mission-spine-promote.yml").read_text(encoding="utf-8")
-        self.assertRegex(promote, r"--phase prior[\s\\]+--canary-seconds 0")
+        ordered = [
+            "--phase migration",
+            "promote_service_digests.py",
+            "--phase services",
+            "--target mission-off",
+            "--phase mission-off --canary-seconds 0",
+            "--target mission-on",
+        ]
+        positions = [promote.index(needle) for needle in ordered]
+        self.assertEqual(positions, sorted(positions))
 
     def test_each_evidence_kind_has_exact_schema_and_journey_allowlists(self):
         producer = {"producer_run_id": 501, "producer_run_attempt": 3}
@@ -478,7 +609,7 @@ class ReleaseHardeningTest(unittest.TestCase):
         self.assertIn("--deployment-id", workflow)
         self.assertNotIn("npx --yes wrangler", workflow)
         deploy_block = workflow.split(
-            "- name: Deploy Landing last and capture the exact created deployment ID", 1
+            "- name: Deploy or reuse Landing last and capture its exact deployment ID", 1
         )[1].split("- name: Verify exact current deployment CAS", 1)[0]
         self.assertLess(
             deploy_block.index("verify_promotion_evidence.py"),
@@ -486,7 +617,7 @@ class ReleaseHardeningTest(unittest.TestCase):
         )
         self.assertLess(
             deploy_block.index("--action preflight"),
-            deploy_block.index('wrangler" pages deploy'),
+            deploy_block.index("wrangler pages deploy"),
         )
 
         created_id = "33333333-3333-3333-3333-333333333333"
@@ -502,7 +633,18 @@ class ReleaseHardeningTest(unittest.TestCase):
         with mock.patch.object(
             self.cloudflare,
             "_api",
-            return_value={"result": {"canonical_deployment": deployment}},
+            return_value={
+                "result": {
+                    "canonical_deployment": deployment,
+                    "production_branch": "develop",
+                    "source": {
+                        "config": {
+                            "production_branch": "develop",
+                            "production_deployments_enabled": False,
+                        }
+                    },
+                }
+            },
         ) as api:
             self.assertEqual(
                 self.cloudflare._current_production(
@@ -513,6 +655,53 @@ class ReleaseHardeningTest(unittest.TestCase):
         api.assert_called_once_with(
             "test-token", "GET", "/accounts/a/pages/projects/p"
         )
+        for mutation in (
+            {"production_branch": "main"},
+            {"source": {"config": {"production_branch": "develop", "production_deployments_enabled": True}}},
+        ):
+            project = {
+                "canonical_deployment": deployment,
+                "production_branch": "develop",
+                "source": {
+                    "config": {
+                        "production_branch": "develop",
+                        "production_deployments_enabled": False,
+                    }
+                },
+            }
+            project.update(mutation)
+            with mock.patch.object(
+                self.cloudflare, "_api", return_value={"result": project}
+            ), self.assertRaisesRegex(ValueError, "disable external"):
+                self.cloudflare._current_production(
+                    "test-token", "/accounts/a/pages/projects/p/deployments"
+                )
+
+        pages = [
+            {
+                "result": [deployment],
+                "result_info": {"page": 1, "per_page": 100, "count": 1, "total_pages": 2},
+            },
+            {
+                "result": [
+                    {
+                        **deployment,
+                        "id": "55555555-5555-5555-5555-555555555555",
+                    }
+                ],
+                "result_info": {"page": 2, "per_page": 100, "count": 1, "total_pages": 2},
+            },
+        ]
+        with mock.patch.object(self.cloudflare, "_api", side_effect=pages) as api:
+            self.assertEqual(
+                len(
+                    self.cloudflare._production_deployments(
+                        "test-token", "/accounts/a/pages/projects/p/deployments"
+                    )
+                ),
+                2,
+            )
+        self.assertEqual(api.call_count, 2)
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "github-output"
             with (
@@ -538,6 +727,51 @@ class ReleaseHardeningTest(unittest.TestCase):
                     github_output=output,
                 )
             self.assertEqual(output.read_text(encoding="utf-8"), f"deployment_id={created_id}\n")
+
+        prior_id = self.candidate["home"]["prior_production_deployment_id"]
+        prior = {
+            "id": prior_id,
+            "environment": "production",
+            "latest_stage": {"status": "success"},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "github-output"
+            output.touch()
+            with (
+                mock.patch.object(
+                    self.cloudflare,
+                    "resolve_release_bundle",
+                    return_value=(None, None, None, self.candidate, self.candidate_hash),
+                ),
+                mock.patch.object(
+                    self.cloudflare,
+                    "_deployment",
+                    side_effect=[
+                        {
+                            **deployment,
+                            "id": self.candidate["home"]["candidate_deployment_id"],
+                            "environment": "preview",
+                        },
+                        prior,
+                        deployment,
+                    ],
+                ),
+                mock.patch.object(
+                    self.cloudflare, "_current_production", return_value=deployment
+                ),
+                mock.patch.object(self.cloudflare, "_probe_marker"),
+                mock.patch.dict("os.environ", {"CLOUDFLARE_API_TOKEN": "test-token"}),
+            ):
+                self.cloudflare.execute(
+                    ROOT,
+                    self.candidate["release_id"],
+                    "preflight",
+                    github_output=output,
+                )
+            self.assertEqual(
+                output.read_text(encoding="utf-8"),
+                f"deploy_mode=reuse\ndeployment_id={created_id}\n",
+            )
 
         concurrent = copy.deepcopy(deployment)
         concurrent["id"] = "44444444-4444-4444-4444-444444444444"
@@ -567,12 +801,37 @@ class ReleaseHardeningTest(unittest.TestCase):
                         github_output=output,
                     )
 
-        prior_id = self.candidate["home"]["prior_production_deployment_id"]
-        prior = {
-            "id": prior_id,
-            "environment": "production",
-            "latest_stage": {"status": "success"},
-        }
+        foreign = copy.deepcopy(deployment)
+        foreign["id"] = "66666666-6666-6666-6666-666666666666"
+        foreign["deployment_trigger"]["metadata"]["commit_hash"] = "0" * 40
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "github-output"
+            with (
+                mock.patch.object(
+                    self.cloudflare,
+                    "resolve_release_bundle",
+                    return_value=(None, None, None, self.candidate, self.candidate_hash),
+                ),
+                mock.patch.object(
+                    self.cloudflare,
+                    "_production_deployments",
+                    return_value=[foreign, deployment],
+                ),
+                mock.patch.object(
+                    self.cloudflare, "_current_production", return_value=deployment
+                ),
+                mock.patch.object(self.cloudflare, "_probe_marker"),
+                mock.patch.dict("os.environ", {"CLOUDFLARE_API_TOKEN": "test-token"}),
+            ):
+                with self.assertRaisesRegex(ValueError, "foreign source"):
+                    self.cloudflare.execute(
+                        ROOT,
+                        self.candidate["release_id"],
+                        "capture-new-production",
+                        not_before_epoch=4_070_995_200,
+                        github_output=output,
+                    )
+
         in_flight = copy.deepcopy(deployment)
         in_flight["latest_stage"] = {"status": "active"}
         canceled = copy.deepcopy(in_flight)
@@ -601,6 +860,72 @@ class ReleaseHardeningTest(unittest.TestCase):
             )
         self.assertGreaterEqual(census.call_count, 3)
 
+        candidate_production = {
+            **deployment,
+            "id": created_id,
+            "environment": "production",
+        }
+        with (
+            mock.patch.object(
+                self.cloudflare,
+                "resolve_release_bundle",
+                return_value=(None, None, None, self.candidate, self.candidate_hash),
+            ),
+            mock.patch.object(self.cloudflare, "_deployment", side_effect=[prior, prior]),
+            mock.patch.object(
+                self.cloudflare,
+                "_current_production",
+                side_effect=[
+                    candidate_production,
+                    candidate_production,
+                    prior,
+                    prior,
+                    prior,
+                ],
+            ),
+            mock.patch.object(self.cloudflare, "_wait_production_quiescent"),
+            mock.patch.object(
+                self.cloudflare, "_api", return_value={"result": prior, "success": True}
+            ),
+            mock.patch.object(self.cloudflare, "_probe_marker"),
+            mock.patch.object(self.cloudflare, "_probe"),
+            mock.patch.dict("os.environ", {"CLOUDFLARE_API_TOKEN": "test-token"}),
+        ):
+            self.cloudflare.execute(
+                ROOT,
+                self.candidate["release_id"],
+                "rollback-prior",
+                deployment_id=created_id,
+            )
+
+        with (
+            mock.patch.object(
+                self.cloudflare,
+                "resolve_release_bundle",
+                return_value=(None, None, None, self.candidate, self.candidate_hash),
+            ),
+            mock.patch.object(self.cloudflare, "_deployment", return_value=prior),
+            mock.patch.object(
+                self.cloudflare, "_current_production", return_value=candidate_production
+            ),
+            mock.patch.object(self.cloudflare, "_wait_production_quiescent"),
+            mock.patch.dict("os.environ", {"CLOUDFLARE_API_TOKEN": "test-token"}),
+            self.assertRaisesRegex(ValueError, "neither exact candidate nor prior"),
+        ):
+            self.cloudflare.execute(
+                ROOT,
+                self.candidate["release_id"],
+                "rollback-prior",
+                deployment_id="77777777-7777-7777-7777-777777777777",
+            )
+
+        rollback_workflow = (
+            ROOT / ".github/workflows/mission-spine-rollback.yml"
+        ).read_text(encoding="utf-8")
+        mission_on = rollback_workflow.split("mission-on)", 1)[1].split(";;", 1)[0]
+        self.assertIn("--action rollback-prior --deployment-id", mission_on)
+        self.assertNotIn("--action verify-new-production", mission_on)
+
     def test_actions_are_full_sha_pinned_and_wrangler_has_integrity_lock(self):
         action_pin = re.compile(r"^\s*-?\s*uses:\s*[^\s@]+@([0-9a-f]{40})(?:\s+#.*)?$", re.MULTILINE)
         for path in WORKFLOWS:
@@ -618,9 +943,14 @@ class ReleaseHardeningTest(unittest.TestCase):
             encoding="utf-8"
         )
         prepare, deploy = landing.split("  landing-last:", 1)
-        self.assertIn("prepare-wrangler:", prepare)
-        self.assertNotIn("environment:", prepare)
-        self.assertIn("npm ci --ignore-scripts", prepare)
+        self.assertNotIn("prepare-wrangler:", prepare)
+        self.assertIn("environment: mission-spine-production-landing", deploy)
+        self.assertIn("actions/setup-node@", deploy)
+        self.assertIn("npm ci --ignore-scripts --no-audit --no-fund", deploy)
+        self.assertIn(
+            'require(\'./node_modules/wrangler/package.json\').version")" = "4.123.0"',
+            deploy,
+        )
         self.assertNotRegex(deploy, r"\bnpx\b.*wrangler")
 
     def test_canonical_composed_source_pins_are_bound_in_candidate_fixture(self):

@@ -1099,6 +1099,11 @@ def validate_candidate_spec(data: Any, source: Path | None = None) -> dict[str, 
     if frontend["repository"] != "DevPathAi/devpath-frontend":
         _fail("$.frontend.repository", "must be DevPathAi/devpath-frontend")
     source_sha = _string(frontend["source_sha"], "$.frontend.source_sha", SHA40)
+    if services["devpath-admin"]["source_sha"] != source_sha:
+        _fail(
+            "$.services.devpath-admin.source_sha",
+            "must exactly equal the frontend source SHA",
+        )
     _string(frontend["app_version"], "$.frontend.app_version", SAFE_IDENTIFIER)
     if frontend["analytics_contract_version"] != "mission-spine.analytics.v1":
         _fail("$.frontend.analytics_contract_version", "must be mission-spine.analytics.v1")

@@ -25,6 +25,7 @@ EXPECTED_FIELDS = {
     "base": ("gitops", "base_web_digest"),
     "mission-off": ("frontend", "mission_off", "image_digest"),
     "mission-on": ("frontend", "selected_on_digest"),
+    "prior": ("frontend", "rollback", "prior_digest"),
 }
 
 

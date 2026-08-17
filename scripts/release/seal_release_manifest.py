@@ -816,6 +816,15 @@ def seal(root: Path, args: argparse.Namespace) -> Path:
     validator_run_id = int(os.environ.get("GITHUB_RUN_ID", "0"))
     validator_run_attempt = int(os.environ.get("GITHUB_RUN_ATTEMPT", "0"))
     validator_head_sha = os.environ.get("GITHUB_SHA", "")
+    if (
+        os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch"
+        or os.environ.get("GITHUB_REF") != "refs/heads/main"
+        or os.environ.get("GITHUB_REF_NAME") != "main"
+        or os.environ.get("GITHUB_WORKFLOW_SHA") != validator_head_sha
+        or validator_head_sha != candidate["gitops"]["base_sha"]
+        or validator_run_attempt != 1
+    ):
+        raise ValueError("validator must be an attempt-one run from the exact candidate base on main")
     if not token:
         raise ValueError("RELEASE_EVIDENCE_TOKEN is required")
     if shutil.which("gh") is None:

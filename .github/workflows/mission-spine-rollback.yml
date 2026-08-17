@@ -10,216 +10,382 @@ on:
 
 permissions:
   actions: read
-  contents: write
+  contents: read
   deployments: write
 
 env:
   RELEASE_ID: ${{ inputs.release_id }}
+  PYTHONDONTWRITEBYTECODE: "1"
 
 concurrency:
-  # A rollback preempts promotion/Landing under the same repository-wide lease.
-  # The phase-aware CAS below safely resumes from prior, OFF, or ON.
   group: mission-spine-production
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   reverse-rollback:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    name: Reverse web and Landing while retaining migration and services
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     environment: mission-spine-production-rollback
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Checkout exact protected-main control bytes
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
+          persist-credentials: false
+          path: control
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.13"
-      - name: Require an exact two-document release branch rooted at sealed base
-        run: |
-          set -euo pipefail
-          [[ "$RELEASE_ID" =~ ^ms-[0-9]{8}-[a-z0-9][a-z0-9-]{2,40}$ ]]
-          candidate_path="release-manifests/candidates/$RELEASE_ID.candidate-spec.json"
-          release_path="release-manifests/releases/$RELEASE_ID.json"
-          test -f "$candidate_path"
-          test -f "$release_path"
-          base_sha="$(jq -er '.gitops.base_sha | select(test("^[0-9a-f]{40}$"))' "$candidate_path")"
-          git merge-base --is-ancestor "$base_sha" HEAD
-          mapfile -t branch_changes < <(git diff --name-only "$base_sha"...HEAD)
-          test "${#branch_changes[@]}" -eq 2
-          test "${branch_changes[0]}" = "$candidate_path"
-          test "${branch_changes[1]}" = "$release_path"
-      - name: Require protected rollback approval
+      - name: Authenticate current protected main control before rollback approval
         env:
           GH_TOKEN: ${{ github.token }}
-          ENVIRONMENT_NAME: mission-spine-production-rollback
         run: |
           set -euo pipefail
-          gh api "repos/${GITHUB_REPOSITORY}/environments/${ENVIRONMENT_NAME}" \
-            | jq -e '[.protection_rules[]? | select(.type == "required_reviewers" and .prevent_self_review == true and ((.reviewers // []) | length > 0))] | length == 1' >/dev/null
-      - name: Install exact AI release renderer
+          python control/scripts/release/verify_main_release_context.py \
+            --control-root "$GITHUB_WORKSPACE/control" \
+            --workflow-path .github/workflows/mission-spine-rollback.yml \
+            --release-id "$RELEASE_ID" --mode control
+      - name: Authenticate this attempt-one protected rollback approval
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          python scripts/release/install_pinned_kustomize.py \
+          python control/scripts/release/verify_current_protected_approval.py \
+            --environment mission-spine-production-rollback \
+            --job-name 'Reverse web and Landing while retaining migration and services' \
+            --workflow-path .github/workflows/mission-spine-rollback.yml
+      - name: Checkout sealed release branch as data only
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: release/candidate-${{ inputs.release_id }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: sealed-release
+      - name: Authenticate unchanged current main and exact sealed data
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/verify_main_release_context.py \
+            --control-root "$GITHUB_WORKSPACE/control" \
+            --data-root "$GITHUB_WORKSPACE/sealed-release" \
+            --workflow-path .github/workflows/mission-spine-rollback.yml \
+            --release-id "$RELEASE_ID" --mode sealed
+      - name: Install the exact release renderer
+        run: |
+          set -euo pipefail
+          python control/scripts/release/install_pinned_kustomize.py \
             --destination "$RUNNER_TEMP/mission-spine-kustomize"
           echo "MISSION_SPINE_KUSTOMIZE_BIN=$RUNNER_TEMP/mission-spine-kustomize/kustomize" \
             >> "$GITHUB_ENV"
-      - name: Resolve sealed rollback targets and exact GitOps chain
+      - name: Resolve and authenticate the sealed release
         id: release
         env:
           RELEASE_EVIDENCE_TOKEN: ${{ secrets.RELEASE_EVIDENCE_TOKEN }}
         run: |
           set -euo pipefail
           test -n "${RELEASE_EVIDENCE_TOKEN:-}"
-          python scripts/release/validate_release_manifest.py --root "$GITHUB_WORKSPACE" \
-            --release-id "$RELEASE_ID" --emit-github-output "$GITHUB_OUTPUT"
-          python scripts/release/verify_release_artifacts.py --root "$GITHUB_WORKSPACE" \
-            --release-id "$RELEASE_ID"
-      - name: Require exact promoted GitOps chain and ON digest
+          python control/scripts/release/validate_release_manifest.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID" \
+            --emit-github-output "$GITHUB_OUTPUT"
+          python control/scripts/release/verify_release_artifacts.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID"
+      - name: Mint the environment-scoped GitOps release App token
+        id: app_token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.GITOPS_RELEASE_APP_ID }}
+          private-key: ${{ secrets.GITOPS_RELEASE_APP_PRIVATE_KEY }}
+          owner: DevPathAi
+          permission-administration: read
+          permission-contents: write
+      - name: Authenticate the exact App installation and main authority
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          APP_ID: ${{ secrets.GITOPS_RELEASE_APP_ID }}
+          APP_SLUG: ${{ steps.app_token.outputs.app-slug }}
+          INSTALLATION_ID: ${{ steps.app_token.outputs.installation-id }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/verify_gitops_write_authority.py \
+            --expected-app-id "$APP_ID" --app-slug "$APP_SLUG" \
+            --installation-id "$INSTALLATION_ID"
+      - name: Checkout current GitOps main with the approved App token
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          repository: DevPathAi/devpath-gitops
+          ref: main
+          token: ${{ steps.app_token.outputs.token }}
+          path: gitops-main
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Inspect exact resumable rollback chain
         id: chain
         run: |
           set -euo pipefail
-          git fetch origin main
-          current="$(git rev-parse origin/main)"
-          base_sha="${{ steps.release.outputs.gitops_base_sha }}"
-          phase=""
-          if test "$current" = "$base_sha"; then
-            phase="prior"
-          elif test "$(git show -s --format=%s "$current")" = "release(web): promote $RELEASE_ID mission-off" \
-            && test "$(git rev-parse "$current^")" = "$base_sha"; then
-            phase="mission-off"
-            git show "origin/main:apps/devpath-web/base/kustomization.yaml" \
-              | grep -Fx "  digest: ${{ steps.release.outputs.web_off_digest }}"
-          elif test "$(git show -s --format=%s "$current")" = "release(web): promote $RELEASE_ID mission-on"; then
-            off_commit="$(git rev-parse "$current^")"
-            test "$(git show -s --format=%s "$off_commit")" = "release(web): promote $RELEASE_ID mission-off"
-            test "$(git rev-parse "$off_commit^")" = "$base_sha"
-            phase="mission-on"
-            git show "origin/main:apps/devpath-web/base/kustomization.yaml" \
-              | grep -Fx "  digest: ${{ steps.release.outputs.web_on_digest }}"
-          elif test "$(git show -s --format=%s "$current")" = "rollback(web): $RELEASE_ID frontend-mission-off"; then
-            on_commit="$(git rev-parse "$current^")"
-            off_commit="$(git rev-parse "$on_commit^")"
-            test "$(git show -s --format=%s "$on_commit")" = "release(web): promote $RELEASE_ID mission-on"
-            test "$(git show -s --format=%s "$off_commit")" = "release(web): promote $RELEASE_ID mission-off"
-            test "$(git rev-parse "$off_commit^")" = "$base_sha"
-            phase="mission-off"
-            git show "origin/main:apps/devpath-web/base/kustomization.yaml" \
-              | grep -Fx "  digest: ${{ steps.release.outputs.web_off_digest }}"
-          elif test "$(git show -s --format=%s "$current")" = "rollback(web): $RELEASE_ID frontend-prior"; then
-            parent="$(git rev-parse "$current^")"
-            parent_subject="$(git show -s --format=%s "$parent")"
-            if test "$parent_subject" = "release(web): promote $RELEASE_ID mission-off"; then
-              test "$(git rev-parse "$parent^")" = "$base_sha"
-            elif test "$parent_subject" = "rollback(web): $RELEASE_ID frontend-mission-off"; then
-              on_commit="$(git rev-parse "$parent^")"
-              off_commit="$(git rev-parse "$on_commit^")"
-              test "$(git show -s --format=%s "$on_commit")" = "release(web): promote $RELEASE_ID mission-on"
-              test "$(git show -s --format=%s "$off_commit")" = "release(web): promote $RELEASE_ID mission-off"
-              test "$(git rev-parse "$off_commit^")" = "$base_sha"
-            else
-              echo "prior rollback parent is not an allowed release phase" >&2
-              exit 1
-            fi
-            phase="prior"
-            git show "origin/main:apps/devpath-web/base/kustomization.yaml" \
-              | grep -Fx "  digest: ${{ steps.release.outputs.web_prior_digest }}"
-          else
-            echo "main is not an allowed prior/OFF/ON phase for this release" >&2
-            exit 1
-          fi
-          if test "$current" != "$base_sha"; then
-            test "$(git diff --name-only "$base_sha"..."$current")" = \
-              "apps/devpath-web/base/kustomization.yaml"
-          fi
-          echo "current_commit=$current" >> "$GITHUB_OUTPUT"
-          echo "current_phase=$phase" >> "$GITHUB_OUTPUT"
-      - name: Configure production cluster
+          git -C gitops-main fetch --no-tags origin main:refs/remotes/origin/main
+          test "$(git -C gitops-main rev-parse refs/remotes/origin/main)" = "$GITHUB_SHA"
+          test "$(git -C gitops-main rev-parse HEAD)" = "$GITHUB_SHA"
+          python control/scripts/release/verify_promotion_chain.py \
+            --root "$GITHUB_WORKSPACE/gitops-main" \
+            --release-root "$GITHUB_WORKSPACE/sealed-release" \
+            --release-id "$RELEASE_ID" --current refs/remotes/origin/main \
+            --github-output "$GITHUB_OUTPUT" >/dev/null
+          case "$(sed -n 's/^phase=//p' "$GITHUB_OUTPUT" | tail -1)" in
+            migration|services|mission-off|mission-on|rollback-off|rollback-prior) ;;
+            *) echo 'rollback cannot start from this exact chain phase' >&2; exit 1 ;;
+          esac
+      - name: Authenticate retained migration evidence
+        env:
+          RELEASE_EVIDENCE_TOKEN: ${{ secrets.RELEASE_EVIDENCE_TOKEN }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/verify_migration_result.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" \
+            --gitops-root "$GITHUB_WORKSPACE/gitops-main" \
+            --release-id "$RELEASE_ID"
+      - name: Authenticate Landing evidence and its referenced canary before rollback
+        if: >-
+          steps.chain.outputs.phase == 'mission-on' ||
+          steps.chain.outputs.phase == 'rollback-off' ||
+          steps.chain.outputs.phase == 'rollback-prior'
+        id: landing
+        env:
+          RELEASE_EVIDENCE_TOKEN: ${{ secrets.RELEASE_EVIDENCE_TOKEN }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/verify_landing_evidence.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" \
+            --gitops-root "$GITHUB_WORKSPACE/gitops-main" \
+            --release-id "$RELEASE_ID" --github-output "$GITHUB_OUTPUT"
+      - name: Roll back or reverify exact Landing prior before web rollback
+        id: landing_prior
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CURRENT_PHASE: ${{ steps.chain.outputs.phase }}
+          LANDING_DEPLOYMENT_ID: ${{ steps.landing.outputs.deployment_id }}
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          echo "ROLLBACK_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+          case "$CURRENT_PHASE" in
+            mission-on)
+              test -n "$LANDING_DEPLOYMENT_ID"
+              python control/scripts/release/cloudflare_pages.py \
+                --root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID" \
+                --action rollback-prior --deployment-id "$LANDING_DEPLOYMENT_ID"
+              ;;
+            rollback-off|rollback-prior|migration|services|mission-off)
+              python control/scripts/release/cloudflare_pages.py \
+                --root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID" \
+                --action verify-prior
+              ;;
+            *) exit 1 ;;
+          esac
+      - uses: azure/setup-kubectl@829323503d1be3d00ca8346e5391ca0b07a9ab0d # v5.1.0
+        with:
+          version: v1.36.2
+      - name: Configure the production cluster
         env:
           PRODUCTION_KUBECONFIG_B64: ${{ secrets.PRODUCTION_KUBECONFIG_B64 }}
         run: |
           set -euo pipefail
           test -n "${PRODUCTION_KUBECONFIG_B64:-}"
-          umask 077
-          printf '%s' "$PRODUCTION_KUBECONFIG_B64" | base64 --decode > "$RUNNER_TEMP/production-kubeconfig"
-          chmod 600 "$RUNNER_TEMP/production-kubeconfig"
-          echo "KUBECONFIG=$RUNNER_TEMP/production-kubeconfig" >> "$GITHUB_ENV"
-      - name: Roll back Landing prior first
-        id: landing_prior
+          python control/scripts/release/manage_production_kubeconfig.py create \
+            --runner-temp "$RUNNER_TEMP" --github-env "$GITHUB_ENV"
+      - name: Re-observe retained completed migration runtime
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          MISSION_SPINE_GHCR_READ_ACTOR: ${{ secrets.MISSION_SPINE_GHCR_READ_ACTOR }}
+          MISSION_SPINE_GHCR_READ_TOKEN: ${{ secrets.MISSION_SPINE_GHCR_READ_TOKEN }}
         run: |
           set -euo pipefail
-          test -n "${CLOUDFLARE_API_TOKEN:-}"
-          echo "ROLLBACK_STARTED=$(date +%s)" >> "$GITHUB_ENV"
-          python scripts/release/cloudflare_pages.py --root "$GITHUB_WORKSPACE" \
-            --release-id "$RELEASE_ID" --action rollback-prior
-      - name: Roll web to frontend-mission-off then frontend-prior
-        id: web_rollback
+          evidence_dir="$RUNNER_TEMP/rollback-migration-runtime"
+          install -d -m 0700 "$evidence_dir"
+          python control/scripts/release/wait_release_rollouts.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" \
+            --gitops-root "$GITHUB_WORKSPACE/gitops-main" \
+            --release-id "$RELEASE_ID" --phase migration \
+            --introduced-commit "${{ steps.chain.outputs.migration_commit }}" \
+            --observed-commit "${{ steps.chain.outputs.current_commit }}" \
+            --evidence-out "$evidence_dir/evidence.json"
+      - name: Create or reuse exact frontend-mission-off rollback
+        id: rollback_off
         env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          APP_ID: ${{ secrets.GITOPS_RELEASE_APP_ID }}
+          APP_SLUG: ${{ steps.app_token.outputs.app-slug }}
+          INSTALLATION_ID: ${{ steps.app_token.outputs.installation-id }}
           CURRENT_COMMIT: ${{ steps.chain.outputs.current_commit }}
-          CURRENT_PHASE: ${{ steps.chain.outputs.current_phase }}
+          CURRENT_PHASE: ${{ steps.chain.outputs.phase }}
+        run: |
+          set -euo pipefail
+          if test "$CURRENT_PHASE" = mission-on; then
+            test "$(git -C gitops-main rev-parse HEAD)" = "$CURRENT_COMMIT"
+            python control/scripts/release/set_web_digest.py \
+              --root "$GITHUB_WORKSPACE/gitops-main" \
+              --manifest-root "$GITHUB_WORKSPACE/sealed-release" \
+              --release-id "$RELEASE_ID" --target mission-off \
+              --expected-current mission-on
+            test "$(git -C gitops-main diff --name-only)" = \
+              'apps/devpath-web/base/kustomization.yaml'
+            "$MISSION_SPINE_KUSTOMIZE_BIN" build gitops-main/apps/devpath-web/base >/dev/null
+            git -C gitops-main config user.name 'devpath-gitops-release[bot]'
+            git -C gitops-main config user.email 'devpath-gitops-release[bot]@users.noreply.github.com'
+            git -C gitops-main add apps/devpath-web/base/kustomization.yaml
+            git -C gitops-main commit -m "rollback(web): $RELEASE_ID frontend-mission-off"
+            python control/scripts/release/verify_gitops_write_authority.py \
+              --expected-app-id "$APP_ID" --app-slug "$APP_SLUG" \
+              --installation-id "$INSTALLATION_ID"
+            git -C gitops-main fetch --no-tags origin main:refs/remotes/origin/main
+            test "$(git -C gitops-main rev-parse origin/main)" = "$CURRENT_COMMIT"
+            git -C gitops-main push origin HEAD:main
+            rollback_off_commit="$(git -C gitops-main rev-parse HEAD)"
+            git -C gitops-main fetch --no-tags origin main:refs/remotes/origin/main
+            test "$(git -C gitops-main rev-parse origin/main)" = "$rollback_off_commit"
+            echo "current_commit=$rollback_off_commit" >> "$GITHUB_OUTPUT"
+            echo 'current_phase=rollback-off' >> "$GITHUB_OUTPUT"
+          else
+            echo "current_commit=$CURRENT_COMMIT" >> "$GITHUB_OUTPUT"
+            echo "current_phase=$CURRENT_PHASE" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Require exact mission-OFF runtime before prior mutation
+        if: >-
+          steps.rollback_off.outputs.current_phase == 'mission-off' ||
+          steps.rollback_off.outputs.current_phase == 'rollback-off'
+        env:
           MISSION_SYNTHETIC_PROBE_TOKEN: ${{ secrets.MISSION_SYNTHETIC_PROBE_TOKEN }}
         run: |
           set -euo pipefail
-          main_worktree="$RUNNER_TEMP/gitops-main-rollback"
-          git worktree add --detach "$main_worktree" "$CURRENT_COMMIT"
-          git -C "$main_worktree" config user.name "devpath-release-bot"
-          git -C "$main_worktree" config user.email "release-bot@users.noreply.github.com"
-          if test "$CURRENT_PHASE" = "mission-on"; then
-            test -n "${MISSION_SYNTHETIC_PROBE_TOKEN:-}"
-            python scripts/release/set_web_digest.py --root "$main_worktree" \
-              --manifest-root "$GITHUB_WORKSPACE" --release-id "$RELEASE_ID" \
-              --target mission-off --expected-current mission-on
-            test "$(git -C "$main_worktree" diff --name-only)" = "apps/devpath-web/base/kustomization.yaml"
-            kubectl kustomize "$main_worktree/apps/devpath-web/base" >/dev/null
-            git -C "$main_worktree" add apps/devpath-web/base/kustomization.yaml
-            git -C "$main_worktree" commit -m "rollback(web): $RELEASE_ID frontend-mission-off"
-            git -C "$main_worktree" push origin HEAD:main
-            python scripts/release/wait_web_rollout.py --root "$GITHUB_WORKSPACE" \
-              --release-id "$RELEASE_ID" --environment production \
-              --phase mission-off --canary-seconds 0
-            CURRENT_PHASE="mission-off"
-          fi
-          if test "$CURRENT_PHASE" = "mission-off"; then
-            python scripts/release/set_web_digest.py --root "$main_worktree" \
-              --manifest-root "$GITHUB_WORKSPACE" --release-id "$RELEASE_ID" \
-              --target prior --expected-current mission-off
-            test "$(git -C "$main_worktree" diff --name-only HEAD)" = "apps/devpath-web/base/kustomization.yaml"
-            kubectl kustomize "$main_worktree/apps/devpath-web/base" >/dev/null
-            git -C "$main_worktree" add apps/devpath-web/base/kustomization.yaml
-            git -C "$main_worktree" commit -m "rollback(web): $RELEASE_ID frontend-prior"
-            git -C "$main_worktree" push origin HEAD:main
-          elif test "$CURRENT_PHASE" != "prior"; then
-            echo "unreachable rollback phase" >&2
-            exit 1
-          fi
-          python scripts/release/wait_web_rollout.py --root "$GITHUB_WORKSPACE" \
-            --release-id "$RELEASE_ID" --environment production \
-            --phase prior --canary-seconds 0
+          python control/scripts/release/wait_web_rollout.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID" \
+            --environment production --phase mission-off --canary-seconds 0 \
+            --commit "${{ steps.rollback_off.outputs.current_commit }}"
+      - name: Create or reuse exact frontend-prior rollback
+        id: rollback_prior
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          APP_ID: ${{ secrets.GITOPS_RELEASE_APP_ID }}
+          APP_SLUG: ${{ steps.app_token.outputs.app-slug }}
+          INSTALLATION_ID: ${{ steps.app_token.outputs.installation-id }}
+          CURRENT_COMMIT: ${{ steps.rollback_off.outputs.current_commit }}
+          CURRENT_PHASE: ${{ steps.rollback_off.outputs.current_phase }}
+        run: |
+          set -euo pipefail
+          case "$CURRENT_PHASE" in
+            mission-off|rollback-off)
+              test "$(git -C gitops-main rev-parse HEAD)" = "$CURRENT_COMMIT"
+              python control/scripts/release/set_web_digest.py \
+                --root "$GITHUB_WORKSPACE/gitops-main" \
+                --manifest-root "$GITHUB_WORKSPACE/sealed-release" \
+                --release-id "$RELEASE_ID" --target prior \
+                --expected-current mission-off
+              test "$(git -C gitops-main diff --name-only)" = \
+                'apps/devpath-web/base/kustomization.yaml'
+              "$MISSION_SPINE_KUSTOMIZE_BIN" build gitops-main/apps/devpath-web/base >/dev/null
+              git -C gitops-main config user.name 'devpath-gitops-release[bot]'
+              git -C gitops-main config user.email 'devpath-gitops-release[bot]@users.noreply.github.com'
+              git -C gitops-main add apps/devpath-web/base/kustomization.yaml
+              git -C gitops-main commit -m "rollback(web): $RELEASE_ID frontend-prior"
+              python control/scripts/release/verify_gitops_write_authority.py \
+                --expected-app-id "$APP_ID" --app-slug "$APP_SLUG" \
+                --installation-id "$INSTALLATION_ID"
+              git -C gitops-main fetch --no-tags origin main:refs/remotes/origin/main
+              test "$(git -C gitops-main rev-parse origin/main)" = "$CURRENT_COMMIT"
+              git -C gitops-main push origin HEAD:main
+              prior_commit="$(git -C gitops-main rev-parse HEAD)"
+              git -C gitops-main fetch --no-tags origin main:refs/remotes/origin/main
+              test "$(git -C gitops-main rev-parse origin/main)" = "$prior_commit"
+              ;;
+            migration|services) prior_commit="$CURRENT_COMMIT" ;;
+            rollback-prior) prior_commit="$CURRENT_COMMIT" ;;
+            *) echo 'rollback prior cannot resume from this phase' >&2; exit 1 ;;
+          esac
+          echo "prior_commit=$prior_commit" >> "$GITHUB_OUTPUT"
+      - name: Re-authenticate retained M/S/prior chain
+        id: final_chain
+        run: |
+          set -euo pipefail
+          git -C gitops-main fetch --no-tags origin main:refs/remotes/origin/main
+          current="$(git -C gitops-main rev-parse refs/remotes/origin/main)"
+          test "$current" = "${{ steps.rollback_prior.outputs.prior_commit }}"
+          python control/scripts/release/verify_promotion_chain.py \
+            --root "$GITHUB_WORKSPACE/gitops-main" \
+            --release-root "$GITHUB_WORKSPACE/sealed-release" \
+            --release-id "$RELEASE_ID" --current "$current" \
+            --github-output "$GITHUB_OUTPUT" >/dev/null
+          phase="$(sed -n 's/^phase=//p' "$GITHUB_OUTPUT" | tail -1)"
+          web_phase="$(sed -n 's/^web_phase=//p' "$GITHUB_OUTPUT" | tail -1)"
+          case "$phase:$web_phase" in
+            migration:base|services:base|services:prior|rollback-prior:prior) ;;
+            *) echo 'rollback did not retain an exact migration/services prior phase' >&2; exit 1 ;;
+          esac
+      - name: Re-observe retained all-nine service runtime
+        if: steps.final_chain.outputs.services_commit != ''
+        env:
+          MISSION_SPINE_GHCR_READ_ACTOR: ${{ secrets.MISSION_SPINE_GHCR_READ_ACTOR }}
+          MISSION_SPINE_GHCR_READ_TOKEN: ${{ secrets.MISSION_SPINE_GHCR_READ_TOKEN }}
+          SERVICES_COMMIT: ${{ steps.final_chain.outputs.services_commit }}
+        run: |
+          set -euo pipefail
+          evidence_dir="$RUNNER_TEMP/rollback-services-runtime"
+          install -d -m 0700 "$evidence_dir"
+          python control/scripts/release/wait_release_rollouts.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" \
+            --gitops-root "$GITHUB_WORKSPACE/gitops-main" \
+            --release-id "$RELEASE_ID" --phase services \
+            --introduced-commit "$SERVICES_COMMIT" \
+            --observed-commit "${{ steps.final_chain.outputs.current_commit }}" \
+            --evidence-out "$evidence_dir/evidence.json"
+      - name: Require exact prior web runtime
+        env:
+          MISSION_SYNTHETIC_PROBE_TOKEN: ${{ secrets.MISSION_SYNTHETIC_PROBE_TOKEN }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/wait_web_rollout.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID" \
+            --environment production --phase prior --canary-seconds 0 \
+            --commit "${{ steps.rollback_prior.outputs.prior_commit }}"
       - name: Recheck Landing prior CAS after web rollback
         id: rollback_complete
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           set -euo pipefail
-          test -n "${CLOUDFLARE_API_TOKEN:-}"
-          python scripts/release/cloudflare_pages.py --root "$GITHUB_WORKSPACE" \
-            --release-id "$RELEASE_ID" --action verify-prior
+          python control/scripts/release/cloudflare_pages.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID" \
+            --action verify-prior
           elapsed=$(( $(date +%s) - ROLLBACK_STARTED ))
           test "$elapsed" -le 600
           echo "rollback_seconds=$elapsed" >> "$GITHUB_OUTPUT"
-      - name: Record sanitized rollback evidence; additive backend and schema remain unchanged
+      - name: Record sanitized rollback evidence
         env:
           CANDIDATE_SHA: ${{ steps.release.outputs.candidate_spec_sha256 }}
           ROLLBACK_SECONDS: ${{ steps.rollback_complete.outputs.rollback_seconds }}
+          PRIOR_COMMIT: ${{ steps.rollback_prior.outputs.prior_commit }}
+          RETAINED_SERVICES_COMMIT: ${{ steps.final_chain.outputs.services_commit }}
+          FINAL_PHASE: ${{ steps.final_chain.outputs.phase }}
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/rollback-evidence"
-          printf '{"candidate_spec_sha256":"%s","status":"passed","rollback_seconds":%s,"landing-prior":true,"frontend-mission-off":true,"frontend-prior":true,"retain-additive-services-and-schema":true}\n' \
-            "$CANDIDATE_SHA" "$ROLLBACK_SECONDS" > "$RUNNER_TEMP/rollback-evidence/evidence.json"
+          install -d -m 0700 "$RUNNER_TEMP/rollback-evidence"
+          retained_services=false
+          if test -n "$RETAINED_SERVICES_COMMIT"; then retained_services=true; fi
+          printf '{"candidate_spec_sha256":"%s","status":"passed","rollback_seconds":%s,"landing-prior":true,"frontend-mission-off":true,"frontend-prior":true,"retain-additive-services-and-schema":%s,"retained_services_commit":"%s","prior_commit":"%s","producer_run_id":%s,"producer_run_attempt":1}\n' \
+            "$CANDIDATE_SHA" "$ROLLBACK_SECONDS" "$retained_services" \
+            "$RETAINED_SERVICES_COMMIT" "$PRIOR_COMMIT" "$GITHUB_RUN_ID" \
+            > "$RUNNER_TEMP/rollback-evidence/evidence.json"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: ${{ inputs.release_id }}-reverse-rollback
+          name: ${{ inputs.release_id }}-reverse-rollback-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/rollback-evidence/evidence.json
           if-no-files-found: error
           retention-days: 30
+          overwrite: false
+          include-hidden-files: false
+      - name: Remove the exact production kubeconfig
+        if: always()
+        run: |
+          set -euo pipefail
+          python control/scripts/release/manage_production_kubeconfig.py cleanup \
+            --runner-temp "$RUNNER_TEMP" --path "${KUBECONFIG:-}"

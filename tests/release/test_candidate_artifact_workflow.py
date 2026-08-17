@@ -40,7 +40,7 @@ class CandidateArtifactWorkflowTest(unittest.TestCase):
             "--candidate-id \"$RELEASE_ID\"",
             "--emit-github-output \"$GITHUB_OUTPUT\"",
             "base_sha=",
-            'git fetch origin main',
+            'git fetch --no-tags origin main:refs/remotes/origin/main',
             'test "$(git rev-parse origin/main)" = "$base_sha"',
             'test "$(git rev-parse HEAD^)" = "$base_sha"',
             'git diff --name-only "$base_sha"...HEAD',
@@ -59,6 +59,7 @@ class CandidateArtifactWorkflowTest(unittest.TestCase):
         )
         self.assertIn("fetch-depth: 0", text)
         self.assertIn("persist-credentials: false", text)
+        self.assertNotRegex(text, r"(?m)^\s*git fetch (?:origin main|--all)\s*$")
 
     def test_upload_is_exact_one_file_byte_copy_with_run_scoped_name(self):
         text = self.text

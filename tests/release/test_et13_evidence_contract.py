@@ -782,7 +782,7 @@ class Et13EvidenceContractTest(unittest.TestCase):
         checkout = workflow[checkout_start:proof_start]
         for needle in (
             "repository: DevPathAi/devpath-home-page",
-            "ref: ${{ steps.candidate.outputs.home_source_sha }}",
+            "ref: ${{ steps.candidate_manifest.outputs.home_source_sha }}",
             "fetch-depth: 0",
             "persist-credentials: false",
             "path: home",
@@ -800,7 +800,7 @@ class Et13EvidenceContractTest(unittest.TestCase):
             ".quality_evidence_inputs.catalogs[\"home-visual\"].rendered_product_sha",
             "git cat-file -e \"$rendered_product_sha^{commit}\"",
             "git merge-base --is-ancestor",
-            '"${{ steps.candidate.outputs.home_source_sha }}"',
+            '"${{ steps.candidate_manifest.outputs.home_source_sha }}"',
         ):
             with self.subTest(section="proof", needle=needle):
                 self.assertIn(needle, proof)

@@ -983,6 +983,39 @@ def extract_privacy_approval_archive(archive_path: Path, destination: Path) -> N
     )
 
 
+def extract_migration_result_archive(archive_path: Path, destination: Path) -> None:
+    """Safely materialize the exact one-file Shared migration result artifact."""
+    _extract_exact_root_artifact_archive(
+        archive_path,
+        destination,
+        "shared-migration-result",
+        {"evidence.json": MAX_EVIDENCE_BYTES},
+        MAX_EVIDENCE_BYTES,
+    )
+
+
+def extract_production_canary_archive(archive_path: Path, destination: Path) -> None:
+    """Safely materialize the exact one-file production canary artifact."""
+    _extract_exact_root_artifact_archive(
+        archive_path,
+        destination,
+        "production-canary",
+        {"evidence.json": MAX_EVIDENCE_BYTES},
+        MAX_EVIDENCE_BYTES,
+    )
+
+
+def extract_landing_evidence_archive(archive_path: Path, destination: Path) -> None:
+    """Safely materialize the exact one-file Landing-last evidence artifact."""
+    _extract_exact_root_artifact_archive(
+        archive_path,
+        destination,
+        "landing-last",
+        {"evidence.json": MAX_EVIDENCE_BYTES},
+        MAX_EVIDENCE_BYTES,
+    )
+
+
 def extract_candidate_spec_archive(archive_path: Path, destination: Path) -> None:
     """Safely materialize the exact one-file canonical candidate artifact ZIP."""
     _extract_exact_root_artifact_archive(
@@ -1097,6 +1130,63 @@ def download_privacy_approval_archive(
         "privacy-approval",
         MAX_AI_ARTIFACT_ZIP_BYTES,
         extract_privacy_approval_archive,
+    )
+
+
+def download_migration_result_archive(
+    command_env: dict[str, str],
+    repository: str,
+    artifact_id: int,
+    metadata: dict[str, Any],
+    destination: Path,
+) -> None:
+    _download_exact_root_artifact_archive(
+        command_env,
+        repository,
+        artifact_id,
+        metadata,
+        destination,
+        "shared-migration-result",
+        MAX_AI_ARTIFACT_ZIP_BYTES,
+        extract_migration_result_archive,
+    )
+
+
+def download_production_canary_archive(
+    command_env: dict[str, str],
+    repository: str,
+    artifact_id: int,
+    metadata: dict[str, Any],
+    destination: Path,
+) -> None:
+    _download_exact_root_artifact_archive(
+        command_env,
+        repository,
+        artifact_id,
+        metadata,
+        destination,
+        "production-canary",
+        MAX_AI_ARTIFACT_ZIP_BYTES,
+        extract_production_canary_archive,
+    )
+
+
+def download_landing_evidence_archive(
+    command_env: dict[str, str],
+    repository: str,
+    artifact_id: int,
+    metadata: dict[str, Any],
+    destination: Path,
+) -> None:
+    _download_exact_root_artifact_archive(
+        command_env,
+        repository,
+        artifact_id,
+        metadata,
+        destination,
+        "landing-last",
+        MAX_AI_ARTIFACT_ZIP_BYTES,
+        extract_landing_evidence_archive,
     )
 
 
@@ -1307,6 +1397,7 @@ def validate_protected_approval(
     expected_head: str,
     *,
     expected_repository: str = "DevPathAi/devpath-frontend",
+    expected_branch: str = "main",
     approved_team_ids: set[int] | None = None,
 ) -> None:
     """Reconcile an embedded claim with live environment, review, job, and run data."""
@@ -1316,6 +1407,7 @@ def validate_protected_approval(
     if (
         environment.get("id") != claim["approval_environment_id"]
         or environment.get("name") != claim["approval_environment"]
+        or environment.get("can_admins_bypass") is not False
     ):
         raise ValueError(f"{label}: protected environment identity mismatch")
     rules = environment.get("protection_rules")
@@ -1353,8 +1445,8 @@ def validate_protected_approval(
         raise ValueError(f"{label}: protected run response is invalid")
     if run.get("run_attempt") != 1:
         raise ValueError(f"{label}: protected approval run attempt must be 1")
-    if run.get("head_branch") != "main":
-        raise ValueError(f"{label}: protected approval run head_branch must be main")
+    if run.get("head_branch") != expected_branch:
+        raise ValueError(f"{label}: protected approval run head_branch mismatch")
     if run.get("head_sha") != expected_head:
         raise ValueError(f"{label}: protected approval run head SHA mismatch")
     if (run.get("repository") or {}).get("full_name") != expected_repository:
@@ -2515,26 +2607,41 @@ def verify_validation_tree(
     root: Path,
     release_id: str,
     base_sha: str,
-    validator_head_sha: str,
+    validator_control_sha: str,
 ) -> None:
-    """Reject a validation run from a look-alike branch or extra tree delta."""
-    current_head = _git_output(root, ["rev-parse", "HEAD"])
-    if _git_output(root, ["rev-parse", "HEAD^"]) != validator_head_sha:
-        raise ValueError("validator head is not the sole parent of the sealed release commit")
-    if _git_output(root, ["rev-parse", f"{validator_head_sha}^"]) != base_sha:
-        raise ValueError("validator head is not based directly on sealed GitOps base")
+    """Bind B -> candidate C -> sealed release R independently of main-run H."""
+    if SHA40.fullmatch(validator_control_sha) is None:
+        raise ValueError("validator main control SHA is invalid")
+    sealed_head = _git_output(root, ["rev-parse", "HEAD"])
+    candidate_head = _git_output(root, ["rev-parse", f"{sealed_head}^"])
+    if _git_output(root, ["rev-parse", f"{candidate_head}^"]) != base_sha:
+        raise ValueError("candidate head is not based directly on sealed GitOps base")
     candidate_path = f"release-manifests/candidates/{release_id}.candidate-spec.json"
     release_path = f"release-manifests/releases/{release_id}.json"
-    candidate_delta = _git_output(root, ["diff", "--name-only", f"{base_sha}...{validator_head_sha}"])
-    if candidate_delta.splitlines() != [candidate_path]:
-        raise ValueError("validator head has a disallowed candidate tree delta")
-    final_delta = _git_output(root, ["diff", "--name-only", f"{validator_head_sha}...{current_head}"])
-    if final_delta.splitlines() != [release_path]:
+    candidate_delta = _git_output(root, ["diff", "--name-status", base_sha, candidate_head])
+    if candidate_delta.splitlines() != [f"A\t{candidate_path}"]:
+        raise ValueError("candidate head has a disallowed candidate tree delta")
+    final_delta = _git_output(root, ["diff", "--name-status", candidate_head, sealed_head])
+    if final_delta.splitlines() != [f"A\t{release_path}"]:
         raise ValueError("sealed release commit has a disallowed tree delta")
-    if _git_output(root, ["show", f"{validator_head_sha}:{candidate_path}"]) != (
-        root / candidate_path
-    ).read_text(encoding="utf-8").strip():
-        raise ValueError("validator candidate blob differs from sealed branch bytes")
+    candidate_blob = subprocess.run(
+        ["git", "show", f"{candidate_head}:{candidate_path}"],
+        cwd=root,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+    release_blob = subprocess.run(
+        ["git", "show", f"{sealed_head}:{release_path}"],
+        cwd=root,
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+    if candidate_blob.returncode != 0 or candidate_blob.stdout != (root / candidate_path).read_bytes():
+        raise ValueError("candidate blob differs from sealed release branch bytes")
+    if release_blob.returncode != 0 or release_blob.stdout != (root / release_path).read_bytes():
+        raise ValueError("release blob differs from sealed release branch bytes")
 
 
 def validate_validation_seal_payload(
@@ -2684,6 +2791,8 @@ def validate_candidate_producer_trust(
     comparison: Any,
     workflow_raw: bytes,
     source_raw: bytes,
+    *,
+    require_current_main: bool = True,
 ) -> None:
     """Bind a candidate artifact to the exact base -> candidate-only Git tree."""
     base_sha = candidate["gitops"]["base_sha"]
@@ -2716,11 +2825,9 @@ def validate_candidate_producer_trust(
         raise ValueError("candidate-spec: producer branch is not the release branch")
     if not isinstance(branch, dict):
         raise ValueError("candidate-spec: protected main response is invalid")
-    if (
-        branch.get("name") != "main"
-        or branch.get("protected") is not True
-        or (branch.get("commit") or {}).get("sha") != base_sha
-    ):
+    if branch.get("name") != "main" or branch.get("protected") is not True:
+        raise ValueError("candidate-spec: GitOps main is not protected")
+    if require_current_main and (branch.get("commit") or {}).get("sha") != base_sha:
         raise ValueError("candidate-spec: gitops.base_sha is not current protected main")
     if not isinstance(commit, dict):
         raise ValueError("candidate-spec: candidate commit response is invalid")
@@ -2794,6 +2901,8 @@ def verify_candidate_artifact(
     release_id: str,
     candidate: dict[str, Any],
     candidate_raw: bytes,
+    *,
+    require_current_main: bool = True,
 ) -> dict[str, Any]:
     """Authenticate the unique raw candidate artifact and its one-file child commit."""
     if not 2 <= len(candidate_raw) <= MAX_CANDIDATE_SPEC_BYTES:
@@ -2906,6 +3015,7 @@ def verify_candidate_artifact(
             comparison,
             workflow_raw,
             source_raw,
+            require_current_main=require_current_main,
         )
         matches.append(run)
     if len(matches) != 1:
@@ -3807,6 +3917,7 @@ def verify_artifacts(root: Path, release_id: str, materialize_home: Path | None 
         release_id,
         candidate,
         candidate_path.read_bytes(),
+        require_current_main=False,
     )
     verify_ai_rendered_config(root, candidate)
 

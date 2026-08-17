@@ -14,106 +14,85 @@ permissions:
 
 env:
   RELEASE_ID: ${{ inputs.release_id }}
+  PYTHONDONTWRITEBYTECODE: "1"
 
 concurrency:
   group: mission-spine-production
   cancel-in-progress: false
 
 jobs:
-  prepare-wrangler:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      actions: read
-      contents: read
-    outputs:
-      artifact_id: ${{ steps.upload_tool.outputs.artifact-id }}
-    steps:
-      - name: Checkout integrity-locked Wrangler tool definition
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
-        with:
-          node-version: "24"
-          cache: npm
-          cache-dependency-path: tools/release-wrangler/package-lock.json
-      - name: Install Wrangler from npm integrity lock without lifecycle scripts
-        working-directory: tools/release-wrangler
-        run: |
-          set -euo pipefail
-          npm ci --ignore-scripts --no-audit --no-fund
-          test "$(node -p "require('./node_modules/wrangler/package.json').version")" = "4.123.0"
-          tar -czf "$RUNNER_TEMP/release-wrangler.tgz" node_modules package.json package-lock.json
-      - name: Upload the exact secret-free Wrangler installation
-        id: upload_tool
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: release-wrangler-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/release-wrangler.tgz
-          if-no-files-found: error
-          retention-days: 1
-
   landing-last:
-    needs: prepare-wrangler
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    name: Deploy Home landing-last
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     environment: mission-spine-production-landing
     permissions:
       actions: read
       contents: read
       deployments: write
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Checkout exact protected-main control bytes
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
+          path: control
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.13"
+      - name: Authenticate current protected main control before Landing approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/verify_main_release_context.py \
+            --control-root "$GITHUB_WORKSPACE/control" \
+            --workflow-path .github/workflows/mission-spine-landing-last.yml \
+            --release-id "$RELEASE_ID" --mode control
+      - name: Authenticate this attempt-one protected Landing approval
+        id: approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/verify_current_protected_approval.py \
+            --environment mission-spine-production-landing \
+            --job-name 'Deploy Home landing-last' \
+            --workflow-path .github/workflows/mission-spine-landing-last.yml \
+            --github-output "$GITHUB_OUTPUT"
+      - name: Checkout sealed release branch as data only
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: release/candidate-${{ inputs.release_id }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: sealed-release
+      - name: Authenticate unchanged current main and exact sealed data
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/verify_main_release_context.py \
+            --control-root "$GITHUB_WORKSPACE/control" \
+            --data-root "$GITHUB_WORKSPACE/sealed-release" \
+            --workflow-path .github/workflows/mission-spine-landing-last.yml \
+            --release-id "$RELEASE_ID" --mode sealed
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: "24"
-      - name: Download the secret-free integrity-locked Wrangler installation
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
-        with:
-          artifact-ids: ${{ needs.prepare-wrangler.outputs.artifact_id }}
-          path: ${{ runner.temp }}/release-wrangler-download
-          merge-multiple: true
-      - name: Materialize the preinstalled Wrangler tool
+          cache: npm
+          cache-dependency-path: control/tools/release-wrangler/package-lock.json
+      - name: Install approved integrity-locked Wrangler inside the protected job
+        working-directory: control/tools/release-wrangler
         run: |
           set -euo pipefail
-          mkdir "$RUNNER_TEMP/release-wrangler"
-          tar -xzf "$RUNNER_TEMP/release-wrangler-download/release-wrangler.tgz" \
-            -C "$RUNNER_TEMP/release-wrangler"
-          test "$(node -p "require('$RUNNER_TEMP/release-wrangler/node_modules/wrangler/package.json').version")" = "4.123.0"
-      - name: Require an exact two-document release branch rooted at sealed base
-        run: |
-          set -euo pipefail
-          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
-          candidate_path="release-manifests/candidates/$RELEASE_ID.candidate-spec.json"
-          release_path="release-manifests/releases/$RELEASE_ID.json"
-          test -f "$candidate_path"
-          test -f "$release_path"
-          base_sha="$(jq -er '.gitops.base_sha | select(test("^[0-9a-f]{40}$"))' "$candidate_path")"
-          test "$(git rev-parse HEAD^)" = "$(jq -er '.validation_attestation.validator_head_sha' "$release_path")"
-          test "$(git rev-parse HEAD^^)" = "$base_sha"
-          mapfile -t branch_changes < <(git diff --name-only "$base_sha"...HEAD)
-          test "${#branch_changes[@]}" -eq 2
-          test "${branch_changes[0]}" = "$candidate_path"
-          test "${branch_changes[1]}" = "$release_path"
-      - name: Require protected Landing approval
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ENVIRONMENT_NAME: mission-spine-production-landing
-        run: |
-          set -euo pipefail
-          gh api "repos/${GITHUB_REPOSITORY}/environments/${ENVIRONMENT_NAME}" \
-            | jq -e '[.protection_rules[]? | select(.type == "required_reviewers" and .prevent_self_review == true and ((.reviewers // []) | length > 0))] | length == 1' >/dev/null
+          npm ci --ignore-scripts --no-audit --no-fund
+          test "$(node -p "require('./node_modules/wrangler/package.json').version")" = "4.123.0"
       - name: Install exact AI release renderer
         run: |
           set -euo pipefail
-          python scripts/release/install_pinned_kustomize.py \
+          python control/scripts/release/install_pinned_kustomize.py \
             --destination "$RUNNER_TEMP/mission-spine-kustomize"
           echo "MISSION_SPINE_KUSTOMIZE_BIN=$RUNNER_TEMP/mission-spine-kustomize/kustomize" \
             >> "$GITHUB_ENV"
@@ -124,32 +103,30 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${RELEASE_EVIDENCE_TOKEN:-}"
-          python scripts/release/validate_release_manifest.py --root "$GITHUB_WORKSPACE" \
-            --release-id "$RELEASE_ID" --emit-github-output "$GITHUB_OUTPUT"
-          python scripts/release/verify_release_artifacts.py --root "$GITHUB_WORKSPACE" \
-            --release-id "$RELEASE_ID" \
+          python control/scripts/release/validate_release_manifest.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID" \
+            --emit-github-output "$GITHUB_OUTPUT"
+          python control/scripts/release/verify_release_artifacts.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID" \
             --materialize-home "$RUNNER_TEMP/home-dist.tar.gz"
-          # candidate_deployment_id and prior_production_deployment_id are sealed inputs.
-      - name: Require completed production ON canary and unchanged main
+      - name: Require newest exact current-main production ON canary
+        id: canary
         env:
           RELEASE_EVIDENCE_TOKEN: ${{ secrets.RELEASE_EVIDENCE_TOKEN }}
         run: |
           set -euo pipefail
-          python scripts/release/verify_promotion_evidence.py --root "$GITHUB_WORKSPACE" \
-            --release-id "$RELEASE_ID"
-          git fetch origin main
-          on_commit="$(git rev-parse origin/main)"
-          off_commit="$(git rev-parse "$on_commit^")"
-          test "$(git rev-parse "$off_commit^")" = "${{ steps.release.outputs.gitops_base_sha }}"
-          test "$(git show -s --format=%s "$on_commit")" = "release(web): promote $RELEASE_ID mission-on"
-          test "$(git show -s --format=%s "$off_commit")" = "release(web): promote $RELEASE_ID mission-off"
+          python control/scripts/release/verify_promotion_evidence.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" \
+            --gitops-root "$GITHUB_WORKSPACE/control" \
+            --release-id "$RELEASE_ID" --github-output "$GITHUB_OUTPUT"
       - name: Verify Cloudflare candidate and exact current prior CAS
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           set -euo pipefail
           test -n "${CLOUDFLARE_API_TOKEN:-}"
-          python scripts/release/cloudflare_pages.py --root "$GITHUB_WORKSPACE" \
+          python control/scripts/release/cloudflare_pages.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" \
             --release-id "$RELEASE_ID" --action preflight
       - name: Safely extract sealed production dist and add immutable public marker
         run: |
@@ -175,12 +152,13 @@ jobs:
           if not (target / "dist" / "index.html").is_file():
               raise SystemExit("Home dist index.html missing")
           PY
-          python scripts/release/cloudflare_pages.py --root "$GITHUB_WORKSPACE" \
-            --release-id "$RELEASE_ID" --action write-marker \
-            --dist-root "$RUNNER_TEMP/home-release/dist"
-      - name: Deploy Landing last and capture the exact created deployment ID
+          python control/scripts/release/cloudflare_pages.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID" \
+            --action write-marker --dist-root "$RUNNER_TEMP/home-release/dist"
+      - name: Deploy or reuse Landing last and capture its exact deployment ID
         id: deploy
         env:
+          GH_TOKEN: ${{ github.token }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           RELEASE_EVIDENCE_TOKEN: ${{ secrets.RELEASE_EVIDENCE_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ steps.release.outputs.home_account_id }}
@@ -191,18 +169,35 @@ jobs:
           test -n "${CLOUDFLARE_API_TOKEN:-}"
           test -n "${RELEASE_EVIDENCE_TOKEN:-}"
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
-          # Recheck both mutable control planes immediately next to the deploy.
-          python scripts/release/verify_promotion_evidence.py --root "$GITHUB_WORKSPACE" \
-            --release-id "$RELEASE_ID"
-          python scripts/release/cloudflare_pages.py --root "$GITHUB_WORKSPACE" \
-            --release-id "$RELEASE_ID" --action preflight
-          deploy_started="$(date +%s)"
-          "$RUNNER_TEMP/release-wrangler/node_modules/.bin/wrangler" pages deploy \
-            "$RUNNER_TEMP/home-release/dist" --project-name "$HOME_PROJECT" \
-            --branch develop --commit-hash "$HOME_SOURCE_SHA" --commit-dirty=false
-          python scripts/release/cloudflare_pages.py --root "$GITHUB_WORKSPACE" \
-            --release-id "$RELEASE_ID" --action capture-new-production \
-            --not-before-epoch "$deploy_started" --github-output "$GITHUB_OUTPUT"
+          python control/scripts/release/verify_main_release_context.py \
+            --control-root "$GITHUB_WORKSPACE/control" \
+            --data-root "$GITHUB_WORKSPACE/sealed-release" \
+            --workflow-path .github/workflows/mission-spine-landing-last.yml \
+            --release-id "$RELEASE_ID" --mode sealed
+          python control/scripts/release/verify_promotion_evidence.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" \
+            --gitops-root "$GITHUB_WORKSPACE/control" \
+            --release-id "$RELEASE_ID" --run-id "${{ steps.canary.outputs.run_id }}"
+          python control/scripts/release/cloudflare_pages.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID" \
+            --action preflight --github-output "$GITHUB_OUTPUT"
+          deploy_mode="$(sed -n 's/^deploy_mode=//p' "$GITHUB_OUTPUT" | tail -1)"
+          case "$deploy_mode" in
+            reuse)
+              test -n "$(sed -n 's/^deployment_id=//p' "$GITHUB_OUTPUT" | tail -1)"
+              ;;
+            deploy)
+              deploy_started="$(date +%s)"
+              control/tools/release-wrangler/node_modules/.bin/wrangler pages deploy \
+                "$RUNNER_TEMP/home-release/dist" --project-name "$HOME_PROJECT" \
+                --branch develop --commit-hash "$HOME_SOURCE_SHA" --commit-dirty=false
+              python control/scripts/release/cloudflare_pages.py \
+                --root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID" \
+                --action capture-new-production --not-before-epoch "$deploy_started" \
+                --github-output "$GITHUB_OUTPUT"
+              ;;
+            *) echo 'Landing deploy/reuse mode is invalid' >&2; exit 1 ;;
+          esac
       - name: Verify exact current deployment CAS, public marker, and smoke
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -210,21 +205,125 @@ jobs:
           set -euo pipefail
           deployment_id="${{ steps.deploy.outputs.deployment_id }}"
           test -n "$deployment_id"
-          python scripts/release/cloudflare_pages.py --root "$GITHUB_WORKSPACE" \
-            --release-id "$RELEASE_ID" --action verify-new-production \
-            --deployment-id "$deployment_id"
-      - name: Record sanitized Landing-last evidence
+          python control/scripts/release/cloudflare_pages.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID" \
+            --action verify-new-production --deployment-id "$deployment_id"
+      - name: Re-authenticate unchanged main, release, and canary after Landing
+        id: post_canary
         env:
-          CANDIDATE_SHA: ${{ steps.release.outputs.candidate_spec_sha256 }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_EVIDENCE_TOKEN: ${{ secrets.RELEASE_EVIDENCE_TOKEN }}
+          INITIAL_RUN_ID: ${{ steps.canary.outputs.run_id }}
+          INITIAL_RUN_ATTEMPT: ${{ steps.canary.outputs.run_attempt }}
+          INITIAL_ON_COMMIT: ${{ steps.canary.outputs.on_commit }}
+          INITIAL_SERVICES_COMMIT: ${{ steps.canary.outputs.services_commit }}
+          INITIAL_MIGRATION_COMMIT: ${{ steps.canary.outputs.migration_commit }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/verify_main_release_context.py \
+            --control-root "$GITHUB_WORKSPACE/control" \
+            --data-root "$GITHUB_WORKSPACE/sealed-release" \
+            --workflow-path .github/workflows/mission-spine-landing-last.yml \
+            --release-id "$RELEASE_ID" --mode sealed
+          python control/scripts/release/verify_promotion_evidence.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" \
+            --gitops-root "$GITHUB_WORKSPACE/control" \
+            --release-id "$RELEASE_ID" --run-id "$INITIAL_RUN_ID" \
+            --github-output "$GITHUB_OUTPUT"
+          test "$(sed -n 's/^run_id=//p' "$GITHUB_OUTPUT" | tail -1)" = "$INITIAL_RUN_ID"
+          test "$(sed -n 's/^run_attempt=//p' "$GITHUB_OUTPUT" | tail -1)" = "$INITIAL_RUN_ATTEMPT"
+          test "$(sed -n 's/^on_commit=//p' "$GITHUB_OUTPUT" | tail -1)" = "$INITIAL_ON_COMMIT"
+          test "$(sed -n 's/^services_commit=//p' "$GITHUB_OUTPUT" | tail -1)" = "$INITIAL_SERVICES_COMMIT"
+          test "$(sed -n 's/^migration_commit=//p' "$GITHUB_OUTPUT" | tail -1)" = "$INITIAL_MIGRATION_COMMIT"
+      - name: Reverify exact Cloudflare deployment immediately before evidence
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           DEPLOYMENT_ID: ${{ steps.deploy.outputs.deployment_id }}
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/landing-evidence"
-          printf '{"candidate_spec_sha256":"%s","status":"passed","landing_order":"last","deployment_id":"%s"}\n' \
-            "$CANDIDATE_SHA" "$DEPLOYMENT_ID" > "$RUNNER_TEMP/landing-evidence/evidence.json"
+          python control/scripts/release/cloudflare_pages.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID" \
+            --action verify-new-production --deployment-id "$DEPLOYMENT_ID"
+      - name: Record sanitized Landing-last evidence
+        env:
+          CANDIDATE_SHA: ${{ steps.release.outputs.candidate_spec_sha256 }}
+          RELEASE_MANIFEST_SHA: ${{ steps.release.outputs.release_manifest_sha256 }}
+          DEPLOYMENT_ID: ${{ steps.deploy.outputs.deployment_id }}
+          CANARY_RUN_ID: ${{ steps.post_canary.outputs.run_id }}
+          CANARY_RUN_ATTEMPT: ${{ steps.post_canary.outputs.run_attempt }}
+          ON_COMMIT: ${{ steps.post_canary.outputs.on_commit }}
+          SERVICES_COMMIT: ${{ steps.post_canary.outputs.services_commit }}
+          MIGRATION_COMMIT: ${{ steps.post_canary.outputs.migration_commit }}
+          APPROVAL_ENVIRONMENT: ${{ steps.approval.outputs.approval_environment }}
+          APPROVAL_ENVIRONMENT_ID: ${{ steps.approval.outputs.approval_environment_id }}
+          APPROVAL_JOB_NAME: ${{ steps.approval.outputs.approval_job_name }}
+          APPROVED_BY: ${{ steps.approval.outputs.approved_by }}
+          APPROVED_BY_ID: ${{ steps.approval.outputs.approved_by_id }}
+          APPROVAL_EFFECTIVE_AT: ${{ steps.approval.outputs.approval_effective_at }}
+        run: |
+          set -euo pipefail
+          test ! -e "$RUNNER_TEMP/landing-evidence"
+          install -d -m 0700 "$RUNNER_TEMP/landing-evidence"
+          test ! -e "$RUNNER_TEMP/landing-evidence/evidence.json"
+          workflow_sha="$(git -C control show "$GITHUB_SHA:.github/workflows/mission-spine-landing-last.yml" | sha256sum | awk '{print $1}')"
+          export WORKFLOW_SHA="$workflow_sha"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          def positive(name):
+              value = os.environ[name]
+              if not value.isascii() or not value.isdecimal() or value.startswith("0"):
+                  raise SystemExit(f"{name} is not a canonical positive integer")
+              parsed = int(value)
+              if parsed <= 0 or parsed > 9007199254740991:
+                  raise SystemExit(f"{name} is outside the safe integer range")
+              return parsed
+
+          payload = {
+              "schema_version": 1,
+              "document_type": "mission-spine-landing-last",
+              "release_id": os.environ["RELEASE_ID"],
+              "candidate_spec_sha256": os.environ["CANDIDATE_SHA"],
+              "release_manifest_sha256": os.environ["RELEASE_MANIFEST_SHA"],
+              "status": "passed",
+              "landing_order": "last",
+              "deployment_id": os.environ["DEPLOYMENT_ID"],
+              "canary_run_id": positive("CANARY_RUN_ID"),
+              "canary_run_attempt": positive("CANARY_RUN_ATTEMPT"),
+              "on_commit": os.environ["ON_COMMIT"],
+              "services_commit": os.environ["SERVICES_COMMIT"],
+              "migration_commit": os.environ["MIGRATION_COMMIT"],
+              "producer_repository": os.environ["GITHUB_REPOSITORY"],
+              "producer_workflow_path": ".github/workflows/mission-spine-landing-last.yml",
+              "producer_workflow_sha256": os.environ["WORKFLOW_SHA"],
+              "producer_head_sha": os.environ["GITHUB_SHA"],
+              "producer_run_id": positive("GITHUB_RUN_ID"),
+              "producer_run_attempt": positive("GITHUB_RUN_ATTEMPT"),
+              "approval_environment": os.environ["APPROVAL_ENVIRONMENT"],
+              "approval_environment_id": positive("APPROVAL_ENVIRONMENT_ID"),
+              "approval_job_name": os.environ["APPROVAL_JOB_NAME"],
+              "approved_by": os.environ["APPROVED_BY"],
+              "approved_by_id": positive("APPROVED_BY_ID"),
+              "approval_effective_at": os.environ["APPROVAL_EFFECTIVE_AT"],
+          }
+          raw = (json.dumps(payload, separators=(",", ":"), ensure_ascii=True) + "\n").encode()
+          target = Path(os.environ["RUNNER_TEMP"]) / "landing-evidence" / "evidence.json"
+          flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0)
+          descriptor = os.open(target, flags, 0o600)
+          try:
+              if os.write(descriptor, raw) != len(raw):
+                  raise SystemExit("landing evidence write was incomplete")
+              os.fsync(descriptor)
+          finally:
+              os.close(descriptor)
+          PY
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: ${{ inputs.release_id }}-landing-last
+          name: ${{ inputs.release_id }}-landing-last-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/landing-evidence/evidence.json
           if-no-files-found: error
           retention-days: 30
+          overwrite: false
+          include-hidden-files: false

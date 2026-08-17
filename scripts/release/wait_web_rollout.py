@@ -14,6 +14,7 @@ from typing import Any
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from validate_release_manifest import resolve_release_bundle
+from verify_kubernetes_release_runtime import validate_application
 
 
 WEB_IMAGE = "ghcr.io/devpathai/devpath-web"
@@ -58,12 +59,37 @@ def _kubectl(args: list[str], context: str, namespace: str) -> str:
 
 
 def _single_container(items: Any, container: str, path: str) -> dict[str, Any]:
-    if not isinstance(items, list):
-        raise ValueError(f"{path} must be an array")
+    if not isinstance(items, list) or len(items) != 1:
+        raise ValueError(f"{path} must contain only the exact app container")
     matches = [item for item in items if isinstance(item, dict) and item.get("name") == container]
     if len(matches) != 1:
         raise ValueError(f"{path} must contain exactly one {container} container")
     return matches[0]
+
+
+def _owner(metadata: Any, kind: str, name: str, uid: str, api_version: str) -> None:
+    references = metadata.get("ownerReferences") if isinstance(metadata, dict) else None
+    expected = {
+        "apiVersion": api_version,
+        "kind": kind,
+        "name": name,
+        "uid": uid,
+        "controller": True,
+        "blockOwnerDeletion": True,
+    }
+    if not isinstance(references, list) or references != [expected]:
+        raise ValueError("web runtime owner reference is not exact")
+
+
+def _no_auxiliary_containers(spec: Any, status: Any, label: str) -> None:
+    if not isinstance(spec, dict) or not isinstance(status, dict):
+        raise ValueError(f"{label} spec/status is invalid")
+    for key in ("initContainers", "ephemeralContainers"):
+        if spec.get(key) not in (None, []):
+            raise ValueError(f"{label} may not contain {key}")
+    for key in ("initContainerStatuses", "ephemeralContainerStatuses"):
+        if status.get(key) not in (None, []):
+            raise ValueError(f"{label} may not contain {key}")
 
 
 def _runtime_image(image_id: Any) -> str:
@@ -77,12 +103,15 @@ def _runtime_image(image_id: Any) -> str:
 
 
 def validate_rollout_snapshot(
+    application: Any,
     deployment: Any,
+    replicasets: Any,
     pods: Any,
     container: str,
     allowed_spec_images: set[str],
     expected_runtime_image: str,
     restart_baseline: dict[tuple[str, str], int],
+    expected_revision: str | None,
 ) -> None:
     """Require a fully available Deployment and stable exact-digest Pods.
 
@@ -96,12 +125,33 @@ def validate_rollout_snapshot(
     status = deployment.get("status") or {}
     generation = metadata.get("generation")
     desired = spec.get("replicas")
+    deployment_name = metadata.get("name")
+    deployment_uid = metadata.get("uid")
+    namespace = metadata.get("namespace")
+    if (
+        deployment_name != container
+        or namespace != "devpath"
+        or not isinstance(deployment_uid, str)
+        or not deployment_uid
+    ):
+        raise ValueError("web Deployment identity is not exact")
+    if expected_revision is not None:
+        validate_application(
+            application,
+            deployment_name,
+            f"apps/{deployment_name}/base",
+            expected_revision,
+            expected_revision,
+        )
     if isinstance(generation, bool) or not isinstance(generation, int) or generation <= 0:
         raise ValueError("Deployment generation is invalid")
     if isinstance(desired, bool) or not isinstance(desired, int) or desired <= 0:
         raise ValueError("Deployment desired replicas must be positive")
+    template = spec.get("template") or {}
+    deployment_pod_spec = template.get("spec") or {}
+    _no_auxiliary_containers(deployment_pod_spec, {}, "Deployment template")
     spec_container = _single_container(
-        ((spec.get("template") or {}).get("spec") or {}).get("containers"),
+        deployment_pod_spec.get("containers"),
         container,
         "Deployment containers",
     )
@@ -120,6 +170,40 @@ def validate_rollout_snapshot(
     if status.get("unavailableReplicas", 0) not in (None, 0):
         raise ValueError("Deployment has unavailable replicas")
 
+    rs_items = replicasets.get("items") if isinstance(replicasets, dict) else None
+    if not isinstance(rs_items, list):
+        raise ValueError("web ReplicaSet inventory is invalid")
+    active = [
+        item
+        for item in rs_items
+        if isinstance(item, dict)
+        and isinstance((item.get("spec") or {}).get("replicas", 0), int)
+        and not isinstance((item.get("spec") or {}).get("replicas", 0), bool)
+        and (item.get("spec") or {}).get("replicas", 0) > 0
+    ]
+    if len(active) != 1:
+        raise ValueError("exactly one active web ReplicaSet is required")
+    rs = active[0]
+    rs_metadata = rs.get("metadata") or {}
+    rs_name = rs_metadata.get("name")
+    rs_uid = rs_metadata.get("uid")
+    if not isinstance(rs_name, str) or not rs_name or not isinstance(rs_uid, str) or not rs_uid:
+        raise ValueError("web ReplicaSet identity is invalid")
+    _owner(rs_metadata, "Deployment", deployment_name, deployment_uid, "apps/v1")
+    rs_spec = rs.get("spec") or {}
+    rs_status = rs.get("status") or {}
+    if rs_spec.get("replicas") != desired or any(
+        rs_status.get(field) != desired
+        for field in ("replicas", "readyReplicas", "availableReplicas")
+    ):
+        raise ValueError("web ReplicaSet is not fully available")
+    rs_pod_spec = ((rs_spec.get("template") or {}).get("spec") or {})
+    _no_auxiliary_containers(rs_pod_spec, {}, "ReplicaSet template")
+    if _single_container(
+        rs_pod_spec.get("containers"), container, "ReplicaSet containers"
+    ).get("image") not in allowed_spec_images:
+        raise ValueError("ReplicaSet image is not an allowed sealed reference")
+
     items = pods.get("items")
     if not isinstance(items, list) or len(items) != desired:
         raise ValueError("Pod count does not equal desired replicas")
@@ -133,7 +217,14 @@ def validate_rollout_snapshot(
             raise ValueError("Pod UID is missing")
         if pod_metadata.get("deletionTimestamp") is not None:
             raise ValueError("terminating Pod cannot satisfy rollout readiness")
+        _owner(pod_metadata, "ReplicaSet", rs_name, rs_uid, "apps/v1")
+        pod_spec = pod.get("spec") or {}
         pod_status = pod.get("status") or {}
+        _no_auxiliary_containers(pod_spec, pod_status, "Pod")
+        if _single_container(
+            pod_spec.get("containers"), container, "Pod containers"
+        ).get("image") not in allowed_spec_images:
+            raise ValueError("Pod image is not an allowed sealed reference")
         if pod_status.get("phase") != "Running":
             raise ValueError("Pod must be Running")
         ready_conditions = [
@@ -192,14 +283,31 @@ def _snapshot(
     context: str,
     namespace: str,
     deployment_name: str,
-) -> tuple[dict[str, Any], dict[str, Any]]:
+    expected_revision: str | None,
+) -> tuple[Any, dict[str, Any], dict[str, Any], dict[str, Any]]:
+    application = None
+    if expected_revision is not None:
+        application = json.loads(
+            _kubectl(
+                ["get", f"application/{deployment_name}", "-o", "json"],
+                context,
+                "argocd",
+            )
+        )
     deployment = json.loads(
         _kubectl(["get", f"deployment/{deployment_name}", "-o", "json"], context, namespace)
     )
     pods = json.loads(
         _kubectl(["get", "pods", "-l", _selector(deployment), "-o", "json"], context, namespace)
     )
-    return deployment, pods
+    replicasets = json.loads(
+        _kubectl(
+            ["get", "replicasets", "-l", _selector(deployment), "-o", "json"],
+            context,
+            namespace,
+        )
+    )
+    return application, deployment, replicasets, pods
 
 
 def validate_synthetic_identity(
@@ -262,6 +370,7 @@ def wait_rollout(
     phase: str,
     canary_seconds: int,
     github_output: Path | None = None,
+    commit: str | None = None,
 ) -> None:
     if not os.environ.get("KUBECONFIG"):
         raise ValueError("KUBECONFIG is required")
@@ -269,6 +378,11 @@ def wait_rollout(
         raise ValueError("environment must be staging or production")
     if canary_seconds not in {0, 900} or (canary_seconds == 900 and phase != "mission-on"):
         raise ValueError("only the mission-ON phase may run the exact 900-second canary")
+    if environment == "production" and (
+        not isinstance(commit, str) or len(commit) != 40 or any(c not in "0123456789abcdef" for c in commit)
+    ):
+        raise ValueError("production web rollout requires the exact GitOps commit")
+    expected_revision = commit if environment == "production" else None
     _, _, _, candidate, candidate_hash = resolve_release_bundle(root, release_id)
     identity = candidate["environments"][environment]
     context = identity["kubernetes_context"]
@@ -285,14 +399,19 @@ def wait_rollout(
     last_error = "rollout not yet observed"
     while True:
         try:
-            deployment, pods = _snapshot(context, namespace, deployment_name)
+            application, deployment, replicasets, pods = _snapshot(
+                context, namespace, deployment_name, expected_revision
+            )
             validate_rollout_snapshot(
+                application,
                 deployment,
+                replicasets,
                 pods,
                 container,
                 allowed_images,
                 expected_image,
                 restart_baseline,
+                expected_revision,
             )
             break
         except ValueError as exc:
@@ -310,14 +429,19 @@ def wait_rollout(
     probe_path = candidate["rollout"]["synthetic_probe_path"]
     canary_started = time.monotonic()
     while True:
-        deployment, pods = _snapshot(context, namespace, deployment_name)
+        application, deployment, replicasets, pods = _snapshot(
+            context, namespace, deployment_name, expected_revision
+        )
         validate_rollout_snapshot(
+            application,
             deployment,
+            replicasets,
             pods,
             container,
             allowed_images,
             expected_image,
             restart_baseline,
+            expected_revision,
         )
         # The sealed legacy prior image predates release-aware identity support;
         # its exact runtime imageID is the CAS gate. Candidate OFF/ON images must
@@ -353,6 +477,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--phase", choices=["mission-off", "mission-on", "prior"], required=True)
     parser.add_argument("--canary-seconds", type=int, choices=[0, 900], required=True)
     parser.add_argument("--github-output", type=Path)
+    parser.add_argument("--commit")
     args = parser.parse_args(argv)
     try:
         wait_rollout(
@@ -362,6 +487,7 @@ def main(argv: list[str] | None = None) -> int:
             args.phase,
             args.canary_seconds,
             args.github_output,
+            args.commit,
         )
         return 0
     except (OSError, ValueError, json.JSONDecodeError) as exc:
