@@ -19,6 +19,13 @@ spec:
       # 학습경로는 이미 비동기 작업이라 재시도로 흡수된다.
       nodeSelector:
         devpath.ai/gpu: "true"
+      # GPU 노드에는 devpath.ai/gpu=true:NoSchedule 테인트를 건다. 그러지 않으면 기존 서비스 파드가
+      # 재시작될 때 스팟 노드로 흘러들어가, 회수 시 관계없는 서비스까지 같이 내려간다.
+      tolerations:
+        - key: devpath.ai/gpu
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
       # k3s 가 nvidia-container-runtime 을 감지하면 등록하는 RuntimeClass.
       runtimeClassName: nvidia
       containers:
