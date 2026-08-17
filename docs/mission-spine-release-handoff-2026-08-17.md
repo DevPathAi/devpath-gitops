@@ -6,6 +6,8 @@
 
 설계·QA·검토 원본과 외부 문서 이동 기록은 [Mission Spine 문서 인덱스](mission-spine/README.md)에서 찾는다.
 
+Mission Spine 밖에서 이월된 운영 미해결 건은 [11. 이월 작업 — 학습경로 생성](#11-이월-작업--학습경로-생성2026-08-14-핸드오프-이월)에 있다. 그중 학습경로 생성은 Mission Spine의 「현재 미션」 화면이 읽는 데이터를 만드는 경로이므로 릴리스와 무관한 별건이 아니다.
+
 현재 판정은 **코드 통합 진행 가능, 패키지 게시·candidate 생성·production dispatch·배포는 HOLD**다. 이 작업에서 관리자 우회, 강제 푸시, 환경 승인, 패키지·이미지 게시, Kubernetes 변경, Cloudflare 배포는 수행하지 않았다.
 
 HOLD는 다음 조건 중 하나라도 남아 있으면 해제할 수 없다.
@@ -261,3 +263,96 @@ GitHub CI URL은 각 PR의 Checks 탭을 권위값으로 사용하고, merge 직
 | `C:\Users\deepe\AppData\Local\Temp\dpa-home-shallow-audit-0b7f79e50b4f4a449a7202c4fc41fbbe\src\analytics\mission-spine.analytics.v1.json` | `D:\workspace\dpa\.worktrees\home-et13-evidence\src\analytics\mission-spine.analytics.v1.json` | `486256fd212b96ea2fec0c6a95e22676b708989f94c0ca974276d6bd5f6b4908` | 코드 자산의 tracked clone 사본, 문서 이동 대상 제외 |
 
 전역 `.gstack` 설정, `repo-mode.json`, 일반 analytics/tuning 로그, npm·Wrangler·BuildKit 캐시, build artifact, `__pycache__`, 비밀 파일은 문서가 아니므로 제외했다. 이동 후보 16개에는 private-key, GitHub token, cloud/provider key 패턴이 없음을 확인했다. 이동 후 `C:\Users\deepe\.gstack\projects`의 Markdown/JSON/JSONL에서 Mission Spine 식별자를 다시 검색했으며 남은 관련 문서는 0개였다.
+
+## 11. 이월 작업 — 학습경로 생성(2026-08-14 핸드오프 이월)
+
+원본은 documents 저장소의 [`docs/superpowers/handoff-2026-08-14-track-release-and-prod-issues.md`](https://github.com/DevPathAi/documents/blob/main/docs/superpowers/handoff-2026-08-14-track-release-and-prod-issues.md)다. 그 문서의 다음 착수점이 이 항목이며 2026-08-17 기준으로 여전히 미해결이다.
+
+### 왜 이 릴리스 문서에 들어오는가
+
+Mission Spine의 「현재 미션」 조회는 `learning_paths`(ACTIVE) → `path_milestones` → `path_weekly_tasks`를 읽는다(learning-svc `CurrentMissionQueryRepository`, 커밋 `fbd027c`). 운영 `learning_paths`는 **0행**이므로, Mission Spine 릴리스가 계약대로 끝나도 사용자 화면은 빈 상태로 남는다. 별건이 아니라 릴리스 가치의 선행 조건이다.
+
+### 2026-08-14 문서의 전제 3건을 2026-08-17에 재측정해 정정한다
+
+| 08-14 문서의 전제 | 2026-08-17 실측 | 근거 |
+|---|---|---|
+| GPU 쿼터 증설 요청이 PENDING | **승인 완료.** 요청 `33d1b4db…`는 `CASE_CLOSED`, 현재 G/VT On-Demand vCPU 쿼터 값 **4.0** | `aws service-quotas get-service-quota --service-code ec2 --quota-code L-DB2E81BA --region ap-northeast-2` |
+| 현재 노드가 AZ 2d인데 GPU는 2a/b/c뿐이라 재프로비저닝 필요 | **g5.xlarge·g6.xlarge는 2d에 가용**하다. 2d에 없는 것은 g4dn뿐이다. 현재 노드 `i-09e252854566cc123`(t3.xlarge)도 2d다 | `aws ec2 describe-instance-type-offerings --location-type availability-zone` |
+| (비용 미기재) | 서울 온디맨드 Linux 시간당 **g4dn.xlarge $0.647 · g6.xlarge $0.9896 · g5.xlarge $1.237** | AWS Price List API |
+
+즉 GPU 경로를 막고 있던 이월 블로커 2개는 모두 사라졌다. 남은 것은 비용 판단이다.
+
+### 결함은 세 겹이고, 08-14 문서가 지목한 것은 두 번째 층이다
+
+08-14 문서는 「12분을 다 계산하고도 SSE가 끊긴 뒤라 저장에 도달하지 못한다」고 적었다. 코드 실측 결과 **먼저 터지는 것은 SSE가 아니라 타임아웃 체인**이고, SSE 폐기는 그것을 고친 다음에 마주치는 두 번째 결함이다. 세 결함 모두 실재한다.
+
+- **D1 — 타임아웃 체인이 PT8S다.** learning-svc `devpath.ai-svc.timeout` 기본 `PT8S`, ai-svc `devpath.ollama.timeout` 기본 `PT8S`이고 gitops 매니페스트에 두 값의 override가 없다(`AI_SVC_TIMEOUT`·`OLLAMA_TIMEOUT` 미설정). 12분 생성과 양립할 수 없다. 2026-07-28의 PT600S 스톱갭은 원복된 상태다.
+- **D2 — 계산이 끝난 뒤 폐기된다.** ai-svc는 Ollama를 `stream: false`로 호출하므로(`OllamaClient.callChat`) 서버는 응답 시점까지 아무것도 쓰지 않고, 따라서 클라이언트 이탈을 즉시 감지하지 못한 채 12분을 끝까지 계산한 뒤 죽은 소켓에 쓴다. learning-svc 쪽에는 별도의 폐기 경로가 하나 더 있다. `LearningPathController.send()`가 SSE `IOException`을 `IllegalStateException`으로 올리는데, 이 예외는 `matching` 단계(=AI 응답 수령 후 persist 이전)에서 던져질 수 있고 그러면 **완성된 결과가 저장되지 못한 채 버려진다**.
+- **D3 — 중복 실행에 무방비다.** `/learning-paths/me/generate`는 요청마다 `CompletableFuture.runAsync`(공용 ForkJoinPool)로 새 생성을 띄운다. 12분짜리 작업이 클릭 수만큼 쌓이고, 그동안 Ollama가 노드 CPU 약 2코어를 점유해 다른 서비스까지 느려진다. `OllamaClient.generatePath`는 계약 위반 시 1회 재시도하므로 최악의 경우 비용이 2배다.
+
+### 결정과 진행 방식(2026-08-17)
+
+사용자 결정: **①먼저 비동기화(코드), ②하드웨어(Anthropic 크레딧 또는 GPU)는 그 다음.** 비동기화는 어느 하드웨어를 고르든 필요한 공통 기반이고, 결정 없이 착수할 수 있는 유일한 구간이다.
+
+설계 제약 두 가지를 지킨다.
+
+- **DB 마이그레이션을 추가하지 않는다.** 마이그레이션은 devpath-shared 중앙 Flyway에서만 실행되는데(learning-svc는 `spring.flyway.enabled=false`, `ddl-auto=validate`) shared는 이 문서의 HOLD 대상이다. 또 `learning_paths.status`의 CHECK는 `('ACTIVE','ARCHIVED')`뿐이라 생성 중 상태를 그 컬럼으로 표현할 수도 없다. 따라서 잡 상태는 learning-svc 프로세스 안에서 관리하고, 영속 결과는 기존 스키마 그대로 남긴다.
+- **운영 반영은 HOLD를 따른다.** 이 작업의 산출물은 learning-svc `develop` 통합까지다. 타임아웃 override(`AI_SVC_TIMEOUT`·`OLLAMA_TIMEOUT`)를 포함한 gitops 매니페스트 변경과 이미지 배포는 Mission Spine HOLD가 풀린 뒤 릴리스 순서에 얹는다.
+
+### 2026-08-17 진행 결과
+
+비동기화 구간은 구현·검증을 마쳤고 세 저장소에 PR 로 올려 두었다.
+
+| 저장소 | PR | 상태 | 내용 |
+|---|---|---|---|
+| learning-svc | [#52](https://github.com/DevPathAi/devpath-learning-svc/pull/52) | build **GREEN**(2m1s), develop 리뷰 대기 | 생성을 사용자당 하나의 작업으로 분리, 구독 실패가 생성을 중단시키지 못하게 하고, `GET /learning-paths/me/generation` 추가 |
+| gitops | [#64](https://github.com/DevPathAi/devpath-gitops/pull/64) | **Draft/HOLD — 머지 금지** | `AI_SVC_TIMEOUT`·`OLLAMA_TIMEOUT` 을 `PT900S` 로. develop 에 넣으면 릴리스 PR #59 head 에 실리므로 HOLD 해제 후 처리 |
+| documents | [#99](https://github.com/DevPathAi/documents/pull/99) | 리뷰 대기 | API 명세 §3.1·§3.2 |
+| ai-svc | [#36](https://github.com/DevPathAi/devpath-ai-svc/pull/36) | 리뷰 대기 | 로컬 실측에서 드러난 결함 2건 — 학습경로만 영어 · 12주 계약 미검증 |
+| ai-svc | [#37](https://github.com/DevPathAi/devpath-ai-svc/pull/37) | 리뷰 대기(#36 위 스택) | 경로 생성 Ollama 를 임베딩과 분리(GPU 이중화 전제) |
+
+learning-svc 검증: `./gradlew build` 성공, 테스트 클래스 66·테스트 **245**(기존 234 + 신규 11)·실패 0·오류 0·스킵 0. `PathGenerationSurvivesDisconnectIT` 는 구독자 예외 보호를 임시 제거하면 red, 되돌리면 green 임을 확인해 **판별력을 실측**했다.
+
+D1 은 gitops PR #64 가 HOLD 라 아직 운영에 적용되지 않는다. **즉 지금 배포해도 학습경로는 여전히 PT8S 에서 끊긴다.** D2·D3 만 코드로 닫혔다.
+
+### 로컬 실측 — 목이 아니라 실제 Ollama 로 끝까지 돌렸다
+
+learning-svc + ai-svc 를 로컬에 띄우고 실제 Ollama 로 생성해 세 가지를 확인했다. 운영 클러스터는 HOLD 라 건드리지 않았다.
+
+- **비동기화가 실제로 동작한다.** 클라이언트를 생성 도중(20초)에 끊었는데도 작업이 계속돼 `state=SUCCEEDED, pathId=20` 으로 끝났고 DB 에 마일스톤 12개·태스크 36개가 남았다. `GET /learning-paths/me/generation` 도 `NONE → RUNNING → SUCCEEDED` 로 관측됐다. 종전 코드였다면 이 시점에서 결과가 버려졌다.
+- **결함이 두 개 더 드러났다.** 목 테스트로는 보이지 않던 것들이다.
+  - 학습경로만 **영어로 생성된다.** 멘토·커뮤니티 시드 프롬프트에는 `in Korean` 지시가 있는데 path 프롬프트에만 없었다.
+  - **12주를 약속하고 3주를 저장한다.** qwen2.5:14b 가 weekNum 1·2·4 로 마일스톤 3개만 냈는데 계약이 통과시켰다. `LearningPathPersistenceService` 는 `total_weeks` 를 12로 하드코딩하므로 주차별 미션 화면이 3주차에서 빈다.
+  - 둘 다 [AI PR #36](https://github.com/DevPathAi/devpath-ai-svc/pull/36) 에서 프롬프트·스키마·검증으로 닫았다. 수정 후 운영과 동일한 qwen2.5:3b 로 재측정해 **주차 1~12 완전 커버, 한국어 제목 12/12, 33초**(로컬 GPU)를 확인했다.
+- **하드웨어 판단의 전제가 하나 바뀌었다.** 08-14 문서는 「모델 축소는 품질이 떨어지고 3b 로는 계약을 만족하는 JSON 이 안 나올 위험」이라고 적었는데, 프롬프트를 고치자 **3b 가 강화된 계약(12주·한국어)을 만족했다.** 품질만 놓고 보면 Claude 가 필수는 아니다. 다만 로컬 측정은 GPU 기준이므로 **운영 CPU 의 12분이라는 사실은 그대로다** — 이 관측은 「GPU 로 옮기면 작은 모델로도 쓸 만하다」는 근거이지 「CPU 로도 된다」는 근거가 아니다.
+
+### GPU 결정과 검증(2026-08-17)
+
+사용자 결정: **g6.xlarge 스팟 + Ollama 이중화.** Ollama 는 학습경로뿐 아니라 임베딩·멘토 폴백도 맡고 있어, 통째로 GPU 노드에 올리면 스팟 회수 때 그 둘까지 멈춘다. 그래서 기존 CPU Ollama 는 임베딩·멘토·리뷰를 계속 맡고, GPU 노드에는 학습경로 전용 Ollama 를 따로 둔다.
+
+노드 계층은 실제로 세워 검증한 뒤 정리했다(운영 배포는 HOLD 이므로 클러스터에는 device plugin 과 SG 규칙만 남겼다).
+
+- g6.xlarge = **NVIDIA L4 23GB**, 드라이버 595.91.07. `nvidia.com/gpu: 1` 이 할당 가능 자원으로 광고되는 것까지 확인했다.
+- **테인트 격리가 실제로 필요했다.** 워커를 붙이면 기존 서비스 파드가 재시작될 때 스팟 노드로 흘러갈 수 있다. `devpath.ai/gpu=true:NoSchedule` 을 걸어 GPU 노드에 뜬 파드가 `ollama-gpu` 와 device plugin 둘뿐임을 확인했다.
+- **생성 성능 66 t/s(순간 97 t/s)** — 운영 CPU 4.2 t/s 대비 약 16배. 12주 한국어 경로 1건이 ai-svc 왕복 포함 **86초**로 끝났다(CPU 는 12분에 그마저 버려졌다).
+- 절차·함정은 [k3s 런북](runbook-k3s-bootstrap.md)의 「GPU 노드 추가」 절에 실측으로 남겼다.
+
+★**실측이 내 PR 의 결함을 잡았다**★ — 경로 전용 타임아웃을 `PT300S` 로 주었는데 클러스터 호출이 **정확히 8.1초에 503** 으로 끊겼다. 이 서비스의 환경 변수는 완화 바인딩이 아니라 `application.yml` 자리표시자로 배선되는데 새 속성을 거기 등록하지 않아, gitops 에서 값을 넣어도 **조용히 무시될 상태**였다. 단위 테스트는 점 표기 속성을 직접 주입해서 전부 통과했었다. 환경 변수 이름으로 값을 주는 테스트를 추가해 막았다.
+
+두 가지는 아직 열려 있다.
+
+- **스팟 쿼터가 별개다.** 승인받은 `L-DB2E81BA`(4 vCPU)는 **온디맨드** 전용이고, 스팟은 `L-3819A6DF` 로 기본 0 이라 `MaxSpotInstanceCountExceeded` 가 났다. 증설 요청 `78d4c546d7a549cfa6f9ca813d5f9a0ePZ3LBUo5` 는 `CASE_OPENED` 상태다. 승인 후 스팟으로 노드를 다시 세운다.
+- **한국어 준수가 100%는 아니다.** 12개 마일스톤 제목은 모두 한국어였지만 `rationale` 이 영어로 나온 실행이 있었다. 제목에 `Week N:` 접두가 남는 경우도 있다. 3b 모델의 한계로 보이며, L4 24GB 는 qwen2.5:14b(9GB)도 수용하므로 모델 상향이 선택지다.
+
+남은 일은 다음과 같다.
+
+- **하드웨어 결정** — Anthropic 크레딧 충전(ai-svc 에 path 용 Claude 클라이언트 신규 구현 필요) 또는 GPU 노드(g6.xlarge, 2d 가용, 쿼터 승인됨). 비동기화만으로는 생성이 12분 걸리는 사실은 바뀌지 않는다.
+- **프론트엔드 폴링** — 웹은 아직 SSE 단절을 실패로 처리하고 `GET /me/generation` 을 부르지 않는다. 지금 손대면 릴리스 PR #133 의 head 가 움직이므로 HOLD 해제 뒤에 붙인다.
+- **ai-svc 재시도 정책** — `OllamaClient.generatePath` 는 계약 위반 시 1회 재시도한다. 3b 모델에서 계약 실패가 나면 최악 24분이 된다.
+
+### 함께 이월된 나머지(08-14 문서 §3)
+
+- 사용자 육안 확인 3건 — 자유글·피드백 작성, 문의 전송, AI 멘토 응답. 셋 다 8/14에 배포됐으나 인증 게이트 때문에 자동 검증이 불가능해 미확인 상태다.
+- leva.ai.kr SEO — `templates/note.html` CTA 블록, title·description의 「레바」 반영, 폴백 문구 정정, GSC 등록(사용자 몫).
+- 남은 두 트랙 `NODE_TYPESCRIPT`·`DATA_AI` — 트랙 CHECK는 이미 8값으로 열려 있다. 착수 전 `generateContentsLocal`이 30개를 한 번에 내는지 먼저 끝까지 돌려볼 것.
+- 글 수정·삭제 — community-svc에 `@PutMapping`·`@PatchMapping`·`@DeleteMapping`이 0건이라 신규 개발 건이다.
