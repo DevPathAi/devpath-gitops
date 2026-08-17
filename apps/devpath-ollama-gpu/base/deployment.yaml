@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama-gpu
+  labels:
+    app: ollama-gpu
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama-gpu
+  template:
+    metadata:
+      labels:
+        app: ollama-gpu
+    spec:
+      # 학습경로 생성 전용. 임베딩·멘토·리뷰는 CPU 노드의 devpath-ollama 가 계속 맡는다.
+      # 이 노드는 스팟이라 회수될 수 있는데, 그때 멈추는 것은 학습경로뿐이고
+      # 학습경로는 이미 비동기 작업이라 재시도로 흡수된다.
+      nodeSelector:
+        devpath.ai/gpu: "true"
+      # GPU 노드에는 devpath.ai/gpu=true:NoSchedule 테인트를 건다. 그러지 않으면 기존 서비스 파드가
+      # 재시작될 때 스팟 노드로 흘러들어가, 회수 시 관계없는 서비스까지 같이 내려간다.
+      tolerations:
+        - key: devpath.ai/gpu
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      # k3s 가 nvidia-container-runtime 을 감지하면 등록하는 RuntimeClass.
+      runtimeClassName: nvidia
+      containers:
+        - name: ollama
+          image: ollama/ollama:0.32.5
+          ports:
+            - containerPort: 11434
+          env:
+            # Ollama는 기본 127.0.0.1에만 바인딩 → 파드 간 접근 위해 0.0.0.0 필수
+            - name: OLLAMA_HOST
+              value: "0.0.0.0:11434"
+            # 모델을 메모리에 붙잡아 둔다. 학습경로는 드문드문 호출되는데 매번 로드하면
+            # 첫 요청이 모델 로드까지 떠안는다.
+            - name: OLLAMA_KEEP_ALIVE
+              value: "24h"
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama
+          lifecycle:
+            postStart:
+              exec:
+                # 백그라운드(&) pull — 컨테이너 시작을 막지 않음(pull 실패로 인한 SIGKILL 회피).
+                # 생성 모델만 받는다. 임베딩 모델은 CPU 쪽에 있다.
+                command:
+                  - /bin/sh
+                  - -c
+                  - "(until ollama list >/dev/null 2>&1; do sleep 2; done; ollama pull qwen2.5:3b) &"
+          readinessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 250m
+              memory: 2Gi
+            limits:
+              memory: 8Gi
+              nvidia.com/gpu: 1
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: ollama-gpu-models

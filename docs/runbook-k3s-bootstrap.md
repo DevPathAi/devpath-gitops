@@ -121,3 +121,50 @@ aws ec2 release-address --region ap-northeast-2 --allocation-id eipalloc-0a3fcbe
 aws rds delete-db-instance --region ap-northeast-2 --db-instance-identifier devpath-pg --skip-final-snapshot
 # SG·키페어는 인스턴스 종료 후: delete-security-group / delete-key-pair
 ```
+
+---
+
+## GPU 노드 추가 (2026-08-17 실측)
+
+학습경로 생성을 CPU 로는 돌릴 수 없어(4.2 t/s × 약 3000토큰 ≈ 12분) GPU 워커를 붙인다.
+
+### 확정값
+
+| 항목 | 값 |
+|---|---|
+| 인스턴스 | g6.xlarge (NVIDIA **L4 23034 MiB**), ap-northeast-2d — 기존 노드와 같은 AZ |
+| AMI | `ami-09d3bdf0648512f52` = Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04). 드라이버 **595.91.07** 과 `nvidia-container-runtime` 이 이미 들어 있다 |
+| 단가(서울) | 온디맨드 **$0.9896/h** · 스팟 **약 $0.2824/h**(2d 실측) |
+| 쿼터 | 온디맨드 `L-DB2E81BA` = 4 vCPU 승인. **스팟은 `L-3819A6DF` 로 별개**이며 기본 0 |
+
+### 절차
+
+1. **SG**: 같은 SG(`sg-0ad7dfa8afe5d1eea`) 안에서만 통하도록 self-referencing 규칙 3개를 더한다 — `6443/tcp`(agent→server API), `8472/udp`(flannel VXLAN), `10250/tcp`(kubelet). 외부에는 아무것도 열지 않는다.
+2. **인스턴스**: 위 AMI·타입으로 기존 서브넷(`subnet-00bb150fb3e236ecb`)에 띄운다. 키페어는 `devpath-k3s-key`.
+3. **조인 토큰**: 서버의 `/var/lib/rancher/k3s/server/node-token`. **user-data 에 넣지 않는다** — 인스턴스 메타데이터는 노드 위 아무 프로세스나 읽을 수 있다. scp 로 옮기고 조인 후 지운다.
+4. **k3s agent**: 서버와 **같은 버전으로 고정**한다.
+
+   ```bash
+   curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=v1.36.2+k3s1 \
+     K3S_URL=https://172.31.48.82:6443 K3S_TOKEN=<token> \
+     sh -s - agent --node-label devpath.ai/gpu=true --node-taint devpath.ai/gpu=true:NoSchedule
+   ```
+
+   **테인트가 핵심이다.** 없으면 기존 서비스 파드가 재시작될 때 이 노드로 흘러들어가고, 스팟이 회수되면 관계없는 서비스까지 함께 내려간다.
+5. **device plugin**: `kubectl apply -f infra/nvidia-device-plugin/daemonset.yaml`. 이 매니페스트에는 위 테인트에 대한 톨러레이션과 `nodeSelector` 가 들어 있다 — 없으면 플러그인 자신이 스케줄되지 못한다.
+6. **검증**: `kubectl get node <gpu-node> -o jsonpath='{.status.allocatable.nvidia\.com/gpu}'` 가 `1` 이어야 한다. 파드 안에서 `nvidia-smi` 도 확인한다.
+
+### 실측 결과
+
+- `nvidia` RuntimeClass 는 클러스터에 이미 있고, agent 설치 시 containerd 설정에 nvidia 런타임이 등록된다(`/var/lib/rancher/k3s/agent/etc/containerd/config.toml`).
+- 테인트 격리 확인: GPU 노드에 뜬 파드는 `ollama-gpu` 와 device plugin **둘뿐**이었다.
+- 생성 성능: **66 t/s(순간 97 t/s)** — 운영 CPU 4.2 t/s 대비 약 16배. 12주 한국어 경로 1건이 ai-svc 왕복 포함 **86초**(CPU 는 12분).
+
+### 함정
+
+| 증상 | 원인 | 해법 |
+|---|---|---|
+| `MaxSpotInstanceCountExceeded` | 승인받은 것은 **온디맨드** G/VT 쿼터. 스팟은 `L-3819A6DF` 로 별개이고 기본 0 | 스팟 쿼터를 따로 증설 요청한다 |
+| 새 노드가 `NotReady` 이거나 조인 실패 | SG 에 클러스터 내부 규칙이 없다(기본 SG 는 22·6443 을 관리 IP 에만 연다) | 위 self-referencing 규칙 3개 |
+| device plugin 파드가 Pending | 노드 테인트에 대한 톨러레이션 없음 | 매니페스트의 톨러레이션 확인 |
+| 서버·에이전트 버전 불일치 | `INSTALL_K3S_VERSION` 미지정 시 최신이 설치된다 | 서버 버전으로 고정 |
