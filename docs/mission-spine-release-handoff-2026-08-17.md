@@ -299,6 +299,26 @@ Mission Spine의 「현재 미션」 조회는 `learning_paths`(ACTIVE) → `pat
 - **DB 마이그레이션을 추가하지 않는다.** 마이그레이션은 devpath-shared 중앙 Flyway에서만 실행되는데(learning-svc는 `spring.flyway.enabled=false`, `ddl-auto=validate`) shared는 이 문서의 HOLD 대상이다. 또 `learning_paths.status`의 CHECK는 `('ACTIVE','ARCHIVED')`뿐이라 생성 중 상태를 그 컬럼으로 표현할 수도 없다. 따라서 잡 상태는 learning-svc 프로세스 안에서 관리하고, 영속 결과는 기존 스키마 그대로 남긴다.
 - **운영 반영은 HOLD를 따른다.** 이 작업의 산출물은 learning-svc `develop` 통합까지다. 타임아웃 override(`AI_SVC_TIMEOUT`·`OLLAMA_TIMEOUT`)를 포함한 gitops 매니페스트 변경과 이미지 배포는 Mission Spine HOLD가 풀린 뒤 릴리스 순서에 얹는다.
 
+### 2026-08-17 진행 결과
+
+비동기화 구간은 구현·검증을 마쳤고 세 저장소에 PR 로 올려 두었다.
+
+| 저장소 | PR | 상태 | 내용 |
+|---|---|---|---|
+| learning-svc | [#52](https://github.com/DevPathAi/devpath-learning-svc/pull/52) | build **GREEN**(2m1s), develop 리뷰 대기 | 생성을 사용자당 하나의 작업으로 분리, 구독 실패가 생성을 중단시키지 못하게 하고, `GET /learning-paths/me/generation` 추가 |
+| gitops | [#64](https://github.com/DevPathAi/devpath-gitops/pull/64) | **Draft/HOLD — 머지 금지** | `AI_SVC_TIMEOUT`·`OLLAMA_TIMEOUT` 을 `PT900S` 로. develop 에 넣으면 릴리스 PR #59 head 에 실리므로 HOLD 해제 후 처리 |
+| documents | [#99](https://github.com/DevPathAi/documents/pull/99) | 리뷰 대기 | API 명세 §3.1·§3.2 |
+
+learning-svc 검증: `./gradlew build` 성공, 테스트 클래스 66·테스트 **245**(기존 234 + 신규 11)·실패 0·오류 0·스킵 0. `PathGenerationSurvivesDisconnectIT` 는 구독자 예외 보호를 임시 제거하면 red, 되돌리면 green 임을 확인해 **판별력을 실측**했다.
+
+D1 은 gitops PR #64 가 HOLD 라 아직 운영에 적용되지 않는다. **즉 지금 배포해도 학습경로는 여전히 PT8S 에서 끊긴다.** D2·D3 만 코드로 닫혔다.
+
+남은 일은 다음과 같다.
+
+- **하드웨어 결정** — Anthropic 크레딧 충전(ai-svc 에 path 용 Claude 클라이언트 신규 구현 필요) 또는 GPU 노드(g6.xlarge, 2d 가용, 쿼터 승인됨). 비동기화만으로는 생성이 12분 걸리는 사실은 바뀌지 않는다.
+- **프론트엔드 폴링** — 웹은 아직 SSE 단절을 실패로 처리하고 `GET /me/generation` 을 부르지 않는다. 지금 손대면 릴리스 PR #133 의 head 가 움직이므로 HOLD 해제 뒤에 붙인다.
+- **ai-svc 재시도 정책** — `OllamaClient.generatePath` 는 계약 위반 시 1회 재시도한다. 3b 모델에서 계약 실패가 나면 최악 24분이 된다.
+
 ### 함께 이월된 나머지(08-14 문서 §3)
 
 - 사용자 육안 확인 3건 — 자유글·피드백 작성, 문의 전송, AI 멘토 응답. 셋 다 8/14에 배포됐으나 인증 게이트 때문에 자동 검증이 불가능해 미확인 상태다.
