@@ -308,10 +308,22 @@ Mission Spine의 「현재 미션」 조회는 `learning_paths`(ACTIVE) → `pat
 | learning-svc | [#52](https://github.com/DevPathAi/devpath-learning-svc/pull/52) | build **GREEN**(2m1s), develop 리뷰 대기 | 생성을 사용자당 하나의 작업으로 분리, 구독 실패가 생성을 중단시키지 못하게 하고, `GET /learning-paths/me/generation` 추가 |
 | gitops | [#64](https://github.com/DevPathAi/devpath-gitops/pull/64) | **Draft/HOLD — 머지 금지** | `AI_SVC_TIMEOUT`·`OLLAMA_TIMEOUT` 을 `PT900S` 로. develop 에 넣으면 릴리스 PR #59 head 에 실리므로 HOLD 해제 후 처리 |
 | documents | [#99](https://github.com/DevPathAi/documents/pull/99) | 리뷰 대기 | API 명세 §3.1·§3.2 |
+| ai-svc | [#36](https://github.com/DevPathAi/devpath-ai-svc/pull/36) | 리뷰 대기 | 로컬 실측에서 드러난 결함 2건 — 학습경로만 영어 · 12주 계약 미검증 |
 
 learning-svc 검증: `./gradlew build` 성공, 테스트 클래스 66·테스트 **245**(기존 234 + 신규 11)·실패 0·오류 0·스킵 0. `PathGenerationSurvivesDisconnectIT` 는 구독자 예외 보호를 임시 제거하면 red, 되돌리면 green 임을 확인해 **판별력을 실측**했다.
 
 D1 은 gitops PR #64 가 HOLD 라 아직 운영에 적용되지 않는다. **즉 지금 배포해도 학습경로는 여전히 PT8S 에서 끊긴다.** D2·D3 만 코드로 닫혔다.
+
+### 로컬 실측 — 목이 아니라 실제 Ollama 로 끝까지 돌렸다
+
+learning-svc + ai-svc 를 로컬에 띄우고 실제 Ollama 로 생성해 세 가지를 확인했다. 운영 클러스터는 HOLD 라 건드리지 않았다.
+
+- **비동기화가 실제로 동작한다.** 클라이언트를 생성 도중(20초)에 끊었는데도 작업이 계속돼 `state=SUCCEEDED, pathId=20` 으로 끝났고 DB 에 마일스톤 12개·태스크 36개가 남았다. `GET /learning-paths/me/generation` 도 `NONE → RUNNING → SUCCEEDED` 로 관측됐다. 종전 코드였다면 이 시점에서 결과가 버려졌다.
+- **결함이 두 개 더 드러났다.** 목 테스트로는 보이지 않던 것들이다.
+  - 학습경로만 **영어로 생성된다.** 멘토·커뮤니티 시드 프롬프트에는 `in Korean` 지시가 있는데 path 프롬프트에만 없었다.
+  - **12주를 약속하고 3주를 저장한다.** qwen2.5:14b 가 weekNum 1·2·4 로 마일스톤 3개만 냈는데 계약이 통과시켰다. `LearningPathPersistenceService` 는 `total_weeks` 를 12로 하드코딩하므로 주차별 미션 화면이 3주차에서 빈다.
+  - 둘 다 [AI PR #36](https://github.com/DevPathAi/devpath-ai-svc/pull/36) 에서 프롬프트·스키마·검증으로 닫았다. 수정 후 운영과 동일한 qwen2.5:3b 로 재측정해 **주차 1~12 완전 커버, 한국어 제목 12/12, 33초**(로컬 GPU)를 확인했다.
+- **하드웨어 판단의 전제가 하나 바뀌었다.** 08-14 문서는 「모델 축소는 품질이 떨어지고 3b 로는 계약을 만족하는 JSON 이 안 나올 위험」이라고 적었는데, 프롬프트를 고치자 **3b 가 강화된 계약(12주·한국어)을 만족했다.** 품질만 놓고 보면 Claude 가 필수는 아니다. 다만 로컬 측정은 GPU 기준이므로 **운영 CPU 의 12분이라는 사실은 그대로다** — 이 관측은 「GPU 로 옮기면 작은 모델로도 쓸 만하다」는 근거이지 「CPU 로도 된다」는 근거가 아니다.
 
 남은 일은 다음과 같다.
 
