@@ -65,6 +65,8 @@ spec:
                   key: anthropic-api-key
             - name: REVIEW_PROVIDER
               value: "claude"
+            # 멘토는 Ollama 우선 — Anthropic 크레딧 소진 시 멘토 전체가 멈추는 것을 막는다.
+            # claude 는 폴백으로 남겨 크레딧이 복구되면 품질 좋은 쪽이 자동으로 다시 쓰인다.
             - name: MENTOR_PROVIDER
               value: "ollama"
             - name: MENTOR_FALLBACK
