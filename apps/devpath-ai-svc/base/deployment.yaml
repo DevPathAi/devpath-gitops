@@ -84,6 +84,11 @@ spec:
               value: "http://ollama.devpath.svc:11434"
             - name: OLLAMA_GEN_MODEL
               value: "qwen2.5:3b"
+            # path 생성 1건이 CPU 에서 12분 걸린다(2026-08-14 실측 4.2 t/s × 약 3000토큰).
+            # 코드 기본 PT8S 는 embed(2초)에 맞춘 값이라 생성은 매번 끊긴다.
+            # 주의: OllamaClient.generatePath 는 계약 위반 시 1회 재시도하므로 최악 2배까지 걸린다.
+            - name: OLLAMA_TIMEOUT
+              value: "PT900S"
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness
