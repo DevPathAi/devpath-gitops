@@ -60,5 +60,6 @@ kubectl kustomize apps/devpath-gateway/base
 
 - Mission Spine 영구 릴리스 계약: [release-manifests/README.md](release-manifests/README.md)
 - 2026-08-17 운영 핸드오프: [docs/mission-spine-release-handoff-2026-08-17.md](docs/mission-spine-release-handoff-2026-08-17.md)
+- Mission Spine 문서 인덱스와 외부 산출물 보존 기록: [docs/mission-spine/README.md](docs/mission-spine/README.md)
 - 아키텍처: [documents/03_프로젝트_아키텍처_정의서](https://github.com/DevPathAi/documents/blob/main/03_프로젝트_아키텍처_정의서.md)
 - 배포 가이드: [documents/14_배포_가이드](https://github.com/DevPathAi/documents/blob/main/14_배포_가이드.md)

@@ -4,6 +4,8 @@
 
 이 문서는 Mission Spine 릴리스 코드와 producer 변경을 다음 운영자에게 안전하게 넘기기 위한 인수 문서다. 기준일은 2026-08-17(KST)이다.
 
+설계·QA·검토 원본과 외부 문서 이동 기록은 [Mission Spine 문서 인덱스](mission-spine/README.md)에서 찾는다.
+
 현재 판정은 **코드 통합 진행 가능, 패키지 게시·candidate 생성·production dispatch·배포는 HOLD**다. 이 작업에서 관리자 우회, 강제 푸시, 환경 승인, 패키지·이미지 게시, Kubernetes 변경, Cloudflare 배포는 수행하지 않았다.
 
 HOLD는 다음 조건 중 하나라도 남아 있으면 해제할 수 없다.
@@ -220,5 +222,42 @@ GitHub CI URL은 각 PR의 Checks 탭을 권위값으로 사용하고, merge 직
 - [ ] Kubernetes/Cloudflare/environment secrets를 최소 권한으로 배치
 - [ ] final candidate GitOps base와 모든 producer SHA/digest 재바인드
 - [ ] 실제 배포 전 별도 GO 기록
+- [x] Mission Spine 외부 작성 산출물 16개를 workspace 내부로 해시 보존 이동하고 문서 인덱스·이동 대장을 기록
 
 이 체크리스트가 모두 채워지기 전에는 “릴리스 완료” 또는 “production GO”로 표시하지 않는다.
+
+## 10. 문서 정리 및 외부 산출물 이동
+
+2026-08-17에 이번 작업의 설계·QA·검토·결정 이력을 `D:\workspace\dpa` 외부의 `.gstack` 프로젝트 저장소에서 이 GitOps 저장소의 `docs/mission-spine/supporting-artifacts/2026-08-15/`로 이동했다. 각 이동은 원본이 workspace 밖인지, 목적지가 workspace 안인지, 목적지가 비어 있는지 확인한 뒤 수행했으며 이동 전후 SHA-256이 같은지 검증했다. 아래 원본 경로에는 이동 완료 후 파일이 남아 있지 않다.
+
+| 외부 원본 | 내부 파일 | bytes | SHA-256 |
+|---|---|---:|---|
+| `C:\Users\deepe\.gstack\projects\dpa\deepe-unknown-design-20260815-144643.md` | [`mission-spine-design.md`](mission-spine/supporting-artifacts/2026-08-15/mission-spine-design.md) | 137209 | `d901e288305a21129999f692badf16928a9170d572142edf1c3562ba7d7d5691` |
+| `C:\Users\deepe\.gstack\projects\dpa\deepe-unknown-eng-review-test-plan-20260815-175227.md` | [`mission-spine-engineering-qa-plan.md`](mission-spine/supporting-artifacts/2026-08-15/mission-spine-engineering-qa-plan.md) | 14266 | `64e0580349ffd5754afed8d6edeb19b05e629c415ef07a895f1752db179baa2b` |
+| `C:\Users\deepe\.gstack\projects\dpa\claude-independent-plan-review-20260815-183722.json` | [`independent-plan-review.json`](mission-spine/supporting-artifacts/2026-08-15/independent-plan-review.json) | 12489 | `fd0319854b6751f1d3485e58f65b5b04a2c60240f625b4b85d9018b208ae7321` |
+| `C:\Users\deepe\.gstack\projects\dpa\tasks-design-review-20260815-162335.jsonl` | [`design-review-tasks.jsonl`](mission-spine/supporting-artifacts/2026-08-15/design-review-tasks.jsonl) | 6813 | `860ddc1733154a81c6899eb6c1fffb59cc71ef3f188b0522c8a1e6085d6a5572` |
+| `C:\Users\deepe\.gstack\projects\dpa\tasks-eng-review-20260815-175227.jsonl` | [`engineering-review-tasks.jsonl`](mission-spine/supporting-artifacts/2026-08-15/engineering-review-tasks.jsonl) | 8911 | `e5fc9f22b95a3a2a2e17d1eb95d96bc8066ea38f57464bfc516654b0300bf656` |
+| `C:\Users\deepe\.gstack\projects\dpa\question-log.jsonl` | [`decision-question-log.jsonl`](mission-spine/supporting-artifacts/2026-08-15/decision-question-log.jsonl) | 10855 | `e10b9ab689736e3b4a99a887c6fe9d0592ef70b6cd28a1b46b51d6ebc8a777de` |
+| `C:\Users\deepe\.gstack\projects\dpa\learnings.jsonl` | [`learnings.jsonl`](mission-spine/supporting-artifacts/2026-08-15/learnings.jsonl) | 2116 | `d5aac911827eb2ba209e4713a764214bf0e8f6c76826158c854976a9f25a0a4c` |
+| `C:\Users\deepe\.gstack\projects\dpa\unknown-reviews.jsonl` | [`review-summary.jsonl`](mission-spine/supporting-artifacts/2026-08-15/review-summary.jsonl) | 644 | `2b186128baa90077845552d5281f85b6099916eae458fc6f79e571a9cd28ea06` |
+| `C:\Users\deepe\.gstack\projects\dpa\timeline.jsonl` | [`timeline.jsonl`](mission-spine/supporting-artifacts/2026-08-15/timeline.jsonl) | 1429 | `1597359724449dedd48fce918ad702cc8c699b2ad09938e3e195243a32205d54` |
+| `C:\Users\deepe\.gstack\projects\DevPathAi-devpath-frontend\featmission-spine-et7-today-reviews.jsonl` | [`frontend-et7-review-log.jsonl`](mission-spine/supporting-artifacts/2026-08-15/frontend-et7-review-log.jsonl) | 2442 | `5cf1c42430a4e6a202cf805e3bee5245ba5915ac6f1ed14dda964c336333ac49` |
+| `C:\Users\deepe\.gstack\projects\DevPathAi-devpath-frontend\featmission-spine-et9-mentor-context-reviews.jsonl` | [`frontend-et9-review-log.jsonl`](mission-spine/supporting-artifacts/2026-08-15/frontend-et9-review-log.jsonl) | 831 | `c3545feef44278a8e14d4cac2533e418a9634fd8651a30f8a1b4a1ccf2d1b7bb` |
+| `C:\Users\deepe\.gstack\projects\DevPathAi-devpath-gitops\timeline.jsonl` | [`gitops-timeline.jsonl`](mission-spine/supporting-artifacts/2026-08-15/gitops-timeline.jsonl) | 1132 | `17b9276fe600cfd0a10fc0c7531fcc3c7b50c95cb69c392679a591f80868bb20` |
+| `C:\Users\deepe\.gstack\projects\DevPathAi-devpath-shared\timeline.jsonl` | [`shared-timeline.jsonl`](mission-spine/supporting-artifacts/2026-08-15/shared-timeline.jsonl) | 148 | `6caa188fdc7ac39f0b9cd10434b0828ba86a2de4bacf1d2298c7ec8ecbe6bdf7` |
+| `C:\Users\deepe\.gstack\projects\DevPathAi-devpath-lcs-svc\timeline.jsonl` | [`lcs-timeline.jsonl`](mission-spine/supporting-artifacts/2026-08-15/lcs-timeline.jsonl) | 135 | `f4bae028f97dd2a128690d5a41931e18d2ff5564f4e37441be8b2b01b8ec4581` |
+| `C:\Users\deepe\.gstack\projects\DevPathAi-devpath-home-page\timeline.jsonl` | [`home-timeline.jsonl`](mission-spine/supporting-artifacts/2026-08-15/home-timeline.jsonl) | 620 | `1ad9966ec4187cd2e2f0b12220cfb5c398a6ad498f6f36436eb4738bd6e4a166` |
+| `C:\Users\deepe\.gstack\projects\DevPathAi-devpath-frontend\timeline.jsonl` | [`frontend-timeline.jsonl`](mission-spine/supporting-artifacts/2026-08-15/frontend-timeline.jsonl) | 2077 | `66696f7187e6395c49ad4dc53123e1a4164593ecea2620cb5335d08d66418670` |
+
+### 외부 중복 사본과 제외 범위
+
+다음 임시 체크아웃 파일은 workspace 내부의 tracked 원본과 byte-for-byte 동일하므로 새 문서로 중복 편입하지 않았다.
+
+| 외부 임시 사본 | workspace 내부 원본 | SHA-256 | 처리 |
+|---|---|---|---|
+| `C:\Users\deepe\AppData\Local\Temp\dpa-home-shallow-audit-0b7f79e50b4f4a449a7202c4fc41fbbe\HANDOFF.md` | `D:\workspace\dpa\devpath-home-page\HANDOFF.md` | `c735bb3c2f2878f8cf7e2ec051941702e27dad67e5a4049f81183a17d9bf4c7b` | 내부 원본 확인, 임시 clone 사본은 이동 대상 제외 |
+| `C:\Users\deepe\AppData\Local\Temp\shared-et9-lf-0245cd774ccd41c4b087badab747a564\docs\superpowers\handoff-2026-06-13-image-pipeline.md` | `D:\workspace\dpa\devpath-shared\docs\superpowers\handoff-2026-06-13-image-pipeline.md` | `77dfab1f8838de5cf2bda605cfbf4f2c6cf6dc73ee894bf54de03ef1a3eec888` | 내부 원본 확인, 임시 clone 사본은 이동 대상 제외 |
+| `C:\Users\deepe\AppData\Local\Temp\shared-et9-lf-0245cd774ccd41c4b087badab747a564\docs\superpowers\handoff-2026-06-13.md` | `D:\workspace\dpa\devpath-shared\docs\superpowers\handoff-2026-06-13.md` | `a1527af343b0d221a1daab54706b3f99cbc9a4f4696ae548541817741ca269a4` | 내부 원본 확인, 임시 clone 사본은 이동 대상 제외 |
+| `C:\Users\deepe\AppData\Local\Temp\dpa-home-shallow-audit-0b7f79e50b4f4a449a7202c4fc41fbbe\src\analytics\mission-spine.analytics.v1.json` | `D:\workspace\dpa\.worktrees\home-et13-evidence\src\analytics\mission-spine.analytics.v1.json` | `486256fd212b96ea2fec0c6a95e22676b708989f94c0ca974276d6bd5f6b4908` | 코드 자산의 tracked clone 사본, 문서 이동 대상 제외 |
+
+전역 `.gstack` 설정, `repo-mode.json`, 일반 analytics/tuning 로그, npm·Wrangler·BuildKit 캐시, build artifact, `__pycache__`, 비밀 파일은 문서가 아니므로 제외했다. 이동 후보 16개에는 private-key, GitHub token, cloud/provider key 패턴이 없음을 확인했다. 이동 후 `C:\Users\deepe\.gstack\projects`의 Markdown/JSON/JSONL에서 Mission Spine 식별자를 다시 검색했으며 남은 관련 문서는 0개였다.
