@@ -301,19 +301,30 @@ Mission Spine의 「현재 미션」 조회는 `learning_paths`(ACTIVE) → `pat
 
 ### 2026-08-17 진행 결과
 
-비동기화 구간은 구현·검증을 마쳤고 세 저장소에 PR 로 올려 두었다.
+비동기화 구간은 구현·검증을 마쳤고 네 저장소에서 `develop` 까지 병합했다.
 
 | 저장소 | PR | 상태 | 내용 |
 |---|---|---|---|
-| learning-svc | [#52](https://github.com/DevPathAi/devpath-learning-svc/pull/52) | build **GREEN**(2m1s), develop 리뷰 대기 | 생성을 사용자당 하나의 작업으로 분리, 구독 실패가 생성을 중단시키지 못하게 하고, `GET /learning-paths/me/generation` 추가 |
-| gitops | [#64](https://github.com/DevPathAi/devpath-gitops/pull/64) | **Draft/HOLD — 머지 금지** | `AI_SVC_TIMEOUT`·`OLLAMA_TIMEOUT` 을 `PT900S` 로. develop 에 넣으면 릴리스 PR #59 head 에 실리므로 HOLD 해제 후 처리 |
-| documents | [#99](https://github.com/DevPathAi/documents/pull/99) | 리뷰 대기 | API 명세 §3.1·§3.2 |
-| ai-svc | [#36](https://github.com/DevPathAi/devpath-ai-svc/pull/36) | 리뷰 대기 | 로컬 실측에서 드러난 결함 2건 — 학습경로만 영어 · 12주 계약 미검증 |
-| ai-svc | [#37](https://github.com/DevPathAi/devpath-ai-svc/pull/37) | 리뷰 대기(#36 위 스택) | 경로 생성 Ollama 를 임베딩과 분리(GPU 이중화 전제) |
+| learning-svc | [#52](https://github.com/DevPathAi/devpath-learning-svc/pull/52) | **develop 병합** `e9671e04` | 생성을 사용자당 하나의 작업으로 분리, 구독 실패가 생성을 중단시키지 못하게 하고, `GET /learning-paths/me/generation` 추가 |
+| ai-svc | [#36](https://github.com/DevPathAi/devpath-ai-svc/pull/36) | **develop 병합** `a05e8707` | 학습경로만 영어로 나오던 것과 12주 계약 미검증을 닫음 |
+| ai-svc | [#37](https://github.com/DevPathAi/devpath-ai-svc/pull/37) | **develop 병합** `f39c54bf` | 경로 생성 Ollama 를 임베딩과 분리(GPU 이중화 전제) + 환경 변수 배선 |
+| gitops | [#64](https://github.com/DevPathAi/devpath-gitops/pull/64) | **develop 병합** `b662cd27` | GPU 전용 Ollama 앱 · 테인트 격리 · device plugin · 경로 타임아웃 |
+| documents | [#99](https://github.com/DevPathAi/documents/pull/99) | **develop 병합** `a0bc2ac0` | API 명세 §3.1·§3.2 |
+
+이 다섯 건은 모두 **`develop` 까지만** 들어갔다. `develop` 머지는 아무것도 배포하지 않는다 — ArgoCD 는 `main` 을 본다. 병합 직후 운영 ArgoCD 애플리케이션 13개는 전부 `Synced/Healthy` 로 변화가 없음을 확인했다.
+
+### ⚠ 릴리스 범위가 넓어졌다 — main 게이트 두 개
+
+gitops `develop` 이 곧 릴리스 PR [#59](https://github.com/DevPathAi/devpath-gitops/pull/59) 의 head 이므로, GPU 매니페스트가 **릴리스 범위에 들어왔다**(`git diff --name-only origin/main...origin/develop` = 118개 파일, 그중 `apps/devpath-ollama-gpu/` 4개). `gh pr diff` 는 20000줄 초과로 406 을 내므로 이 확인에는 쓸 수 없다.
+
+`main` 에 닿기 전에 다음 둘이 충족돼야 한다. 아니면 학습경로 생성은 지금보다 **더 빨리** 실패한다.
+
+1. **GPU 노드가 실재해야 한다.** 검증용 온디맨드 노드는 종료했고 스팟 쿼터 `L-3819A6DF` 는 `CASE_OPENED` 다. 노드가 없으면 `ollama-gpu` 는 `nodeSelector` 를 만족하는 노드가 없어 영구 `Pending` 이고, ai-svc 의 `OLLAMA_PATH_BASE_URL` 은 엔드포인트 없는 서비스를 가리킨다.
+2. **ai-svc 이미지가 `OLLAMA_PATH_*` 를 읽을 수 있어야 한다.** #37 은 develop 에 있지만 그 코드가 담긴 이미지가 배포되기 전에는 이 env 를 아무도 읽지 않는다.
 
 learning-svc 검증: `./gradlew build` 성공, 테스트 클래스 66·테스트 **245**(기존 234 + 신규 11)·실패 0·오류 0·스킵 0. `PathGenerationSurvivesDisconnectIT` 는 구독자 예외 보호를 임시 제거하면 red, 되돌리면 green 임을 확인해 **판별력을 실측**했다.
 
-D1 은 gitops PR #64 가 HOLD 라 아직 운영에 적용되지 않는다. **즉 지금 배포해도 학습경로는 여전히 PT8S 에서 끊긴다.** D2·D3 만 코드로 닫혔다.
+D1(타임아웃)은 `develop` 에 들어갔지만 **아직 운영에 적용되지 않았다** — 배포는 `main` 을 거쳐야 하고 그건 위의 게이트 두 개에 막혀 있다. 즉 현재 운영은 여전히 PT8S 에서 끊긴다. D2·D3 는 코드로 닫혔다.
 
 ### 로컬 실측 — 목이 아니라 실제 Ollama 로 끝까지 돌렸다
 
