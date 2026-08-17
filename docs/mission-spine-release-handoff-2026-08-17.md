@@ -301,7 +301,7 @@ Mission Spine의 「현재 미션」 조회는 `learning_paths`(ACTIVE) → `pat
 
 ### 2026-08-17 진행 결과
 
-비동기화 구간은 구현·검증을 마쳤고 세 저장소에 PR 로 올려 두었다.
+비동기화 구간은 구현·검증을 마쳤고 네 저장소에서 `develop` 까지 병합했다.
 
 | 저장소 | PR | 상태 | 내용 |
 |---|---|---|---|
@@ -324,7 +324,7 @@ gitops `develop` 이 곧 릴리스 PR [#59](https://github.com/DevPathAi/devpath
 
 learning-svc 검증: `./gradlew build` 성공, 테스트 클래스 66·테스트 **245**(기존 234 + 신규 11)·실패 0·오류 0·스킵 0. `PathGenerationSurvivesDisconnectIT` 는 구독자 예외 보호를 임시 제거하면 red, 되돌리면 green 임을 확인해 **판별력을 실측**했다.
 
-D1 은 gitops PR #64 가 HOLD 라 아직 운영에 적용되지 않는다. **즉 지금 배포해도 학습경로는 여전히 PT8S 에서 끊긴다.** D2·D3 만 코드로 닫혔다.
+D1(타임아웃)은 `develop` 에 들어갔지만 **아직 운영에 적용되지 않았다** — 배포는 `main` 을 거쳐야 하고 그건 위의 게이트 두 개에 막혀 있다. 즉 현재 운영은 여전히 PT8S 에서 끊긴다. D2·D3 는 코드로 닫혔다.
 
 ### 로컬 실측 — 목이 아니라 실제 Ollama 로 끝까지 돌렸다
 
