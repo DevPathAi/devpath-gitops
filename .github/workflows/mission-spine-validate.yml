@@ -1,0 +1,454 @@
+name: Mission Spine - candidate journeys and staging validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: Immutable Mission Spine candidate release ID
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  deployments: read
+
+env:
+  RELEASE_ID: ${{ inputs.release_id }}
+  PYTHONDONTWRITEBYTECODE: "1"
+
+concurrency:
+  group: mission-spine-staging
+  cancel-in-progress: false
+
+jobs:
+  candidate-journeys:
+    name: Run candidate journeys
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: mission-spine-staging
+    permissions:
+      actions: read
+      contents: read
+      deployments: read
+    outputs:
+      activation_artifact_id: ${{ steps.upload_activation.outputs.artifact-id }}
+      contextual_artifact_id: ${{ steps.upload_contextual.outputs.artifact-id }}
+      home_quality_artifact_id: ${{ steps.upload_home_quality.outputs.artifact-id }}
+      candidate_spec_sha256: ${{ steps.candidate.outputs.candidate_spec_sha256 }}
+      candidate_head_sha: ${{ steps.candidate.outputs.candidate_head_sha }}
+      home_source_sha: ${{ steps.candidate_manifest.outputs.home_source_sha }}
+      validator_run_attempt: ${{ steps.candidate.outputs.validator_run_attempt }}
+    steps:
+      - name: Checkout exact protected-main control bytes
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: control
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+      - name: Authenticate current protected main control before staging approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/verify_main_release_context.py \
+            --control-root "$GITHUB_WORKSPACE/control" \
+            --workflow-path .github/workflows/mission-spine-validate.yml \
+            --release-id "$RELEASE_ID" --mode control
+      - name: Authenticate this attempt-one protected staging approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/verify_current_protected_approval.py \
+            --environment mission-spine-staging \
+            --job-name 'Run candidate journeys' \
+            --workflow-path .github/workflows/mission-spine-validate.yml
+      - name: Checkout candidate branch as data only
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: release/candidate-${{ inputs.release_id }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: candidate-data
+      - name: Authenticate exact candidate artifact and B-to-C data tree
+        id: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_EVIDENCE_TOKEN: ${{ secrets.RELEASE_EVIDENCE_TOKEN }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/verify_main_release_context.py \
+            --control-root "$GITHUB_WORKSPACE/control" \
+            --data-root "$GITHUB_WORKSPACE/candidate-data" \
+            --workflow-path .github/workflows/mission-spine-validate.yml \
+            --release-id "$RELEASE_ID" --mode candidate \
+            --github-output "$GITHUB_OUTPUT"
+          echo "validator_run_attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+      - name: Resolve authenticated candidate fields with trusted code
+        id: candidate_manifest
+        run: |
+          set -euo pipefail
+          python control/scripts/release/validate_release_manifest.py \
+            --root "$GITHUB_WORKSPACE/candidate-data" --candidate-id "$RELEASE_ID" \
+            --emit-github-output "$GITHUB_OUTPUT"
+      - name: Checkout the candidate's exact Home source SHA without persisted credentials
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          repository: DevPathAi/devpath-home-page
+          ref: ${{ steps.candidate_manifest.outputs.home_source_sha }}
+          token: ${{ secrets.RELEASE_EVIDENCE_TOKEN }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: home
+      - name: Prove pinned Home checkout
+        working-directory: home
+        env:
+          CANDIDATE_SPEC_PATH: ${{ steps.candidate.outputs.candidate_spec_path }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ steps.candidate_manifest.outputs.home_source_sha }}"
+          rendered_product_sha="$(jq -er '.quality_evidence_inputs.catalogs["home-visual"].rendered_product_sha' "$CANDIDATE_SPEC_PATH")"
+          git cat-file -e "$rendered_product_sha^{commit}"
+          git merge-base --is-ancestor \
+            "$rendered_product_sha" "${{ steps.candidate_manifest.outputs.home_source_sha }}"
+      - name: Generate candidate-bound Home visual and accessibility evidence
+        working-directory: home
+        env:
+          MISSION_CANDIDATE_SPEC_PATH: ${{ steps.candidate.outputs.candidate_spec_path }}
+          MISSION_CANDIDATE_SPEC_SHA256: ${{ steps.candidate.outputs.candidate_spec_sha256 }}
+        run: |
+          set -euo pipefail
+          test -f "$MISSION_CANDIDATE_SPEC_PATH"
+          test "$(sha256sum "$MISSION_CANDIDATE_SPEC_PATH" | awk '{print $1}')" = \
+            "$MISSION_CANDIDATE_SPEC_SHA256"
+          test ! -e test-results/visual-a11y/manifests
+          npm run visual:evidence:docker
+          test "$(sha256sum "$MISSION_CANDIDATE_SPEC_PATH" | awk '{print $1}')" = \
+            "$MISSION_CANDIDATE_SPEC_SHA256"
+          test -f test-results/visual-a11y/manifests/visual-evidence.v2.json
+          test -f test-results/visual-a11y/manifests/a11y-evidence.v2.json
+      - name: Upload candidate-bound Home quality evidence
+        id: upload_home_quality
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: ${{ inputs.release_id }}-home-visual-a11y-attempt-${{ github.run_attempt }}
+          path: home/test-results/visual-a11y/manifests/
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: false
+          include-hidden-files: false
+      - name: Install deterministic Home journey harness
+        working-directory: home
+        run: |
+          set -euo pipefail
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Run exactly two live cross-service journeys
+        working-directory: home
+        env:
+          MISSION_CANDIDATE_SPEC_PATH: ${{ steps.candidate.outputs.candidate_spec_path }}
+          MISSION_CANDIDATE_SPEC_SHA256: ${{ steps.candidate.outputs.candidate_spec_sha256 }}
+          MISSION_RELEASE_CONTROL_TOKEN: ${{ secrets.MISSION_RELEASE_CONTROL_TOKEN }}
+          MISSION_RELEASE_EVIDENCE_DIR: ${{ runner.temp }}/mission-spine-journeys
+        run: |
+          set -euo pipefail
+          test -n "${MISSION_RELEASE_CONTROL_TOKEN:-}"
+          test ! -e "$MISSION_RELEASE_EVIDENCE_DIR"
+          npm run test:release
+      - name: Validate and byte-copy the two sanitized journey outputs
+        id: journey
+        run: |
+          set -euo pipefail
+          python control/scripts/release/prepare_journey_evidence.py \
+            --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
+            --evidence-dir "$RUNNER_TEMP/mission-spine-journeys" \
+            --output-dir "$RUNNER_TEMP/mission-spine-artifacts" \
+            --github-output "$GITHUB_OUTPUT"
+      - name: Upload activation evidence
+        id: upload_activation
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: ${{ inputs.release_id }}-journey-activation-attempt-${{ github.run_attempt }}
+          path: ${{ steps.journey.outputs.activation_path }}
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: false
+          include-hidden-files: false
+      - name: Upload contextual practice evidence
+        id: upload_contextual
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: ${{ inputs.release_id }}-journey-contextual-practice-attempt-${{ github.run_attempt }}
+          path: ${{ steps.journey.outputs.contextual_path }}
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: false
+          include-hidden-files: false
+
+  seal-and-staging:
+    name: Seal and validate staging
+    needs: candidate-journeys
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    environment: mission-spine-staging
+    permissions:
+      actions: read
+      contents: write
+      deployments: write
+    steps:
+      - name: Checkout exact protected-main control bytes
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: control
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+      - name: Authenticate current protected main control before seal approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/verify_main_release_context.py \
+            --control-root "$GITHUB_WORKSPACE/control" \
+            --workflow-path .github/workflows/mission-spine-validate.yml \
+            --release-id "$RELEASE_ID" --mode control
+      - name: Authenticate this attempt-one protected seal approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/verify_current_protected_approval.py \
+            --environment mission-spine-staging \
+            --job-name 'Seal and validate staging' \
+            --workflow-path .github/workflows/mission-spine-validate.yml
+      - name: Checkout candidate branch as data only
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: release/candidate-${{ inputs.release_id }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: candidate-data
+      - name: Re-authenticate exact candidate artifact and current C
+        id: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_EVIDENCE_TOKEN: ${{ secrets.RELEASE_EVIDENCE_TOKEN }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/verify_main_release_context.py \
+            --control-root "$GITHUB_WORKSPACE/control" \
+            --data-root "$GITHUB_WORKSPACE/candidate-data" \
+            --workflow-path .github/workflows/mission-spine-validate.yml \
+            --release-id "$RELEASE_ID" --mode candidate \
+            --github-output "$GITHUB_OUTPUT"
+          test "${{ needs.candidate-journeys.outputs.candidate_head_sha }}" = \
+            "$(sed -n 's/^candidate_head_sha=//p' "$GITHUB_OUTPUT" | tail -1)"
+      - name: Download exact activation artifact from this validator run
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          artifact-ids: ${{ needs.candidate-journeys.outputs.activation_artifact_id }}
+          path: ${{ runner.temp }}/downloaded-activation
+          merge-multiple: true
+      - name: Download exact contextual practice artifact from this validator run
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          artifact-ids: ${{ needs.candidate-journeys.outputs.contextual_artifact_id }}
+          path: ${{ runner.temp }}/downloaded-contextual
+          merge-multiple: true
+      - name: Download exact Home quality artifact from this validator run
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          artifact-ids: ${{ needs.candidate-journeys.outputs.home_quality_artifact_id }}
+          path: ${{ runner.temp }}/downloaded-home-quality
+          merge-multiple: true
+      - name: Install exact AI release renderer
+        run: |
+          set -euo pipefail
+          python control/scripts/release/install_pinned_kustomize.py \
+            --destination "$RUNNER_TEMP/mission-spine-kustomize"
+          echo "MISSION_SPINE_KUSTOMIZE_BIN=$RUNNER_TEMP/mission-spine-kustomize/kustomize" \
+            >> "$GITHUB_ENV"
+      - name: Seal final release manifest using only trusted-main code
+        env:
+          RELEASE_EVIDENCE_TOKEN: ${{ secrets.RELEASE_EVIDENCE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "${{ needs.candidate-journeys.outputs.validator_run_attempt }}" = "$GITHUB_RUN_ATTEMPT"
+          python control/scripts/release/seal_release_manifest.py \
+            --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
+            --activation-artifact-id "${{ needs.candidate-journeys.outputs.activation_artifact_id }}" \
+            --activation-evidence "$RUNNER_TEMP/downloaded-activation/evidence.json" \
+            --contextual-artifact-id "${{ needs.candidate-journeys.outputs.contextual_artifact_id }}" \
+            --contextual-evidence "$RUNNER_TEMP/downloaded-contextual/evidence.json" \
+            --home-quality-artifact-id "${{ needs.candidate-journeys.outputs.home_quality_artifact_id }}" \
+            --home-visual-evidence "$RUNNER_TEMP/downloaded-home-quality/visual-evidence.v2.json" \
+            --home-a11y-evidence "$RUNNER_TEMP/downloaded-home-quality/a11y-evidence.v2.json"
+      - name: Commit and CAS-push only the sealed release data
+        id: sealed_commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_HEAD: ${{ steps.candidate.outputs.candidate_head_sha }}
+        run: |
+          set -euo pipefail
+          release_path="release-manifests/releases/$RELEASE_ID.json"
+          python control/scripts/release/verify_main_release_context.py \
+            --control-root "$GITHUB_WORKSPACE/control" \
+            --workflow-path .github/workflows/mission-spine-validate.yml \
+            --release-id "$RELEASE_ID" --mode control
+          test "$(git -C candidate-data status --porcelain=v1 --untracked-files=all)" = "?? $release_path"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/branches/release%2Fcandidate-$RELEASE_ID" --jq .commit.sha)" = "$CANDIDATE_HEAD"
+          git -C candidate-data config user.name "devpath-release-bot"
+          git -C candidate-data config user.email "release-bot@users.noreply.github.com"
+          git -C candidate-data add "$release_path"
+          git -C candidate-data commit -m "release(manifest): seal $RELEASE_ID validation attestation"
+          sealed_sha="$(git -C candidate-data rev-parse HEAD)"
+          gh auth setup-git
+          git -C candidate-data push origin "HEAD:refs/heads/release/candidate-$RELEASE_ID"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/branches/release%2Fcandidate-$RELEASE_ID" --jq .commit.sha)" = "$sealed_sha"
+          echo "sealed_release_sha=$sealed_sha" >> "$GITHUB_OUTPUT"
+      - name: Authenticate the pushed B-to-C-to-R data chain
+        id: sealed_context
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/verify_main_release_context.py \
+            --control-root "$GITHUB_WORKSPACE/control" \
+            --data-root "$GITHUB_WORKSPACE/candidate-data" \
+            --workflow-path .github/workflows/mission-spine-validate.yml \
+            --release-id "$RELEASE_ID" --mode sealed \
+            --github-output "$GITHUB_OUTPUT"
+          test "${{ steps.sealed_commit.outputs.sealed_release_sha }}" = \
+            "$(sed -n 's/^sealed_release_sha=//p' "$GITHUB_OUTPUT" | tail -1)"
+      - name: Validate sealed final bundle with trusted-main code
+        id: release
+        run: |
+          set -euo pipefail
+          python control/scripts/release/validate_release_manifest.py \
+            --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
+            --emit-github-output "$GITHUB_OUTPUT"
+      - name: Prove final sealed fields still bind the candidate journey
+        run: |
+          set -euo pipefail
+          test "${{ steps.release.outputs.candidate_spec_sha256 }}" = \
+            "${{ needs.candidate-journeys.outputs.candidate_spec_sha256 }}"
+          test "${{ steps.release.outputs.home_source_sha }}" = \
+            "${{ needs.candidate-journeys.outputs.home_source_sha }}"
+      - uses: azure/setup-kubectl@829323503d1be3d00ca8346e5391ca0b07a9ab0d # v5.1.0
+        with:
+          version: v1.36.2
+      - name: Configure approved staging cluster
+        id: kube
+        env:
+          STAGING_KUBECONFIG_B64: ${{ secrets.STAGING_KUBECONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/verify_main_release_context.py \
+            --control-root "$GITHUB_WORKSPACE/control" \
+            --data-root "$GITHUB_WORKSPACE/candidate-data" \
+            --workflow-path .github/workflows/mission-spine-validate.yml \
+            --release-id "$RELEASE_ID" --mode sealed
+          test -n "${STAGING_KUBECONFIG_B64:-}"
+          python control/scripts/release/manage_production_kubeconfig.py create \
+            --scope staging --runner-temp "$RUNNER_TEMP" --github-env "$GITHUB_ENV"
+      - name: Verify live prior CAS, then stage exact OFF and ON digests
+        env:
+          MISSION_SYNTHETIC_PROBE_TOKEN: ${{ secrets.MISSION_SYNTHETIC_PROBE_TOKEN }}
+          CONTEXT: ${{ steps.release.outputs.staging_context }}
+          NAMESPACE: ${{ steps.release.outputs.staging_namespace }}
+          DEPLOYMENT: ${{ steps.release.outputs.staging_deployment }}
+          CONTAINER: ${{ steps.release.outputs.staging_container }}
+          OFF_DIGEST: ${{ steps.release.outputs.web_off_digest }}
+          ON_DIGEST: ${{ steps.release.outputs.web_on_digest }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/wait_web_rollout.py \
+            --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
+            --environment staging --phase prior --canary-seconds 0
+          kubectl --context "$CONTEXT" -n "$NAMESPACE" set image \
+            "deployment/$DEPLOYMENT" "$CONTAINER=ghcr.io/devpathai/devpath-web@$OFF_DIGEST"
+          python control/scripts/release/wait_web_rollout.py \
+            --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
+            --environment staging --phase mission-off --canary-seconds 0
+          kubectl --context "$CONTEXT" -n "$NAMESPACE" set image \
+            "deployment/$DEPLOYMENT" "$CONTAINER=ghcr.io/devpathai/devpath-web@$ON_DIGEST"
+          python control/scripts/release/wait_web_rollout.py \
+            --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
+            --environment staging --phase mission-on --canary-seconds 0
+      - name: Rehearse reverse rollback within 600 seconds
+        id: reverse
+        env:
+          MISSION_SYNTHETIC_PROBE_TOKEN: ${{ secrets.MISSION_SYNTHETIC_PROBE_TOKEN }}
+          CONTEXT: ${{ steps.release.outputs.staging_context }}
+          NAMESPACE: ${{ steps.release.outputs.staging_namespace }}
+          DEPLOYMENT: ${{ steps.release.outputs.staging_deployment }}
+          CONTAINER: ${{ steps.release.outputs.staging_container }}
+          OFF_DIGEST: ${{ steps.release.outputs.web_off_digest }}
+          PRIOR_DIGEST: ${{ steps.release.outputs.web_prior_digest }}
+        run: |
+          set -euo pipefail
+          started="$(date +%s)"
+          kubectl --context "$CONTEXT" -n "$NAMESPACE" set image \
+            "deployment/$DEPLOYMENT" "$CONTAINER=ghcr.io/devpathai/devpath-web@$OFF_DIGEST"
+          python control/scripts/release/wait_web_rollout.py \
+            --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
+            --environment staging --phase mission-off --canary-seconds 0
+          kubectl --context "$CONTEXT" -n "$NAMESPACE" set image \
+            "deployment/$DEPLOYMENT" "$CONTAINER=ghcr.io/devpathai/devpath-web@$PRIOR_DIGEST"
+          python control/scripts/release/wait_web_rollout.py \
+            --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
+            --environment staging --phase prior --canary-seconds 0
+          elapsed=$(( $(date +%s) - started ))
+          test "$elapsed" -le 600
+          echo "rollback_seconds=$elapsed" >> "$GITHUB_OUTPUT"
+      - name: Record sanitized sealed-validation evidence
+        env:
+          CANDIDATE_SHA: ${{ steps.release.outputs.candidate_spec_sha256 }}
+          RELEASE_MANIFEST_SHA: ${{ steps.release.outputs.release_manifest_sha256 }}
+          ROLLBACK_SECONDS: ${{ steps.reverse.outputs.rollback_seconds }}
+        run: |
+          set -euo pipefail
+          validator_workflow_sha="$(git -C control show "$GITHUB_SHA:.github/workflows/mission-spine-validate.yml" | sha256sum | awk '{print $1}')"
+          install -d -m 0700 "$RUNNER_TEMP/staging-evidence"
+          printf '{"release_id":"%s","candidate_spec_sha256":"%s","release_manifest_sha256":"%s","status":"passed","rollback_seconds":%s,"validator_run_id":%s,"validator_run_attempt":%s,"validator_head_sha":"%s","validator_workflow_sha256":"%s"}\n' \
+            "$RELEASE_ID" "$CANDIDATE_SHA" "$RELEASE_MANIFEST_SHA" \
+            "$ROLLBACK_SECONDS" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" \
+            "$GITHUB_SHA" "$validator_workflow_sha" \
+            > "$RUNNER_TEMP/staging-evidence/evidence.json"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: ${{ inputs.release_id }}-sealed-validation-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/staging-evidence/evidence.json
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: false
+          include-hidden-files: false
+      - name: Fail-safe restore recorded staging prior digest
+        if: always() && steps.kube.outcome == 'success'
+        env:
+          CONTEXT: ${{ steps.release.outputs.staging_context }}
+          NAMESPACE: ${{ steps.release.outputs.staging_namespace }}
+          DEPLOYMENT: ${{ steps.release.outputs.staging_deployment }}
+          CONTAINER: ${{ steps.release.outputs.staging_container }}
+          PRIOR_DIGEST: ${{ steps.release.outputs.web_prior_digest }}
+        run: |
+          set -euo pipefail
+          kubectl --context "$CONTEXT" -n "$NAMESPACE" set image \
+            "deployment/$DEPLOYMENT" "$CONTAINER=ghcr.io/devpathai/devpath-web@$PRIOR_DIGEST"
+          python control/scripts/release/wait_web_rollout.py \
+            --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
+            --environment staging --phase prior --canary-seconds 0
+      - name: Remove the exact staging kubeconfig
+        if: always()
+        run: |
+          set -euo pipefail
+          python control/scripts/release/manage_production_kubeconfig.py cleanup \
+            --runner-temp "$RUNNER_TEMP" --path "${KUBECONFIG:-}"

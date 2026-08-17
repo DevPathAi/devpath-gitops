@@ -1,0 +1,88 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sandbox-migration-preflight
+data:
+  preflight.sh: |
+    #!/bin/sh
+    set -eu
+
+    required_et8_commit="2b03c38934fdd19332da59107e4330a3af92d078"
+    required_commit="96a5cdb9d95689759afb229b4d1e29b9bd221793"
+    required_et8_target="202608161008"
+    required_target="202608161011"
+    [ "${EXPECTED_ET8_SHARED_COMMIT:-}" = "$required_et8_commit" ] || {
+      echo "exact ET8 shared checkpoint is not approved" >&2
+      exit 1
+    }
+    [ "${EXPECTED_SHARED_COMMIT:-}" = "$required_commit" ] || {
+      echo "exact final shared migration commit is not approved" >&2
+      exit 1
+    }
+    [ "${ET8_FLYWAY_VERSION:-}" = "$required_et8_target" ] || {
+      echo "final ET8 Flyway checkpoint is not approved" >&2
+      exit 1
+    }
+    [ "${TARGET_FLYWAY_VERSION:-}" = "$required_target" ] || {
+      echo "final shared Flyway target is not approved" >&2
+      exit 1
+    }
+    [ "${MAINTENANCE_APPROVED:-}" = "true" ] || {
+      echo "Sandbox migration maintenance approval is required" >&2
+      exit 1
+    }
+    case "${MAX_SANDBOX_SESSIONS_BYTES:-}" in
+      ''|*[!0-9]*)
+        echo "MAX_SANDBOX_SESSIONS_BYTES must be an explicitly approved integer" >&2
+        exit 1
+        ;;
+    esac
+
+    postgres_url="${FLYWAY_URL#jdbc:}"
+    export PGUSER="$FLYWAY_USER"
+    export PGPASSWORD="$FLYWAY_PASSWORD"
+    export PGCONNECT_TIMEOUT=5
+    export PGOPTIONS="-c lock_timeout=${LOCK_TIMEOUT_MS:-2000}ms -c statement_timeout=${STATEMENT_TIMEOUT_MS:-30000}ms"
+
+    duplicate_active_users="$(psql "$postgres_url" -v ON_ERROR_STOP=1 -Atc "
+      SELECT count(*)
+      FROM (
+        SELECT user_id
+        FROM sandbox_sessions
+        WHERE status IN ('ALLOCATING', 'RUNNING')
+        GROUP BY user_id
+        HAVING count(*) > 1
+      ) duplicates
+    ")"
+    [ "$duplicate_active_users" = "0" ] || {
+      echo "duplicate_active_users=$duplicate_active_users; migration refused" >&2
+      exit 1
+    }
+
+    sandbox_sessions_bytes="$(psql "$postgres_url" -v ON_ERROR_STOP=1 -Atc \
+      "SELECT pg_total_relation_size('sandbox_sessions')")"
+    [ "$sandbox_sessions_bytes" -le "$MAX_SANDBOX_SESSIONS_BYTES" ] || {
+      echo "sandbox_sessions_bytes=$sandbox_sessions_bytes exceeds approved bound" >&2
+      exit 1
+    }
+
+    active_database_sessions="$(psql "$postgres_url" -v ON_ERROR_STOP=1 -Atc "
+      SELECT count(*)
+      FROM pg_stat_activity
+      WHERE datname = current_database()
+        AND pid <> pg_backend_pid()
+        AND backend_type = 'client backend'
+        AND state <> 'idle'
+    ")"
+    [ "$active_database_sessions" = "0" ] || {
+      echo "active_database_sessions=$active_database_sessions; maintenance is not quiescent" >&2
+      exit 1
+    }
+
+    psql "$postgres_url" -v ON_ERROR_STOP=1 <<'SQL'
+    BEGIN;
+    LOCK TABLE sandbox_sessions IN ACCESS EXCLUSIVE MODE NOWAIT;
+    ROLLBACK;
+    SQL
+
+    echo "Sandbox V202608161001 lock preflight passed for ET8 V202608161008 -> final V202608161011; historical SQL remains immutable"

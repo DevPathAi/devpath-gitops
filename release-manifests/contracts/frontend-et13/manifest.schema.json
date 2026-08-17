@@ -1,0 +1,243 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://leva.ai.kr/schemas/et13/manifest.v1.json",
+  "title": "Leva ET13 production evidence manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evidence_mode",
+    "case_catalog_version",
+    "case_catalog_schema_version",
+    "fixture_ids",
+    "source_sha",
+    "catalog_sha256",
+    "case_catalog_sha256",
+    "projection_contract_sha256",
+    "assets_lock_sha256",
+    "renderer_lock_sha256",
+    "input_provenance_sha256",
+    "renderer_image",
+    "renderer_image_digest",
+    "capture_network",
+    "unexpected_request_policy",
+    "capture_surface",
+    "device_evidence",
+    "external_accessibility_status",
+    "case_count",
+    "surface_case_counts",
+    "cases"
+  ],
+  "properties": {
+    "schema_version": {
+      "enum": ["leva.et13.visual-manifest.v1", "leva.et13.a11y-manifest.v1"]
+    },
+    "evidence_mode": {"enum": ["diagnostic", "release_ready"]},
+    "case_catalog_version": {"const": "leva.et13.catalog.v1"},
+    "case_catalog_schema_version": {
+      "enum": ["leva.et13.visual-cases.v1", "leva.et13.a11y-cases.v1"]
+    },
+    "fixture_ids": {"$ref": "#/$defs/fixtureIds"},
+    "source_sha": {
+      "type": "string",
+      "pattern": "^(?!0{40}$)[0-9a-f]{40}$"
+    },
+    "catalog_sha256": {"$ref": "#/$defs/sha256"},
+    "case_catalog_sha256": {"$ref": "#/$defs/sha256"},
+    "projection_contract_sha256": {"$ref": "#/$defs/sha256"},
+    "assets_lock_sha256": {"$ref": "#/$defs/sha256"},
+    "renderer_lock_sha256": {"$ref": "#/$defs/sha256"},
+    "input_provenance_sha256": {"$ref": "#/$defs/sha256"},
+    "renderer_image": {
+      "const": "mcr.microsoft.com/playwright:v1.55.0-noble@sha256:ffc33305f7b4b04057ae4a0caa70aad4fde87454fb403a1a22e7f931707dfcf9"
+    },
+    "renderer_image_digest": {
+      "const": "sha256:ffc33305f7b4b04057ae4a0caa70aad4fde87454fb403a1a22e7f931707dfcf9"
+    },
+    "capture_network": {"const": "none"},
+    "unexpected_request_policy": {"const": "fail"},
+    "capture_surface": {"const": "flutter_web_release_projection"},
+    "device_evidence": {"const": false},
+    "external_accessibility_status": {"const": "not_satisfied"},
+    "baseline_status": {"enum": ["pending_external_review", "approved"]},
+    "baseline_set_sha256": {
+      "oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]
+    },
+    "baseline_approval_sha256": {
+      "oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]
+    },
+    "case_count": {"type": "integer"},
+    "surface_case_counts": {"type": "object"},
+    "cases": {"type": "array"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schema_version": {"const": "leva.et13.visual-manifest.v1"}
+        }
+      },
+      "then": {
+        "required": [
+          "baseline_status",
+          "baseline_set_sha256",
+          "baseline_approval_sha256"
+        ],
+        "properties": {
+          "case_catalog_schema_version": {"const": "leva.et13.visual-cases.v1"},
+          "case_count": {"const": 96},
+          "surface_case_counts": {"$ref": "#/$defs/visualCounts"},
+          "cases": {
+            "minItems": 96,
+            "maxItems": 96,
+            "items": {"$ref": "#/$defs/visualCase"}
+          }
+        }
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            {"required": ["baseline_status"]},
+            {"required": ["baseline_set_sha256"]},
+            {"required": ["baseline_approval_sha256"]}
+          ]
+        },
+        "properties": {
+          "case_catalog_schema_version": {"const": "leva.et13.a11y-cases.v1"},
+          "case_count": {"const": 24},
+          "surface_case_counts": {"$ref": "#/$defs/a11yCounts"},
+          "cases": {
+            "minItems": 24,
+            "maxItems": 24,
+            "items": {"$ref": "#/$defs/a11yCase"}
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["baseline_status"],
+        "properties": {"evidence_mode": {"const": "release_ready"}}
+      },
+      "then": {
+        "properties": {
+          "baseline_status": {"const": "approved"},
+          "baseline_set_sha256": {"$ref": "#/$defs/sha256"},
+          "baseline_approval_sha256": {"$ref": "#/$defs/sha256"}
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["baseline_status"],
+        "properties": {"evidence_mode": {"const": "diagnostic"}}
+      },
+      "then": {
+        "properties": {
+          "baseline_status": {"const": "pending_external_review"},
+          "baseline_set_sha256": {"type": "null"},
+          "baseline_approval_sha256": {"type": "null"}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "fixtureIds": {
+      "type": "array",
+      "minItems": 12,
+      "maxItems": 12,
+      "prefixItems": [
+        {"const": "web-today-available"},
+        {"const": "web-path-current-week"},
+        {"const": "web-content-reading"},
+        {"const": "web-workspace-idle"},
+        {"const": "web-review-loaded"},
+        {"const": "web-mentor-context-preview"},
+        {"const": "admin-kpi-dashboard"},
+        {"const": "admin-support-long-wire"},
+        {"const": "mobile-today-available"},
+        {"const": "mobile-content-reading"},
+        {"const": "dp-design-mission-ledger"},
+        {"const": "dp-design-context-payload-preview"}
+      ],
+      "items": false
+    },
+    "visualCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["web", "admin", "mobile", "dp_design"],
+      "properties": {
+        "web": {"const": 48},
+        "admin": {"const": 16},
+        "mobile": {"const": 16},
+        "dp_design": {"const": 16}
+      }
+    },
+    "a11yCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["web", "admin", "mobile", "dp_design"],
+      "properties": {
+        "web": {"const": 12},
+        "admin": {"const": 4},
+        "mobile": {"const": 4},
+        "dp_design": {"const": 4}
+      }
+    },
+    "visualCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["case_id", "status", "artifact_path", "sha256", "bytes"],
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+--visual--w(?:320|600|840|1240)--(?:light|dark)$"
+        },
+        "status": {"const": "passed"},
+        "artifact_path": {
+          "type": "string",
+          "pattern": "^visual/(?:web|admin|mobile|dp_design)/[a-z0-9.-]+\\.png$"
+        },
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 1}
+      }
+    },
+    "a11yCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case_id",
+        "status",
+        "artifact_path",
+        "sha256",
+        "bytes",
+        "standard",
+        "critical_violations",
+        "serious_violations",
+        "other_violations",
+        "passes",
+        "incomplete"
+      ],
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+--a11y--w(?:320--light|1240--dark)--text200$"
+        },
+        "status": {"const": "passed"},
+        "artifact_path": {
+          "type": "string",
+          "pattern": "^a11y/(?:web|admin|mobile|dp_design)/[a-z0-9.-]+\\.json$"
+        },
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 1},
+        "standard": {"const": "WCAG 2.2 AA"},
+        "critical_violations": {"const": 0},
+        "serious_violations": {"const": 0},
+        "other_violations": {"type": "integer", "minimum": 0},
+        "passes": {"type": "integer", "minimum": 0},
+        "incomplete": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

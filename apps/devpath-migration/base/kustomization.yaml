@@ -2,7 +2,8 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
 - job.yaml
+- sandbox-preflight.yaml
 images:
 - name: ghcr.io/devpathai/devpath-migration
   newName: ghcr.io/devpathai/devpath-migration
-  newTag: 4f95f77cca8158982a8c428bda8bd8248b2d8a7b
+  newTag: 96a5cdb9d95689759afb229b4d1e29b9bd221793

@@ -49,6 +49,13 @@ spec:
               value: "5"
             - name: SANDBOX_URI
               value: "http://devpath-sandbox-svc.devpath.svc:8080"
+            - name: LCS_URI
+              value: "http://devpath-lcs-svc.devpath.svc:8080"
+            - name: INTERNAL_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: devpath-internal-auth
+                  key: sandbox-token
             - name: LEARNING_URI
               value: "http://devpath-learning-svc.devpath.svc:8080"
             - name: ANTHROPIC_API_KEY
@@ -59,7 +66,13 @@ spec:
             - name: REVIEW_PROVIDER
               value: "claude"
             - name: MENTOR_PROVIDER
+              value: "ollama"
+            - name: MENTOR_FALLBACK
               value: "claude"
+            - name: MENTOR_OLLAMA_MODEL
+              value: "qwen2.5:3b"
+            - name: MENTOR_CLAUDE_MODEL
+              value: "claude-sonnet-4-6"
             - name: COMMUNITY_SEED_PROVIDER
               value: "claude"
             - name: RETENTION_PROVIDER
