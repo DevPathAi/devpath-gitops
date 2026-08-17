@@ -309,6 +309,7 @@ Mission Spine의 「현재 미션」 조회는 `learning_paths`(ACTIVE) → `pat
 | gitops | [#64](https://github.com/DevPathAi/devpath-gitops/pull/64) | **Draft/HOLD — 머지 금지** | `AI_SVC_TIMEOUT`·`OLLAMA_TIMEOUT` 을 `PT900S` 로. develop 에 넣으면 릴리스 PR #59 head 에 실리므로 HOLD 해제 후 처리 |
 | documents | [#99](https://github.com/DevPathAi/documents/pull/99) | 리뷰 대기 | API 명세 §3.1·§3.2 |
 | ai-svc | [#36](https://github.com/DevPathAi/devpath-ai-svc/pull/36) | 리뷰 대기 | 로컬 실측에서 드러난 결함 2건 — 학습경로만 영어 · 12주 계약 미검증 |
+| ai-svc | [#37](https://github.com/DevPathAi/devpath-ai-svc/pull/37) | 리뷰 대기(#36 위 스택) | 경로 생성 Ollama 를 임베딩과 분리(GPU 이중화 전제) |
 
 learning-svc 검증: `./gradlew build` 성공, 테스트 클래스 66·테스트 **245**(기존 234 + 신규 11)·실패 0·오류 0·스킵 0. `PathGenerationSurvivesDisconnectIT` 는 구독자 예외 보호를 임시 제거하면 red, 되돌리면 green 임을 확인해 **판별력을 실측**했다.
 
@@ -324,6 +325,24 @@ learning-svc + ai-svc 를 로컬에 띄우고 실제 Ollama 로 생성해 세 �
   - **12주를 약속하고 3주를 저장한다.** qwen2.5:14b 가 weekNum 1·2·4 로 마일스톤 3개만 냈는데 계약이 통과시켰다. `LearningPathPersistenceService` 는 `total_weeks` 를 12로 하드코딩하므로 주차별 미션 화면이 3주차에서 빈다.
   - 둘 다 [AI PR #36](https://github.com/DevPathAi/devpath-ai-svc/pull/36) 에서 프롬프트·스키마·검증으로 닫았다. 수정 후 운영과 동일한 qwen2.5:3b 로 재측정해 **주차 1~12 완전 커버, 한국어 제목 12/12, 33초**(로컬 GPU)를 확인했다.
 - **하드웨어 판단의 전제가 하나 바뀌었다.** 08-14 문서는 「모델 축소는 품질이 떨어지고 3b 로는 계약을 만족하는 JSON 이 안 나올 위험」이라고 적었는데, 프롬프트를 고치자 **3b 가 강화된 계약(12주·한국어)을 만족했다.** 품질만 놓고 보면 Claude 가 필수는 아니다. 다만 로컬 측정은 GPU 기준이므로 **운영 CPU 의 12분이라는 사실은 그대로다** — 이 관측은 「GPU 로 옮기면 작은 모델로도 쓸 만하다」는 근거이지 「CPU 로도 된다」는 근거가 아니다.
+
+### GPU 결정과 검증(2026-08-17)
+
+사용자 결정: **g6.xlarge 스팟 + Ollama 이중화.** Ollama 는 학습경로뿐 아니라 임베딩·멘토 폴백도 맡고 있어, 통째로 GPU 노드에 올리면 스팟 회수 때 그 둘까지 멈춘다. 그래서 기존 CPU Ollama 는 임베딩·멘토·리뷰를 계속 맡고, GPU 노드에는 학습경로 전용 Ollama 를 따로 둔다.
+
+노드 계층은 실제로 세워 검증한 뒤 정리했다(운영 배포는 HOLD 이므로 클러스터에는 device plugin 과 SG 규칙만 남겼다).
+
+- g6.xlarge = **NVIDIA L4 23GB**, 드라이버 595.91.07. `nvidia.com/gpu: 1` 이 할당 가능 자원으로 광고되는 것까지 확인했다.
+- **테인트 격리가 실제로 필요했다.** 워커를 붙이면 기존 서비스 파드가 재시작될 때 스팟 노드로 흘러갈 수 있다. `devpath.ai/gpu=true:NoSchedule` 을 걸어 GPU 노드에 뜬 파드가 `ollama-gpu` 와 device plugin 둘뿐임을 확인했다.
+- **생성 성능 66 t/s(순간 97 t/s)** — 운영 CPU 4.2 t/s 대비 약 16배. 12주 한국어 경로 1건이 ai-svc 왕복 포함 **86초**로 끝났다(CPU 는 12분에 그마저 버려졌다).
+- 절차·함정은 [k3s 런북](runbook-k3s-bootstrap.md)의 「GPU 노드 추가」 절에 실측으로 남겼다.
+
+★**실측이 내 PR 의 결함을 잡았다**★ — 경로 전용 타임아웃을 `PT300S` 로 주었는데 클러스터 호출이 **정확히 8.1초에 503** 으로 끊겼다. 이 서비스의 환경 변수는 완화 바인딩이 아니라 `application.yml` 자리표시자로 배선되는데 새 속성을 거기 등록하지 않아, gitops 에서 값을 넣어도 **조용히 무시될 상태**였다. 단위 테스트는 점 표기 속성을 직접 주입해서 전부 통과했었다. 환경 변수 이름으로 값을 주는 테스트를 추가해 막았다.
+
+두 가지는 아직 열려 있다.
+
+- **스팟 쿼터가 별개다.** 승인받은 `L-DB2E81BA`(4 vCPU)는 **온디맨드** 전용이고, 스팟은 `L-3819A6DF` 로 기본 0 이라 `MaxSpotInstanceCountExceeded` 가 났다. 증설 요청 `78d4c546d7a549cfa6f9ca813d5f9a0ePZ3LBUo5` 는 `CASE_OPENED` 상태다. 승인 후 스팟으로 노드를 다시 세운다.
+- **한국어 준수가 100%는 아니다.** 12개 마일스톤 제목은 모두 한국어였지만 `rationale` 이 영어로 나온 실행이 있었다. 제목에 `Week N:` 접두가 남는 경우도 있다. 3b 모델의 한계로 보이며, L4 24GB 는 qwen2.5:14b(9GB)도 수용하므로 모델 상향이 선택지다.
 
 남은 일은 다음과 같다.
 
