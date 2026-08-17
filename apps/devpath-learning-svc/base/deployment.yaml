@@ -50,11 +50,12 @@ spec:
               value: "5"
             - name: AI_SVC_BASE_URL
               value: "http://devpath-ai-svc.devpath.svc:8080"
-            # 학습경로 생성은 CPU Ollama 에서 3000토큰을 4.2 t/s 로 만들어 12분이 걸린다(2026-08-14 실측).
-            # 코드 기본값 PT8S 로는 매번 끊겨 결과가 버려진다. 생성은 비동기 작업으로 돌므로 이 값이
-            # 길어도 요청 스레드가 묶이지 않는다. GPU·Claude 로 전환하면 다시 줄인다.
+            # 학습경로 생성 호출은 ai-svc 를 거쳐 GPU Ollama 까지 간다. 코드 기본값 PT8S 로는
+            # 매번 끊겨 결과가 버려진다. 생성은 비동기 작업으로 돌므로 이 값이 길어도 요청 스레드가
+            # 묶이지 않는다.
+            # ai-svc 의 OLLAMA_PATH_TIMEOUT(PT300S) × 재시도 1회 + 여유를 덮어야 한다.
             - name: AI_SVC_TIMEOUT
-              value: "PT900S"
+              value: "PT660S"
             - name: NOTIFICATION_SVC_BASE_URL
               value: "http://devpath-notification-svc.devpath.svc:8080"
             - name: COMMUNITY_SVC_BASE_URL
