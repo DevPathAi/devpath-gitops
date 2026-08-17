@@ -36,7 +36,7 @@ HOLD는 다음 조건 중 하나라도 남아 있으면 해제할 수 없다.
 | Frontend 릴리스 | [Frontend PR #133](https://github.com/DevPathAi/devpath-frontend/pull/133), head `0c35edbcd9281d48fd3b0a80233223a246ed90b0` | CI `32004243899`, Mobile `32004243827`, ET13 `32004243822` GREEN. `BLOCKED`, 독립 승인 전 main 병합 금지 |
 | Shared 릴리스 | [Shared PR #67](https://github.com/DevPathAi/devpath-shared/pull/67) | build 성공, 독립 reviewer 승인 필요 |
 | GitOps release control | [GitOps PR #58](https://github.com/DevPathAi/devpath-gitops/pull/58), head `e3ed89b7a0d80566b6d197200a485d2a129ed360` | 전 체크 GREEN 후 merge commit `2680de8286a21ab52051ee2599b47c9fd108bd97`로 `develop`에 병합 완료 |
-| GitOps 릴리스 | [GitOps PR #59](https://github.com/DevPathAi/devpath-gitops/pull/59), head `32ca88e014c5ade42eed520346fa37913c4eced9` | main 동기화 완료, CI `32004437957` GREEN. Draft/HOLD이며 최종 producer 재바인드·외부 통제 전 main 병합 금지 |
+| GitOps 릴리스 | [GitOps PR #59](https://github.com/DevPathAi/devpath-gitops/pull/59), protected-control 스냅샷 `32ca88e014c5ade42eed520346fa37913c4eced9` | main 동기화와 CI `32004437957` GREEN 확인. PR head는 이후 문서-only merge를 포함한 현재 `develop`이므로 실행 전 live SHA·체크를 다시 읽는다. Draft/HOLD이며 최종 producer 재바인드·외부 통제 전 main 병합 금지 |
 
 ### Shared immutable package로 차단된 producer
 
@@ -142,7 +142,7 @@ Cloudflare Pages API에는 expected-current 조건부 write가 없다. 따라서
 
 1. 완료: Frontend PR #134를 exact-head CI GREEN 후 merge commit `0c35edbcd9281d48fd3b0a80233223a246ed90b0`로 `develop`에 병합했다.
 2. Frontend PR #133은 새 develop head `0c35edbcd9281d48fd3b0a80233223a246ed90b0`에서 전 체크 GREEN이다. 독립 review 전에는 main에 병합하지 않는다.
-3. 완료: GitOps PR #58을 merge commit `2680de8286a21ab52051ee2599b47c9fd108bd97`로 `develop`에 병합하고 main을 동기화한 `32ca88e014c5ade42eed520346fa37913c4eced9`를 PR #59 Draft/HOLD로 열었다.
+3. 완료: GitOps PR #58을 merge commit `2680de8286a21ab52051ee2599b47c9fd108bd97`로 `develop`에 병합하고 main을 동기화한 protected-control 스냅샷 `32ca88e014c5ade42eed520346fa37913c4eced9`를 PR #59 Draft/HOLD로 열었다. PR head는 문서-only merge에 따라 이동하므로 live SHA를 다시 읽는다.
 4. 독립 reviewer가 Shared PR #67을 main에 merge commit으로 병합한다.
 5. resulting Shared main SHA의 fresh attempt-1 protected package publish를 승인한다. 취소된 run을 재사용하지 않는다.
 6. 게시 후 Maven에서 `0.0.1-et9.20260816`의 JAR/POM/module bytes를 재다운로드해 frozen SHA-256과 비교한다.
@@ -205,7 +205,7 @@ GitHub CI URL은 각 PR의 Checks 탭을 권위값으로 사용하고, merge 직
 
 - [x] Frontend #134 exact-head CI GREEN 및 develop merge commit `0c35edbcd9281d48fd3b0a80233223a246ed90b0` 기록
 - [ ] Frontend #133 final develop SHA `0c35edbcd9281d48fd3b0a80233223a246ed90b0`와 CI GREEN 기록 완료, 독립 reviewer 기록 필요
-- [x] GitOps feature→develop merge `2680de8286a21ab52051ee2599b47c9fd108bd97` 및 develop→main PR #59 head `32ca88e014c5ade42eed520346fa37913c4eced9` 기록
+- [x] GitOps feature→develop merge `2680de8286a21ab52051ee2599b47c9fd108bd97`, protected-control 스냅샷 `32ca88e014c5ade42eed520346fa37913c4eced9`, develop→main PR #59 기록(실행 전 live head 재확인)
 - [ ] Shared #67 independent review/main merge 기록
 - [ ] immutable Shared package 게시와 3개 byte hash 기록
 - [ ] AI + 7 services build/main SHA/image digest/evidence 기록
