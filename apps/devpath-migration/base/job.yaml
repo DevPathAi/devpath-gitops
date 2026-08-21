@@ -116,7 +116,13 @@ spec:
               test -n "$runner_jar"
               migration_locations="filesystem:/flyway/sql,classpath:db/migration"
               flyway -locations="$migration_locations" -target="$TARGET_FLYWAY_VERSION" migrate
-              flyway -locations="$migration_locations" validate
+              # validate 도 같은 target 을 받아야 한다. -target 없이 돌리면 승인 범위 밖의
+              # 마이그레이션(shared 이미지에는 들어 있지만 아직 적용하지 않기로 한 것)을
+              # "적용 안 됨" 오류로 잡아 set -e 아래에서 Job 을 죽인다. 실측:
+              # `Detected resolved migration not applied to database` → exit 1.
+              # target 을 주어도 엄격함은 그대로다 — 체크섬 변조와 target 아래 미적용 건은
+              # 여전히 잡힌다(둘 다 실측). 보류하기로 한 것만 통과시킨다.
+              flyway -locations="$migration_locations" -target="$TARGET_FLYWAY_VERSION" validate
               printf 'mission-spine-flyway-target=%s status=validated\n' "$TARGET_FLYWAY_VERSION"
       volumes:
         - name: sandbox-migration-preflight

@@ -229,13 +229,25 @@ class ReleaseManifestContractTest(unittest.TestCase):
         self.assertNotIn("argocd.argoproj.io/sync-options", job)
         self.assertNotIn("Force=true", job)
         self.assertRegex(job, r"spec:\n(?:  #.*\n)+  suspend: true\n  backoffLimit: 3\n")
-        validate = 'flyway -locations="$migration_locations" validate'
+        validate = (
+            'flyway -locations="$migration_locations" '
+            '-target="$TARGET_FLYWAY_VERSION" validate'
+        )
         marker = (
             "printf 'mission-spine-flyway-target=%s status=validated\\n' "
             '"$TARGET_FLYWAY_VERSION"'
         )
         self.assertIn(marker, job)
+        self.assertIn(validate, job)
         self.assertLess(job.index(validate), job.index(marker))
+        # validate 가 target 을 잃으면 승인 범위 밖의 마이그레이션(이미지에는 있으나 아직
+        # 적용하지 않기로 한 것)을 "적용 안 됨" 오류로 잡아 set -e 아래에서 Job 을 죽인다.
+        # 실측: `Detected resolved migration not applied to database` → exit 1.
+        self.assertNotIn(
+            'flyway -locations="$migration_locations" validate',
+            job,
+            "validate 는 migrate 와 같은 target 을 받아야 한다",
+        )
 
     def test_journey_harness_uses_canonical_production_origins_and_exact_dns_overrides(self):
         invalid = copy.deepcopy(self.candidate)
