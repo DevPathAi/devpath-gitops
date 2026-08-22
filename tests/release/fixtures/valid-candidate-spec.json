@@ -69,13 +69,13 @@
   },
   "shared_migration": {
     "repository": "DevPathAi/devpath-shared",
-    "source_sha": "c96996b89e113664d37cd607cae21d4f267393f4",
-    "shared_version": "0.0.1-et9.20260816",
-    "shared_jar_sha256": "94e2adb769790d813a872163347ede20ad4c75ae88e5811df2ec6625a340f21f",
+    "source_sha": "58c78bfe35e99e618863b53f689c216b40295826",
+    "shared_version": "0.0.1-et10.20260820",
+    "shared_jar_sha256": "0f74ac34ae08fdf6ffeb7903dc1a17775ddca7c0fa67171a2f217d71887bf544",
     "image_repository": "ghcr.io/devpathai/devpath-migration",
     "image_digest": "sha256:abababababababababababababababababababababababababababababababab",
-    "flyway_target": "202608161011",
-    "required_migration": "V202608161011__validate_lcs_mentor_snapshot_contract.sql",
+    "flyway_target": "202608201002",
+    "required_migration": "V202608201002__validate_community_content_soft_delete.sql",
     "rollback_policy": "additive-retained"
   },
   "frontend": {

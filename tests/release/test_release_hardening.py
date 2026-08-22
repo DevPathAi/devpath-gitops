@@ -971,15 +971,15 @@ class ReleaseHardeningTest(unittest.TestCase):
         )
         self.assertEqual(
             self.candidate["shared_migration"]["source_sha"],
-            "c96996b89e113664d37cd607cae21d4f267393f4",
+            "58c78bfe35e99e618863b53f689c216b40295826",
         )
         self.assertEqual(
             self.candidate["shared_migration"]["shared_version"],
-            "0.0.1-et9.20260816",
+            "0.0.1-et10.20260820",
         )
         self.assertEqual(
             self.candidate["shared_migration"]["shared_jar_sha256"],
-            "94e2adb769790d813a872163347ede20ad4c75ae88e5811df2ec6625a340f21f",
+            "0f74ac34ae08fdf6ffeb7903dc1a17775ddca7c0fa67171a2f217d71887bf544",
         )
         self.assertEqual(
             self.candidate["frontend"]["source_sha"],

@@ -1063,20 +1063,20 @@ def validate_candidate_spec(data: Any, source: Path | None = None) -> dict[str, 
     if migration["repository"] != "DevPathAi/devpath-shared":
         _fail("$.shared_migration.repository", "must be DevPathAi/devpath-shared")
     _string(migration["source_sha"], "$.shared_migration.source_sha", SHA40)
-    if migration["shared_version"] != "0.0.1-et9.20260816":
-        _fail("$.shared_migration.shared_version", "must bind the immutable ET9 Shared version")
+    if migration["shared_version"] != "0.0.1-et10.20260820":
+        _fail("$.shared_migration.shared_version", "must bind the immutable ET10 Shared version")
     shared_jar_hash = _string(
         migration["shared_jar_sha256"], "$.shared_migration.shared_jar_sha256", SHA64
     )
-    if shared_jar_hash != "94e2adb769790d813a872163347ede20ad4c75ae88e5811df2ec6625a340f21f":
+    if shared_jar_hash != "0f74ac34ae08fdf6ffeb7903dc1a17775ddca7c0fa67171a2f217d71887bf544":
         _fail("$.shared_migration.shared_jar_sha256", "must bind the verified immutable Shared jar")
     if migration["image_repository"] != "ghcr.io/devpathai/devpath-migration":
         _fail("$.shared_migration.image_repository", "must be ghcr.io/devpathai/devpath-migration")
     _string(migration["image_digest"], "$.shared_migration.image_digest", DIGEST)
-    if migration["flyway_target"] != "202608161011":
-        _fail("$.shared_migration.flyway_target", "must bind V202608161011")
-    if migration["required_migration"] != "V202608161011__validate_lcs_mentor_snapshot_contract.sql":
-        _fail("$.shared_migration.required_migration", "must bind V202608161011 validation")
+    if migration["flyway_target"] != "202608201002":
+        _fail("$.shared_migration.flyway_target", "must bind V202608201002")
+    if migration["required_migration"] != "V202608201002__validate_community_content_soft_delete.sql":
+        _fail("$.shared_migration.required_migration", "must bind V202608201002 validation")
     if migration["rollback_policy"] != "additive-retained":
         _fail("$.shared_migration.rollback_policy", "must retain additive schema")
 
