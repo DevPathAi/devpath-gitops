@@ -88,8 +88,15 @@ def _validate_governance(rule: dict[str, Any], app_id: int) -> None:
     rules = rule["rules"]
     if len(rules) != 1 or not isinstance(rules[0], dict):
         raise ValueError("governance rules are not exact")
-    update = _exact_keys(rules[0], {"type", "parameters"}, "update rule")
-    if update != {
+    update = rules[0]
+    # GitHub 룰셋 GET 은 update 규칙의 parameters 를 값(true/false)과 무관하게
+    # 생략한다(라이브 실측 2026-08-22 — true 로 설정해도 {"type":"update"} 로
+    # 직렬화). 관측 가능한 계약만 요구한다: 정확히 update 단일 규칙이며,
+    # parameters 가 보이는 경우에는 fetch-and-merge 허용이 꺼져 있어야 한다.
+    if set(update) == {"type"}:
+        if update["type"] != "update":
+            raise ValueError("governance update rule is not exact")
+    elif _exact_keys(update, {"type", "parameters"}, "update rule") != {
         "type": "update",
         "parameters": {"update_allows_fetch_and_merge": False},
     }:
@@ -143,11 +150,12 @@ def _disabled_dismissal_restrictions(reviews: dict[str, Any]) -> None:
 def _validate_classic(protection: Any, app_id: int) -> None:
     if not isinstance(protection, dict):
         raise ValueError("classic branch protection response is invalid")
-    if (
-        "required_status_checks" not in protection
-        or protection["required_status_checks"] is not None
-    ):
-        raise ValueError("classic required status checks must be null")
+    # GitHub 는 status checks 가 비활성일 때 응답에서 키를 생략한다(라이브 실측
+    # 2026-08-22) — 부재와 null 을 동등한 「비활성」 실서식으로 받고, 값이 있는
+    # 형태만 거부한다. 「키 존재+null」을 요구하던 이전 계약은 실제 GET 에서
+    # 영원히 실패하는 잠재 결함이었다.
+    if protection.get("required_status_checks") is not None:
+        raise ValueError("classic required status checks must be absent or null")
     _empty_actor_lists(protection.get("restrictions"), app_id, "push restrictions")
     reviews = protection.get("required_pull_request_reviews")
     if not isinstance(reviews, dict):
