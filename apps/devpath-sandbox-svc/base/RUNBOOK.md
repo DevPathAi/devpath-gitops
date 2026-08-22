@@ -17,8 +17,8 @@ Required order:
 1. Preserve the exact ET8 `devpath-shared` checkpoint
    `2b03c38934fdd19332da59107e4330a3af92d078` through `V202608161008`, then
    publish the exact final lineage
-   `96a5cdb9d95689759afb229b4d1e29b9bd221793` and run its migration image
-   through `V202608161011`. Do not edit the already exercised
+   `58c78bfe35e99e618863b53f689c216b40295826` and run its migration image
+   through `V202608201002`. Do not edit the already exercised
    `V202608161001__sandbox_execution_leases.sql` bytes; the deployment preflight
    fails unless both immutable checkpoints are named exactly.
 2. Create `sandbox-migration-gate` only for the approved maintenance window:
@@ -46,7 +46,7 @@ Required order:
    ```sql
    SELECT version, success
    FROM flyway_schema_history
-   WHERE version IN ('202608161008', '202608161011')
+   WHERE version IN ('202608161008', '202608201002')
    ORDER BY version;
 
    SELECT column_name

@@ -6,10 +6,10 @@
   "created_at": "2099-01-02T00:00:00Z",
   "candidate_spec": {
     "path": "tests/release/fixtures/valid-candidate-spec.json",
-    "sha256": "21e7dd85cce024b6f026b631edfa101cc5b7e06324e998a4e558f3b167302f5f"
+    "sha256": "6813cb03448ec9a875edd7c1344f16de16c4ac1cc138eeaf71585d2c9465f990"
   },
   "home_dist_artifact": {
-    "candidate_spec_sha256": "21e7dd85cce024b6f026b631edfa101cc5b7e06324e998a4e558f3b167302f5f",
+    "candidate_spec_sha256": "6813cb03448ec9a875edd7c1344f16de16c4ac1cc138eeaf71585d2c9465f990",
     "repository": "DevPathAi/devpath-home-page",
     "event": "workflow_dispatch",
     "head_sha": "dc5f37cb495f99cdfd43c6957db9958ddad7def7",
@@ -27,7 +27,7 @@
   "analytics_privacy_approval": {
     "approved_at": "2098-12-31T00:00:00Z",
     "evidence": {
-      "candidate_spec_sha256": "21e7dd85cce024b6f026b631edfa101cc5b7e06324e998a4e558f3b167302f5f",
+      "candidate_spec_sha256": "6813cb03448ec9a875edd7c1344f16de16c4ac1cc138eeaf71585d2c9465f990",
       "repository": "DevPathAi/documents",
       "event": "workflow_dispatch",
       "head_sha": "9dc2abb0cd0a1d3ba09c18884f3c5798bdf30de1",
@@ -46,7 +46,7 @@
     "usefulness_percent": 95,
     "baseline_delta_points": 0,
     "evidence": {
-      "candidate_spec_sha256": "21e7dd85cce024b6f026b631edfa101cc5b7e06324e998a4e558f3b167302f5f",
+      "candidate_spec_sha256": "6813cb03448ec9a875edd7c1344f16de16c4ac1cc138eeaf71585d2c9465f990",
       "repository": "DevPathAi/devpath-ai-svc",
       "event": "workflow_dispatch",
       "head_sha": "b7203bcb000edfc0030f77a4c05dd8e1a83f7ce6",
@@ -62,7 +62,7 @@
   },
   "journeys": {
     "activation": {
-      "candidate_spec_sha256": "21e7dd85cce024b6f026b631edfa101cc5b7e06324e998a4e558f3b167302f5f",
+      "candidate_spec_sha256": "6813cb03448ec9a875edd7c1344f16de16c4ac1cc138eeaf71585d2c9465f990",
       "repository": "DevPathAi/devpath-gitops",
       "event": "workflow_dispatch",
       "head_sha": "ffffffffffffffffffffffffffffffffffffffff",
@@ -76,7 +76,7 @@
       "sha256": "6666666666666666666666666666666666666666666666666666666666666666"
     },
     "contextual_practice": {
-      "candidate_spec_sha256": "21e7dd85cce024b6f026b631edfa101cc5b7e06324e998a4e558f3b167302f5f",
+      "candidate_spec_sha256": "6813cb03448ec9a875edd7c1344f16de16c4ac1cc138eeaf71585d2c9465f990",
       "repository": "DevPathAi/devpath-gitops",
       "event": "workflow_dispatch",
       "head_sha": "ffffffffffffffffffffffffffffffffffffffff",
@@ -92,7 +92,7 @@
   },
   "quality_evidence": {
     "frontend_visual": {
-      "candidate_spec_sha256": "21e7dd85cce024b6f026b631edfa101cc5b7e06324e998a4e558f3b167302f5f",
+      "candidate_spec_sha256": "6813cb03448ec9a875edd7c1344f16de16c4ac1cc138eeaf71585d2c9465f990",
       "repository": "DevPathAi/devpath-frontend",
       "event": "workflow_dispatch",
       "head_sha": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
@@ -106,7 +106,7 @@
       "sha256": "8888888888888888888888888888888888888888888888888888888888888888"
     },
     "home_visual": {
-      "candidate_spec_sha256": "21e7dd85cce024b6f026b631edfa101cc5b7e06324e998a4e558f3b167302f5f",
+      "candidate_spec_sha256": "6813cb03448ec9a875edd7c1344f16de16c4ac1cc138eeaf71585d2c9465f990",
       "repository": "DevPathAi/devpath-gitops",
       "event": "workflow_dispatch",
       "head_sha": "ffffffffffffffffffffffffffffffffffffffff",
@@ -120,7 +120,7 @@
       "sha256": "9999999999999999999999999999999999999999999999999999999999999999"
     },
     "frontend_automated_a11y": {
-      "candidate_spec_sha256": "21e7dd85cce024b6f026b631edfa101cc5b7e06324e998a4e558f3b167302f5f",
+      "candidate_spec_sha256": "6813cb03448ec9a875edd7c1344f16de16c4ac1cc138eeaf71585d2c9465f990",
       "repository": "DevPathAi/devpath-frontend",
       "event": "workflow_dispatch",
       "head_sha": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
@@ -134,7 +134,7 @@
       "sha256": "abababababababababababababababababababababababababababababababab"
     },
     "home_axe_browser_a11y": {
-      "candidate_spec_sha256": "21e7dd85cce024b6f026b631edfa101cc5b7e06324e998a4e558f3b167302f5f",
+      "candidate_spec_sha256": "6813cb03448ec9a875edd7c1344f16de16c4ac1cc138eeaf71585d2c9465f990",
       "repository": "DevPathAi/devpath-gitops",
       "event": "workflow_dispatch",
       "head_sha": "ffffffffffffffffffffffffffffffffffffffff",
@@ -148,7 +148,7 @@
       "sha256": "bcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc"
     },
     "manual_nvda": {
-      "candidate_spec_sha256": "21e7dd85cce024b6f026b631edfa101cc5b7e06324e998a4e558f3b167302f5f",
+      "candidate_spec_sha256": "6813cb03448ec9a875edd7c1344f16de16c4ac1cc138eeaf71585d2c9465f990",
       "repository": "DevPathAi/devpath-frontend",
       "event": "workflow_dispatch",
       "head_sha": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
@@ -162,7 +162,7 @@
       "sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
     },
     "manual_voiceover": {
-      "candidate_spec_sha256": "21e7dd85cce024b6f026b631edfa101cc5b7e06324e998a4e558f3b167302f5f",
+      "candidate_spec_sha256": "6813cb03448ec9a875edd7c1344f16de16c4ac1cc138eeaf71585d2c9465f990",
       "repository": "DevPathAi/devpath-frontend",
       "event": "workflow_dispatch",
       "head_sha": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
@@ -176,7 +176,7 @@
       "sha256": "dededededededededededededededededededededededededededededededede"
     },
     "manual_talkback": {
-      "candidate_spec_sha256": "21e7dd85cce024b6f026b631edfa101cc5b7e06324e998a4e558f3b167302f5f",
+      "candidate_spec_sha256": "6813cb03448ec9a875edd7c1344f16de16c4ac1cc138eeaf71585d2c9465f990",
       "repository": "DevPathAi/devpath-frontend",
       "event": "workflow_dispatch",
       "head_sha": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
@@ -199,7 +199,7 @@
     "validator_workflow_path": ".github/workflows/mission-spine-validate.yml",
     "validator_workflow_sha256": "0404040404040404040404040404040404040404040404040404040404040404",
     "home_source_sha": "dc5f37cb495f99cdfd43c6957db9958ddad7def7",
-    "candidate_spec_sha256": "21e7dd85cce024b6f026b631edfa101cc5b7e06324e998a4e558f3b167302f5f",
+    "candidate_spec_sha256": "6813cb03448ec9a875edd7c1344f16de16c4ac1cc138eeaf71585d2c9465f990",
     "activation_sha256": "6666666666666666666666666666666666666666666666666666666666666666",
     "contextual_practice_sha256": "7777777777777777777777777777777777777777777777777777777777777777"
   }

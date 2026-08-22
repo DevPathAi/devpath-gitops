@@ -358,10 +358,10 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
                                 "name": "flyway",
                                 "image": image,
                                 "env": [
-                                    {"name": "TARGET_FLYWAY_VERSION", "value": "202608161011"}
+                                    {"name": "TARGET_FLYWAY_VERSION", "value": "202608201002"}
                                 ],
                                 "args": [
-                                    "test -f /flyway/sql/V202608161011__validate_lcs_mentor_snapshot_contract.sql\n"
+                                    "test -f /flyway/sql/V202608201002__validate_community_content_soft_delete.sql\n"
                                     "printf 'mission-spine-flyway-target=%s status=validated\\n' \"$TARGET_FLYWAY_VERSION\"\n"
                                 ],
                             }
@@ -429,12 +429,12 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
             app,
             job,
             {"items": [pod]},
-            "mission-spine-flyway-target=202608161011 status=validated\n",
+            "mission-spine-flyway-target=202608201002 status=validated\n",
             self.commit,
             release_hash,
             migration_trust,
-            "202608161011",
-            "V202608161011__validate_lcs_mentor_snapshot_contract.sql",
+            "202608201002",
+            "V202608201002__validate_community_content_soft_delete.sql",
             "2026-08-17T00:00:00Z",
         )
         self.assertEqual(result["job"], name)
@@ -453,12 +453,12 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
                     app,
                     changed,
                     changed_pods,
-                    "mission-spine-flyway-target=202608161011 status=validated\n",
+                    "mission-spine-flyway-target=202608201002 status=validated\n",
                     self.commit,
                     release_hash,
                     migration_trust,
-                    "202608161011",
-                    "V202608161011__validate_lcs_mentor_snapshot_contract.sql",
+                    "202608201002",
+                    "V202608201002__validate_community_content_soft_delete.sql",
                     "2026-08-17T00:00:00Z",
                 )
 
@@ -469,12 +469,12 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
                 app,
                 suspended,
                 {"items": [pod]},
-                "mission-spine-flyway-target=202608161011 status=validated\n",
+                "mission-spine-flyway-target=202608201002 status=validated\n",
                 self.commit,
                 release_hash,
                 migration_trust,
-                "202608161011",
-                "V202608161011__validate_lcs_mentor_snapshot_contract.sql",
+                "202608201002",
+                "V202608201002__validate_community_content_soft_delete.sql",
                 "2026-08-17T00:00:00Z",
             )
 
@@ -489,12 +489,12 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
                     app,
                     changed,
                     {"items": [pod]},
-                    "mission-spine-flyway-target=202608161011 status=validated\n",
+                    "mission-spine-flyway-target=202608201002 status=validated\n",
                     self.commit,
                     release_hash,
                     migration_trust,
-                    "202608161011",
-                    "V202608161011__validate_lcs_mentor_snapshot_contract.sql",
+                    "202608201002",
+                    "V202608201002__validate_community_content_soft_delete.sql",
                     "2026-08-17T00:00:00Z",
                 )
 
@@ -505,12 +505,12 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
                 app,
                 job,
                 {"items": [changed_pod]},
-                "mission-spine-flyway-target=202608161011 status=validated\n",
+                "mission-spine-flyway-target=202608201002 status=validated\n",
                 self.commit,
                 release_hash,
                 migration_trust,
-                "202608161011",
-                "V202608161011__validate_lcs_mentor_snapshot_contract.sql",
+                "202608201002",
+                "V202608201002__validate_community_content_soft_delete.sql",
                 "2026-08-17T00:00:00Z",
             )
 
@@ -533,12 +533,12 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
                     app,
                     changed_job,
                     {"items": [changed_pod]},
-                    "mission-spine-flyway-target=202608161011 status=validated\n",
+                    "mission-spine-flyway-target=202608201002 status=validated\n",
                     self.commit,
                     release_hash,
                     migration_trust,
-                    "202608161011",
-                    "V202608161011__validate_lcs_mentor_snapshot_contract.sql",
+                    "202608201002",
+                    "V202608201002__validate_community_content_soft_delete.sql",
                     "2026-08-17T00:00:00Z",
                 )
 
@@ -553,12 +553,12 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
                     app,
                     job,
                     {"items": [changed_pod]},
-                    "mission-spine-flyway-target=202608161011 status=validated\n",
+                    "mission-spine-flyway-target=202608201002 status=validated\n",
                     self.commit,
                     release_hash,
                     migration_trust,
-                    "202608161011",
-                    "V202608161011__validate_lcs_mentor_snapshot_contract.sql",
+                    "202608201002",
+                    "V202608201002__validate_community_content_soft_delete.sql",
                     "2026-08-17T00:00:00Z",
                 )
 
@@ -571,12 +571,12 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
                 app,
                 job,
                 {"items": [changed_pod]},
-                "mission-spine-flyway-target=202608161011 status=validated\n",
+                "mission-spine-flyway-target=202608201002 status=validated\n",
                 self.commit,
                 release_hash,
                 migration_trust,
-                "202608161011",
-                "V202608161011__validate_lcs_mentor_snapshot_contract.sql",
+                "202608201002",
+                "V202608201002__validate_community_content_soft_delete.sql",
                 "2026-08-17T00:00:00Z",
             )
 
@@ -589,8 +589,8 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
                 self.commit,
                 release_hash,
                 migration_trust,
-                "202608161011",
-                "V202608161011__validate_lcs_mentor_snapshot_contract.sql",
+                "202608201002",
+                "V202608201002__validate_community_content_soft_delete.sql",
                 "2026-08-17T00:00:00Z",
             )
 

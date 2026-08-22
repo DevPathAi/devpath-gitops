@@ -81,7 +81,7 @@ class ReleaseManifestContractTest(unittest.TestCase):
             self.validator.validate_candidate_spec(invalid, CANDIDATE_FIXTURE)
         invalid = copy.deepcopy(self.candidate)
         invalid["shared_migration"]["flyway_target"] = "202608161010"
-        with self.assertRaisesRegex(ValueError, "202608161011"):
+        with self.assertRaisesRegex(ValueError, "202608201002"):
             self.validator.validate_candidate_spec(invalid, CANDIDATE_FIXTURE)
 
     def test_evidence_and_ai_release_gate_fail_closed(self):
