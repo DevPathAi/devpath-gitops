@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devpath-sandbox-runner
+  labels:
+    app: devpath-sandbox-runner
+spec:
+  replicas: 1
+  # 단일 Docker 엔진이 세션 컨테이너 상태의 정본이다. 병행 인스턴스는 sandbox-svc 의
+  # reaper/조정 로직이 보는 컨테이너 집합을 분열시키므로 Recreate 로 교체한다.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: devpath-sandbox-runner
+  template:
+    metadata:
+      labels:
+        app: devpath-sandbox-runner
+    spec:
+      enableServiceLinks: false
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      initContainers:
+        # RUNBOOK 요건: 러너 엔진에 runsc 런타임 설치. 릴리스·sha512 를 고정해
+        # 위·변조 및 비결정 다운로드에 fail-closed.
+        - name: install-runsc
+          image: alpine:3.20
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              wget -q -O /gvisor/runsc \
+                https://storage.googleapis.com/gvisor/releases/release/20250820.0/x86_64/runsc
+              echo "d6c12a4cb4f714bfcba6fd6611ad4ca73fd88dce790a083d2ceda807cd7e074c0131d5dd2a3490399e8be91feed9afe450793e9708dacddc4afc99ee6e5c3d2e  /gvisor/runsc" | sha512sum -c -
+              chmod 0755 /gvisor/runsc
+          volumeMounts:
+            - name: gvisor
+              mountPath: /gvisor
+      containers:
+        - name: dockerd
+          image: docker:27.5.1-dind
+          # dockerd 를 직접 실행한다 — dind entrypoint 는 DOCKER_TLS_CERTDIR 가 비면
+          # 비암호 tcp://0.0.0.0:2375 리스너를 추가 주입한다(실측). 명시 -H 만 남겨
+          # mTLS 2376 단일 리스너를 보장한다. 신뢰는 sandbox-runner-server-tls 의
+          # 고정 mTLS 자산이 정본이다.
+          command: ["dockerd"]
+          args:
+            - --host=tcp://0.0.0.0:2376
+            - --tlsverify
+            - --tlscacert=/certs/ca.pem
+            - --tlscert=/certs/server-cert.pem
+            - --tlskey=/certs/server-key.pem
+            - --add-runtime=runsc=/gvisor/runsc
+          env:
+            - name: DOCKER_TLS_CERTDIR
+              value: ""
+          # privileged 는 DinD(Docker 엔진 자체 구동)의 구조적 요건이다. 신뢰 경계는
+          # 이 파드가 아니라 ①비신뢰 코드가 도는 runsc(gVisor) 격리 ②mTLS 전용 2376
+          # ③NetworkPolicy(sandbox-svc 만 접근)이며, 애플리케이션 파드는 docker.sock·
+          # hostPath 를 절대 마운트하지 않는다(RUNBOOK 요건 1).
+          securityContext:
+            privileged: true
+          ports:
+            - containerPort: 2376
+          volumeMounts:
+            - name: gvisor
+              mountPath: /gvisor
+              readOnly: true
+            - name: server-tls
+              mountPath: /certs
+              readOnly: true
+            - name: docker-data
+              mountPath: /var/lib/docker
+          readinessProbe:
+            tcpSocket:
+              port: 2376
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 2376
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              memory: 3Gi
+      volumes:
+        - name: gvisor
+          emptyDir: {}
+        - name: server-tls
+          secret:
+            secretName: sandbox-runner-server-tls
+            defaultMode: 256
+        - name: docker-data
+          emptyDir:
+            sizeLimit: 10Gi
