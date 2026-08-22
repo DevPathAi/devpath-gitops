@@ -131,10 +131,16 @@ class GitOpsWriteAuthorityTest(unittest.TestCase):
             self.validate(rule_details=details)
 
     def test_governance_is_only_exact_non_merge_update_rule(self):
+        # GitHub 룰셋 GET 은 update 규칙의 parameters 를 값과 무관하게 생략한다
+        # (라이브 실측 2026-08-22) — 부재 형태({"type": "update"})는 통과해야 한다.
+        details = copy.deepcopy(self.details)
+        details[102]["rules"][0] = {"type": "update"}
+        self.validate(rule_details=details)
         for mutation in (
             lambda rule: rule["parameters"].__setitem__("update_allows_fetch_and_merge", True),
             lambda rule: rule.__setitem__("type", "pull_request"),
             lambda rule: rule.__setitem__("extra", False),
+            lambda rule: (rule.pop("parameters"), rule.__setitem__("type", "deletion")),
         ):
             details = copy.deepcopy(self.details)
             mutation(details[102]["rules"][0])
@@ -144,9 +150,15 @@ class GitOpsWriteAuthorityTest(unittest.TestCase):
     def test_classic_status_restrictions_reviews_and_destructive_flags_are_exact(self):
         with self.assertRaisesRegex(ValueError, "must be present"):
             self.validate(classic_protection_status=404, classic_protection={})
+        # GitHub 는 status checks 가 비활성일 때 응답에서 키 자체를 생략한다 —
+        # 부재는 「null 과 동등한 실서식」이므로 통과해야 한다(라이브 실측 2026-08-22.
+        # 키 부재를 실패로 요구하던 이전 계약은 실제 API 에서 영원히 실패하는
+        # 잠재 결함이었다). 값이 있는 dict 는 여전히 실패.
+        stripped = copy.deepcopy(self.classic)
+        stripped.pop("required_status_checks")
+        self.validate(classic_protection=stripped)
         mutations = (
             lambda value: value.__setitem__("required_status_checks", {}),
-            lambda value: value.pop("required_status_checks"),
             lambda value: value["restrictions"].__setitem__("users", [{"login": "admin"}]),
             lambda value: value["required_pull_request_reviews"].__setitem__("require_last_push_approval", False),
             lambda value: value["required_pull_request_reviews"].__setitem__("required_approving_review_count", True),
