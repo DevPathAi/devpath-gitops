@@ -1,0 +1,48 @@
+{
+  "schema_version": "leva.et13.diagnostic-snapshot.v1",
+  "contract_use": "diagnostic_observation_only",
+  "sealable": false,
+  "repository": "DevPathAi/devpath-frontend",
+  "source_sha": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
+  "capture_surface": "flutter_web_release_projection",
+  "device_evidence": false,
+  "catalog_sha256": "fa9067a499793499f67bf4db49184e58727706ee7013d624168fc7ef811d981f",
+  "projection_contract_sha256": "c66d08b6425628a06b27d07e08d648cfb3568d9db7c8d8aca2371172ccf4bde3",
+  "assets_lock_sha256": "a36c5b407ddd702778876b7a787b55aa20ebbbb720ddd46d19b0c238f7be9eeb",
+  "renderer_lock_sha256": "af71b829ec7ba56a5a89ca2e11ea940136b70153cbd4f995c725d047d98cf20b",
+  "lanes": {
+    "visual": {
+      "generated_cases_path": "evidence/et13/generated/visual-cases.v1.json",
+      "generated_cases_sha256": "1f21427cec099ba1d5465d0207fd3f8261084d1e69d94827f02fa44341272e1b",
+      "input_provenance_sha256": "c084af31b89a178d906aa89afb4ce0a9b36b2758ad07321a0ee860de9bede17c",
+      "input_provenance_file_sha256": "0a53222b8aabbf65839477a9d176b10a33b078b0632efe69469d0ed417839925",
+      "result_manifest_path": "artifacts/et13/visual-manifest.v1.json",
+      "result_manifest_sha256": "b87b4c7639067118424ce9f3eb00aabfb04a6a08ee9b4af10ed947bd73fc71e4",
+      "evidence_file_path": "evidence.json",
+      "evidence_file_sha256": "ce1a04d132c06064cb900ab9d2af545ecd692cf5ea0f7ec97285fcd27b0aa492",
+      "candidate_spec_sha256": "d237c4ceb16852d3e3f370d06fda75398138046ed3604e5bfe5b1bbdaed3c0a6",
+      "status": "passed",
+      "evidence_mode": "diagnostic",
+      "baseline_status": "pending_external_review",
+      "baseline_set_sha256": null,
+      "baseline_approval_sha256": null
+    },
+    "a11y": {
+      "generated_cases_path": "evidence/et13/generated/a11y-cases.v1.json",
+      "generated_cases_sha256": "2a76815be997178a6eeb9d54eb609a998fec33538803fd94e44127bdf390897c",
+      "input_provenance_sha256": "1496c1eeaef7f5e99ba6b5c2e61a6e3573d34b32e1cf84375ff1b7d83583ffee",
+      "input_provenance_file_sha256": "8eeae50c59575c6e77c5d913e0456e5ec868c65d7f0a2b579a2c0d106c2df478",
+      "result_manifest_path": "artifacts/et13/a11y-manifest.v1.json",
+      "result_manifest_sha256": "96566b941df23c08950c7da0cc655e77abed462646d0bbbddadcb125515852eb",
+      "evidence_file_path": "evidence.json",
+      "evidence_file_sha256": "4d76b8abcb0640cabff1553d8cc58975e06bcf41ec43b1ae67701d15e573c199",
+      "candidate_spec_sha256": "ee6b09a246cd1d2cd231f68d5aa813dab4f8d53a4fdbaca597e75675312af04c",
+      "status": "passed",
+      "evidence_mode": "diagnostic"
+    }
+  },
+  "release_blockers": [
+    "protected_baseline_approval",
+    "canonical_candidate_rerun"
+  ]
+}

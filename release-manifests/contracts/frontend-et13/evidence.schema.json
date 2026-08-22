@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://leva.ai.kr/schemas/et13/evidence.v1.json",
+  "title": "Leva ET13 sanitized frontend evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "candidate_spec_sha256",
+    "status",
+    "producer_run_id",
+    "producer_run_attempt",
+    "repository",
+    "source_sha",
+    "case_catalog_sha256",
+    "projection_contract_sha256",
+    "case_catalog_version",
+    "case_catalog_schema_version",
+    "fixture_ids",
+    "case_count",
+    "passed_case_count",
+    "failed_case_count",
+    "surface_case_counts",
+    "capture_surface",
+    "device_evidence",
+    "input_provenance_sha256",
+    "input_provenance_file_sha256",
+    "result_manifest_sha256",
+    "evidence_mode"
+  ],
+  "properties": {
+    "candidate_spec_sha256": {"$ref": "#/$defs/sha256"},
+    "status": {"const": "passed"},
+    "producer_run_id": {"type": "integer", "minimum": 1},
+    "producer_run_attempt": {"type": "integer", "minimum": 1},
+    "repository": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    },
+    "source_sha": {
+      "type": "string",
+      "pattern": "^(?!0{40}$)[0-9a-f]{40}$"
+    },
+    "case_catalog_sha256": {"$ref": "#/$defs/sha256"},
+    "projection_contract_sha256": {"$ref": "#/$defs/sha256"},
+    "case_catalog_version": {"const": "leva.et13.catalog.v1"},
+    "case_catalog_schema_version": {
+      "enum": ["leva.et13.visual-cases.v1", "leva.et13.a11y-cases.v1"]
+    },
+    "fixture_ids": {"$ref": "#/$defs/fixtureIds"},
+    "case_count": {"type": "integer"},
+    "passed_case_count": {"type": "integer"},
+    "failed_case_count": {"const": 0},
+    "surface_case_counts": {"type": "object"},
+    "capture_surface": {"const": "flutter_web_release_projection"},
+    "device_evidence": {"const": false},
+    "input_provenance_sha256": {"$ref": "#/$defs/sha256"},
+    "input_provenance_file_sha256": {"$ref": "#/$defs/sha256"},
+    "result_manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "evidence_mode": {"enum": ["diagnostic", "release_ready"]},
+    "baseline_status": {"enum": ["pending_external_review", "approved"]},
+    "baseline_set_sha256": {
+      "oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]
+    },
+    "baseline_approval_sha256": {
+      "oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]
+    },
+    "pixel_diff_percent": {
+      "oneOf": [{"type": "number", "minimum": 0}, {"type": "null"}]
+    },
+    "standard": {"const": "WCAG 2.2 AA"},
+    "critical_violations": {"const": 0},
+    "serious_violations": {"const": 0}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "case_catalog_schema_version": {"const": "leva.et13.visual-cases.v1"}
+        }
+      },
+      "then": {
+        "required": [
+          "baseline_status",
+          "baseline_set_sha256",
+          "baseline_approval_sha256",
+          "pixel_diff_percent"
+        ],
+        "properties": {
+          "case_count": {"const": 96},
+          "passed_case_count": {"const": 96},
+          "surface_case_counts": {"$ref": "#/$defs/visualCounts"}
+        },
+        "not": {
+          "anyOf": [
+            {"required": ["standard"]},
+            {"required": ["critical_violations"]},
+            {"required": ["serious_violations"]}
+          ]
+        }
+      },
+      "else": {
+        "required": ["standard", "critical_violations", "serious_violations"],
+        "properties": {
+          "case_count": {"const": 24},
+          "passed_case_count": {"const": 24},
+          "surface_case_counts": {"$ref": "#/$defs/a11yCounts"}
+        },
+        "not": {
+          "anyOf": [
+            {"required": ["baseline_status"]},
+            {"required": ["baseline_set_sha256"]},
+            {"required": ["baseline_approval_sha256"]},
+            {"required": ["pixel_diff_percent"]}
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["baseline_status"],
+        "properties": {"evidence_mode": {"const": "release_ready"}}
+      },
+      "then": {
+        "properties": {
+          "baseline_status": {"const": "approved"},
+          "baseline_set_sha256": {"$ref": "#/$defs/sha256"},
+          "baseline_approval_sha256": {"$ref": "#/$defs/sha256"},
+          "pixel_diff_percent": {"const": 0}
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["baseline_status"],
+        "properties": {"evidence_mode": {"const": "diagnostic"}}
+      },
+      "then": {
+        "properties": {
+          "baseline_status": {"const": "pending_external_review"},
+          "baseline_set_sha256": {"type": "null"},
+          "baseline_approval_sha256": {"type": "null"},
+          "pixel_diff_percent": {"type": "null"}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "fixtureIds": {
+      "type": "array",
+      "minItems": 12,
+      "maxItems": 12,
+      "prefixItems": [
+        {"const": "web-today-available"},
+        {"const": "web-path-current-week"},
+        {"const": "web-content-reading"},
+        {"const": "web-workspace-idle"},
+        {"const": "web-review-loaded"},
+        {"const": "web-mentor-context-preview"},
+        {"const": "admin-kpi-dashboard"},
+        {"const": "admin-support-long-wire"},
+        {"const": "mobile-today-available"},
+        {"const": "mobile-content-reading"},
+        {"const": "dp-design-mission-ledger"},
+        {"const": "dp-design-context-payload-preview"}
+      ],
+      "items": false
+    },
+    "visualCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["web", "admin", "mobile", "dp_design"],
+      "properties": {
+        "web": {"const": 48},
+        "admin": {"const": 16},
+        "mobile": {"const": 16},
+        "dp_design": {"const": 16}
+      }
+    },
+    "a11yCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["web", "admin", "mobile", "dp_design"],
+      "properties": {
+        "web": {"const": 12},
+        "admin": {"const": 4},
+        "mobile": {"const": 4},
+        "dp_design": {"const": 4}
+      }
+    }
+  }
+}

@@ -1,0 +1,43 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: devpath-sandbox-svc-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: devpath-sandbox-svc
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: devpath-gateway
+        - podSelector:
+            matchLabels:
+              app: devpath-ai-svc
+        - podSelector:
+            matchLabels:
+              app: devpath-lcs-svc
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: devpath-sandbox-runner-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: devpath-sandbox-runner
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: devpath-sandbox-svc
+      ports:
+        - protocol: TCP
+          port: 2376

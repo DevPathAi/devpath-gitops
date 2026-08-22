@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: elasticsearch
+  labels:
+    app: elasticsearch
+spec:
+  replicas: 1
+  # RWO PVC 를 쓰므로 RollingUpdate 면 새 파드가 볼륨을 못 잡아 교착한다(구 파드가 놓아줄 때까지
+  # Pending, 구 파드는 새 파드가 Ready 될 때까지 유지). 단일 노드 검색 인덱스라 짧은 중단을
+  # 감수하고 Recreate 로 교체한다.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: elasticsearch
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+    spec:
+      # ES 공식 이미지는 uid/gid 1000 으로 실행된다. PVC 를 처음 붙일 때 소유자가 root 면
+      # 데이터 디렉터리에 쓰지 못해 기동이 실패하므로 fsGroup 으로 그룹 소유권을 맞춘다.
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: elasticsearch
+          # nori(한국어 형태소) 플러그인을 미리 설치한 자체 이미지. 정의는 community-svc 의
+          # docker/elasticsearch/Dockerfile. GHCR private 패키지이며 pull 은 devpath ns 의
+          # default ServiceAccount 에 패치된 `ghcr-pull` Secret(read:packages PAT)이 담당한다
+          # (다른 서비스 이미지와 동일 경로 — docs/runbook-k3s-bootstrap.md).
+          image: ghcr.io/devpathai/devpath-elasticsearch:9.2.8
+          ports:
+            - containerPort: 9200
+          env:
+            - name: discovery.type
+              value: "single-node"
+            # 내부 통신 전용(Ingress 없음)이라 보안 플러그인을 끈다. 외부 노출 시 반드시 재검토.
+            - name: xpack.security.enabled
+              value: "false"
+            # t3.xlarge(16GB) 에서 ollama(requests 3Gi)와 서비스 9개가 이미 돌고 있어 보수적으로
+            # 잡는다. 힙 512m + off-heap 여유를 감안해 limits 를 1Gi 로 둔다.
+            - name: ES_JAVA_OPTS
+              value: "-Xms512m -Xmx512m"
+          volumeMounts:
+            - name: data
+              mountPath: /usr/share/elasticsearch/data
+          # ES 는 콜드 스타트가 20초 이상 걸린다. startupProbe 없이 liveness 만 두면 기동 중
+          # 재시작이 걸려 CrashLoop 에 빠진다(이 클러스터에서 실제로 겪은 실패 양상이다).
+          # startupProbe 가 통과할 때까지 liveness/readiness 는 유예된다.
+          startupProbe:
+            httpGet:
+              path: /
+              port: 9200
+            periodSeconds: 5
+            failureThreshold: 36 # 최대 180초
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 9200
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 9200
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 200m
+              memory: 768Mi
+            limits:
+              memory: 1Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: elasticsearch-data

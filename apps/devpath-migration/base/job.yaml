@@ -3,16 +3,72 @@ kind: Job
 metadata:
   name: devpath-flyway-migrate
 spec:
+  # Base/main is inert. Only the protected sealed M commit may unsuspend a
+  # digest-derived Job name after selecting the candidate image digest.
+  suspend: true
   backoffLimit: 3
   template:
     spec:
       restartPolicy: Never
+      initContainers:
+        - name: sandbox-low-lock-preflight
+          image: postgres:17-alpine@sha256:979c4379dd698aba0b890599a6104e082035f98ef31d9b9291ec22f2b13059ca
+          command: ["/bin/sh", "/opt/devpath/preflight.sh"]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 70
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: FLYWAY_URL
+              valueFrom:
+                secretKeyRef:
+                  name: platform-db
+                  key: db-url
+            - name: FLYWAY_USER
+              valueFrom:
+                secretKeyRef:
+                  name: platform-db
+                  key: db-user
+            - name: FLYWAY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: platform-db
+                  key: db-password
+            - name: EXPECTED_ET8_SHARED_COMMIT
+              value: "2b03c38934fdd19332da59107e4330a3af92d078"
+            - name: EXPECTED_SHARED_COMMIT
+              value: "58c78bfe35e99e618863b53f689c216b40295826"
+            - name: ET8_FLYWAY_VERSION
+              value: "202608161008"
+            - name: TARGET_FLYWAY_VERSION
+              value: "202608201002"
+            - name: MAINTENANCE_APPROVED
+              valueFrom:
+                configMapKeyRef:
+                  name: sandbox-migration-gate
+                  key: maintenance-approved
+            - name: MAX_SANDBOX_SESSIONS_BYTES
+              valueFrom:
+                configMapKeyRef:
+                  name: sandbox-migration-gate
+                  key: max-sandbox-sessions-bytes
+            - name: LOCK_TIMEOUT_MS
+              value: "2000"
+            - name: STATEMENT_TIMEOUT_MS
+              value: "30000"
+          volumeMounts:
+            - name: sandbox-migration-preflight
+              mountPath: /opt/devpath
+              readOnly: true
       containers:
         - name: flyway
           # 중앙 스키마(devpath-shared)의 마이그레이션을 RDS에 적용한다.
-          # SQL은 이미지에 내장(shared Dockerfile.migration: /flyway/sql), 서비스는 ddl-auto: validate.
+          # SQL과 nontransactional Java runner는 이미지에 내장된다
+          # (shared Dockerfile.migration: /flyway/sql + /flyway/drivers).
           # 자격은 platform-db SealedSecret(Flyway 표준 env FLYWAY_URL/USER/PASSWORD).
-          # Job은 immutable — 이미지 태그 교체 시 sync 실패하면 Job 삭제 후 재sync(runbook 참조).
+          # sealed migration commit이 digest-derived Job 이름으로 패치해 새 Job을 생성한다.
           image: ghcr.io/devpathai/devpath-migration:main
           securityContext:
             runAsNonRoot: true
@@ -37,6 +93,39 @@ spec:
                 secretKeyRef:
                   name: platform-db
                   key: db-password
+            - name: FLYWAY_POSTGRESQL_TRANSACTIONAL_LOCK
+              value: "false"
+            - name: EXPECTED_ET8_SHARED_COMMIT
+              value: "2b03c38934fdd19332da59107e4330a3af92d078"
+            - name: EXPECTED_SHARED_COMMIT
+              value: "58c78bfe35e99e618863b53f689c216b40295826"
+            - name: ET8_FLYWAY_VERSION
+              value: "202608161008"
+            - name: TARGET_FLYWAY_VERSION
+              value: "202608201002"
+          command: ["/bin/sh", "-ec"]
           args:
-            - -locations=filesystem:/flyway/sql
-            - migrate
+            - |
+              test "$EXPECTED_ET8_SHARED_COMMIT" = "2b03c38934fdd19332da59107e4330a3af92d078"
+              test "$EXPECTED_SHARED_COMMIT" = "58c78bfe35e99e618863b53f689c216b40295826"
+              test "$ET8_FLYWAY_VERSION" = "202608161008"
+              test "$TARGET_FLYWAY_VERSION" = "202608201002"
+              test -f /flyway/sql/V202608161008__validate_sandbox_terminal_reconciliation_fence.sql
+              test -f /flyway/sql/V202608201002__validate_community_content_soft_delete.sql
+              runner_jar="$(find /flyway/drivers -maxdepth 1 -type f -name '*-migration-runner.jar' -print -quit)"
+              test -n "$runner_jar"
+              migration_locations="filesystem:/flyway/sql,classpath:db/migration"
+              flyway -locations="$migration_locations" -target="$TARGET_FLYWAY_VERSION" migrate
+              # validate 도 같은 target 을 받아야 한다. -target 없이 돌리면 승인 범위 밖의
+              # 마이그레이션(shared 이미지에는 들어 있지만 아직 적용하지 않기로 한 것)을
+              # "적용 안 됨" 오류로 잡아 set -e 아래에서 Job 을 죽인다. 실측:
+              # `Detected resolved migration not applied to database` → exit 1.
+              # target 을 주어도 엄격함은 그대로다 — 체크섬 변조와 target 아래 미적용 건은
+              # 여전히 잡힌다(둘 다 실측). 보류하기로 한 것만 통과시킨다.
+              flyway -locations="$migration_locations" -target="$TARGET_FLYWAY_VERSION" validate
+              printf 'mission-spine-flyway-target=%s status=validated\n' "$TARGET_FLYWAY_VERSION"
+      volumes:
+        - name: sandbox-migration-preflight
+          configMap:
+            name: sandbox-migration-preflight
+            defaultMode: 365

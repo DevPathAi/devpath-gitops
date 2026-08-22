@@ -49,6 +49,13 @@ spec:
               value: "5"
             - name: SANDBOX_URI
               value: "http://devpath-sandbox-svc.devpath.svc:8080"
+            - name: LCS_URI
+              value: "http://devpath-lcs-svc.devpath.svc:8080"
+            - name: INTERNAL_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: devpath-internal-auth
+                  key: sandbox-token
             - name: LEARNING_URI
               value: "http://devpath-learning-svc.devpath.svc:8080"
             - name: ANTHROPIC_API_KEY
@@ -64,10 +71,10 @@ spec:
               value: "ollama"
             - name: MENTOR_FALLBACK
               value: "claude"
-            # 코드 기본값은 qwen2.5:7b 인데 클러스터에 설치된 모델은 3b 뿐이다(실측).
-            # 이 값을 빼면 폴백이 켜져도 없는 모델을 찾다가 그대로 실패한다.
             - name: MENTOR_OLLAMA_MODEL
               value: "qwen2.5:3b"
+            - name: MENTOR_CLAUDE_MODEL
+              value: "claude-sonnet-4-6"
             - name: COMMUNITY_SEED_PROVIDER
               value: "claude"
             - name: RETENTION_PROVIDER
@@ -77,6 +84,15 @@ spec:
               value: "http://ollama.devpath.svc:11434"
             - name: OLLAMA_GEN_MODEL
               value: "qwen2.5:3b"
+            # 학습경로 생성만 GPU 노드의 Ollama 로 보낸다. 임베딩·멘토·리뷰는 위의 CPU Ollama 에 남는다.
+            # GPU 노드는 스팟이라 회수될 수 있는데, 그때 멈추는 것은 학습경로뿐이고 그건 비동기 작업이다.
+            - name: OLLAMA_PATH_BASE_URL
+              value: "http://ollama-gpu.devpath.svc:11434"
+            # 코드 기본 PT8S 는 embed(2초)에 맞춘 값이라 생성에는 매번 끊긴다. GPU 에서 생성은 30~60초다.
+            # 주의: OllamaClient.generatePath 는 계약 위반 시 1회 재시도하므로 최악 2배까지 걸린다.
+            # OLLAMA_TIMEOUT 은 건드리지 않는다 — 그 값을 올리면 2초짜리 임베딩까지 함께 늘어난다.
+            - name: OLLAMA_PATH_TIMEOUT
+              value: "PT300S"
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness

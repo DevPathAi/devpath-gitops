@@ -1,0 +1,10 @@
+{"skill":"office-hours","event":"started","branch":"unknown","session":"1730-1786771857","ts":"2026-08-15T05:30:59.058Z"}
+{"duration_s":2296,"outcome":"success","skill":"office-hours","event":"completed","branch":"unknown","session":"1730-1786771857","ts":"2026-08-15T06:09:14.131Z"}
+{"skill":"plan-design-review","event":"started","branch":"unknown","session":"481-1786774335","ts":"2026-08-15T06:12:17.447Z"}
+{"skill":"plan-design-review","event":"completed","branch":"unknown","session":"481-1786774335","duration_s":4793,"outcome":"success","ts":"2026-08-15T07:32:08.278Z"}
+{"skill":"plan-eng-review","event":"started","branch":"unknown","session":"285-1786779666","ts":"2026-08-15T07:41:07.634Z"}
+{"skill":"plan-eng-review","event":"completed","branch":"unknown","outcome":"success","duration_s":5220,"session":"285-1786779666","ts":"2026-08-15T09:08:08.064Z"}
+{"skill":"claude","event":"started","branch":"unknown","session":"43872-1786785701","ts":"2026-08-15T09:21:49.377Z"}
+{"skill":"claude","event":"completed","branch":"unknown","outcome":"success","duration_s":1041,"session":"43872-1786785701","ts":"2026-08-15T09:39:04.514Z"}
+{"skill":"plan-eng-review","event":"started","branch":"unknown","session":"388-1786787017","ts":"2026-08-15T09:43:40.428Z"}
+{"skill":"plan-eng-review","event":"completed","branch":"unknown","outcome":"success","duration_s":"981","session":"388-1786787017","ts":"2026-08-15T09:59:59.726Z"}
