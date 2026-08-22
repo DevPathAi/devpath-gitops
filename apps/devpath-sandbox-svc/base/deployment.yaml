@@ -6,6 +6,11 @@ metadata:
     app: devpath-sandbox-svc
 spec:
   replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app: devpath-sandbox-svc
@@ -15,6 +20,7 @@ spec:
         app: devpath-sandbox-svc
     spec:
       enableServiceLinks: false
+      terminationGracePeriodSeconds: 120
       containers:
         - name: devpath-sandbox-svc
           # 이미지 태그는 ArgoCD Image Updater 또는 CI가 교체한다.
@@ -46,6 +52,35 @@ spec:
               value: "devpath-kafka-bootstrap.kafka.svc:9092"
             - name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
               value: "5"
+            - name: INTERNAL_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: devpath-internal-auth
+                  key: sandbox-token
+            - name: DOCKER_HOST
+              value: "tcp://devpath-sandbox-runner:2376"
+            - name: DOCKER_CERT_PATH
+              value: "/var/run/secrets/sandbox-runner-tls"
+            - name: SANDBOX_RUNNER_TLS_VERIFY
+              value: "true"
+            - name: SANDBOX_RUNTIME
+              value: "runsc"
+            - name: SANDBOX_REQUIRE_ISOLATION
+              value: "true"
+            - name: SANDBOX_DRAIN_TIMEOUT_MS
+              value: "75000"
+            - name: SANDBOX_ACTIVE_CUTOFF_MS
+              value: "60000"
+            - name: SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE
+              value: "90s"
+            - name: SANDBOX_LEASE_DURATION_MS
+              value: "20000"
+            - name: SANDBOX_LEASE_HEARTBEAT_MS
+              value: "5000"
+          volumeMounts:
+            - name: sandbox-runner-mtls
+              mountPath: /var/run/secrets/sandbox-runner-tls
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness
@@ -62,3 +97,8 @@ spec:
               memory: 256Mi
             limits:
               memory: 512Mi
+      volumes:
+        - name: sandbox-runner-mtls
+          secret:
+            secretName: sandbox-runner-mtls
+            defaultMode: 256
