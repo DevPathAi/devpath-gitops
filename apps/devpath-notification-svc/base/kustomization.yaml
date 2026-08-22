@@ -6,4 +6,4 @@ resources:
 images:
 - name: ghcr.io/devpathai/devpath-notification-svc
   newName: ghcr.io/devpathai/devpath-notification-svc
-  newTag: main
+  newTag: c659b215e76d8d59eed772df31d81d9b3e7a9f63
