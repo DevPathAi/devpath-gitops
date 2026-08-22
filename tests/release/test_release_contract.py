@@ -302,7 +302,7 @@ resources:
 images:
 - name: ghcr.io/devpathai/devpath-web
   newName: ghcr.io/devpathai/devpath-web
-  newTag: 2400fb4ece8dd250e5b29109bc8e28686c7edc03
+  newTag: 5c5f3a90f8d3da2523bb1dd13c057655f7b82897-mission-off
 """
         rendered = self.promoter.render_kustomization(source, self.candidate, "mission-on")
         self.assertIn("  digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", rendered)
