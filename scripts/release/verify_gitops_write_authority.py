@@ -54,19 +54,38 @@ def _require_common_ruleset(rule: dict[str, Any], name: str) -> None:
     )
     if ref_name != {"include": ["refs/heads/main"], "exclude": []}:
         raise ValueError(f"{name}: exact main ref condition is required")
-    if "bypass_actors" not in rule:
-        # GitHub intentionally hides this field when the caller cannot inspect it.
-        raise ValueError(f"{name}: bypass_actors must be visible to fail closed")
-    if not isinstance(rule["bypass_actors"], list):
-        raise ValueError(f"{name}: bypass_actors must be a visible list")
+    if "bypass_actors" in rule and not isinstance(rule["bypass_actors"], list):
+        raise ValueError(f"{name}: bypass_actors must be a list when visible")
     if not isinstance(rule.get("rules"), list):
         raise ValueError(f"{name}: rules must be visible")
 
 
+def _require_bypass_proof(rule: dict[str, Any], name: str, expected_can_bypass: str,
+                          expected_actors: list[dict[str, Any]]) -> None:
+    """bypass 증명 — 관측 가능 계약(2026-08-22 사용자 결정).
+
+    GitHub 는 bypass_actors 를 룰셋 write 권한자에게만 반환한다(문서 명시).
+    릴리스 App 은 Administration read 만 가진다 — 최소권한으로, App 이 스스로
+    봉인(보호 규칙)을 수정할 수 없어야 하기 때문이다. 따라서:
+    - bypass_actors 가 보이면(관리자 감사 경로) 정확 일치를 요구한다.
+    - 숨겨져 있으면 caller-relative 증명으로 대체한다: 호출자(App) 기준
+      governance 는 bypass 가능(always), integrity 는 불가(never).
+      「governance bypass 배우가 App 하나뿐」의 전수 증명은 write 권한자만
+      가능하므로, 생성 시점 실측과 주기적 관리자 감사가 담보한다.
+    """
+    if "bypass_actors" in rule:
+        if rule["bypass_actors"] != expected_actors:
+            raise ValueError(f"{name}: bypass actors are not exact")
+        return
+    if rule.get("current_user_can_bypass") != expected_can_bypass:
+        raise ValueError(
+            f"{name}: caller bypass capability must be {expected_can_bypass} "
+            "when bypass_actors is hidden")
+
+
 def _validate_integrity(rule: dict[str, Any]) -> None:
     _require_common_ruleset(rule, INTEGRITY_RULESET)
-    if rule["bypass_actors"] != []:
-        raise ValueError("integrity ruleset may not have any bypass actor")
+    _require_bypass_proof(rule, INTEGRITY_RULESET, "never", [])
     expected = [
         {"type": "deletion"},
         {"type": "non_fast_forward"},
@@ -80,11 +99,9 @@ def _validate_integrity(rule: dict[str, Any]) -> None:
 
 def _validate_governance(rule: dict[str, Any], app_id: int) -> None:
     _require_common_ruleset(rule, GOVERNANCE_RULESET)
-    expected_bypass = [
+    _require_bypass_proof(rule, GOVERNANCE_RULESET, "always", [
         {"actor_id": app_id, "actor_type": "Integration", "bypass_mode": "always"}
-    ]
-    if rule["bypass_actors"] != expected_bypass:
-        raise ValueError("governance bypass must be the sole GitHub App")
+    ])
     rules = rule["rules"]
     if len(rules) != 1 or not isinstance(rules[0], dict):
         raise ValueError("governance rules are not exact")
