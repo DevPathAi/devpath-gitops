@@ -6,11 +6,26 @@ all of the following externally provisioned prerequisites exist:
 1. A dedicated runner workload labelled `app=devpath-sandbox-runner` listens on
    port 2376, verifies client certificates, and has the `runsc` runtime installed.
    The application pod never mounts `/var/run/docker.sock` or a `hostPath`.
+   **Provisioned 2026-08-22**: `apps/devpath-sandbox-runner/base` (DinD +
+   pinned gVisor 20250820.0, mTLS-only 2376 — the dind entrypoint is bypassed
+   because it injects an unencrypted 2375 listener, measured). The runner
+   Service is owned by that app, not this base.
 2. Secret `sandbox-runner-mtls` contains the Docker client CA, certificate, and
-   key expected by docker-java.
+   key expected by docker-java (`ca.pem`, `cert.pem`, `key.pem`).
+   **Provisioned 2026-08-22** alongside `sandbox-runner-server-tls` (server
+   side) and `sandbox-runner-ca` (rotation material; CA private key lives only
+   in this cluster secret — local copies were shredded).
 3. Secret `devpath-internal-auth` contains key `sandbox-token`. AI and LCS
    clients must send it as `X-DevPath-Internal-Token` before the sandbox image is
    rolled out; merely injecting the environment variable is not sufficient.
+   **Provisioned 2026-08-22**; ai-svc and lcs-svc deployments already inject it.
+
+Verification evidence (2026-08-22): runner engine registers runsc
+(`docker info` Runtimes), a runsc container reports the gVisor synthetic kernel
+(`Linux version 4.4.0 … 2016`), a certificate-less client is rejected, and a
+canary of the released sandbox image (bf9ad1a…) with this base's full hardened
+environment reached readiness UP against the live runner (readiness group
+includes `sandboxRunner`).
 
 Required order:
 

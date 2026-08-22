@@ -87,7 +87,7 @@
       "properties": {
         "repository": {"const": "DevPathAi/devpath-gitops"},
         "base_sha": {"$ref": "#/$defs/sha40"},
-        "base_web_tag": {"type": "string", "pattern": "^[0-9a-f]{40}(-mission-(off|on))?$"},
+        "base_web_tag": {"type": "string", "pattern": "^[0-9a-f]{40}(-mission-(off|on))?$", "description": "봉인된 신뢰 베이스의 사람용 태그. 신뢰의 실체는 base_web_digest — docs/mission-spine/web-trust-anchor-decision-2026-08-22.md"},
         "base_web_digest": {"$ref": "#/$defs/digest"},
         "web_kustomization": {"const": "apps/devpath-web/base/kustomization.yaml"}
       },

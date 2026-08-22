@@ -21,6 +21,14 @@ from urllib.parse import urlsplit
 
 RELEASE_ID = re.compile(r"^ms-[0-9]{8}-[a-z0-9][a-z0-9-]{2,40}$")
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
+# web 신뢰 베이스 태그: 순수 SHA40(레거시) 또는 mission 접미 태그. 미션 스파인
+# 흐름의 산출 태그는 구조적으로 <sha40>-mission-(off|on) 이고, 신뢰의 실체는
+# 태그가 아니라 base_web_digest 다(set_web_digest 가 selector 를 digest 로 교체,
+# rollback.prior_digest == base_web_digest 강제, wait_web_rollout 이 imageID 로
+# 검증). 태그 분기는 태그형 selector 에서 출발하는 전환 1회에만 쓰이고 이후
+# digest 형으로 순환한다. -off 를 제한하지 않는 이유: digest 가 유일 신뢰원이라
+# 보안 이득이 없고, 중단 사고 후 비상 경로만 좁힌다.
+# 결정 기록: docs/mission-spine/web-trust-anchor-decision-2026-08-22.md
 WEB_BASE_TAG = re.compile(r"^[0-9a-f]{40}(?:-mission-(?:off|on))?$")
 SHA64 = re.compile(r"^[0-9a-f]{64}$")
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")

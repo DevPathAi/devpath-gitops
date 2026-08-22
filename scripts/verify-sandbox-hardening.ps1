@@ -23,6 +23,7 @@ function Read-Match([string] $text, [string] $pattern, [string] $message) {
 }
 
 $sandbox = Render-Kustomization "apps/devpath-sandbox-svc/base"
+$runner = Render-Kustomization "apps/devpath-sandbox-runner/base"
 $ai = Render-Kustomization "apps/devpath-ai-svc/base"
 $lcs = Render-Kustomization "apps/devpath-lcs-svc/base"
 $migration = Render-Kustomization "apps/devpath-migration/base"
@@ -63,8 +64,6 @@ Assert-Contains $sandbox "secretName:\s+sandbox-runner-mtls" `
   "sandbox must mount runner mTLS credentials"
 Assert-Contains $sandbox "name:\s+INTERNAL_API_TOKEN[\s\S]*key:\s+sandbox-token[\s\S]*name:\s+devpath-internal-auth" `
   "sandbox internal endpoints need a workload credential"
-Assert-Contains $sandbox "kind:\s+Service[\s\S]*name:\s+devpath-sandbox-runner" `
-  "dedicated runner service discovery must be rendered"
 Assert-Contains $sandbox "kind:\s+NetworkPolicy[\s\S]*name:\s+devpath-sandbox-svc-ingress" `
   "sandbox ingress NetworkPolicy must be rendered"
 Assert-Contains $sandbox "kind:\s+NetworkPolicy[\s\S]*name:\s+devpath-sandbox-runner-ingress" `
@@ -72,6 +71,29 @@ Assert-Contains $sandbox "kind:\s+NetworkPolicy[\s\S]*name:\s+devpath-sandbox-ru
 
 if ($sandbox -match "/var/run/docker\.sock" -or $sandbox -match "hostPath:") {
   throw "sandbox workload must not mount the host Docker socket or any hostPath"
+}
+
+# 러너 앱(apps/devpath-sandbox-runner) — RUNBOOK 요건 1 의 실체.
+Assert-Contains $runner "kind:\s+Service[\s\S]*name:\s+devpath-sandbox-runner" `
+  "dedicated runner service discovery must be rendered by the runner app"
+Assert-Contains $runner "storage\.googleapis\.com/gvisor/releases/release/20250820\.0/x86_64/runsc" `
+  "runner must install a pinned gVisor release"
+Assert-Contains $runner "d6c12a4cb4f714bfcba6fd6611ad4ca73fd88dce790a083d2ceda807cd7e074c0131d5dd2a3490399e8be91feed9afe450793e9708dacddc4afc99ee6e5c3d2e" `
+  "runner must verify the pinned runsc sha512 before install"
+Assert-Contains $runner "--add-runtime=runsc=/gvisor/runsc" `
+  "runner engine must register the runsc runtime"
+Assert-Contains $runner "--tlsverify" `
+  "runner API must verify client certificates"
+Assert-Contains $runner "secretName:\s+sandbox-runner-server-tls" `
+  "runner must serve the pinned mTLS server credentials"
+if ($runner -match "2375") {
+  throw "runner must expose only the mTLS 2376 listener (dind entrypoint injects 2375)"
+}
+if ($runner -match "dockerd-entrypoint") {
+  throw "runner must exec dockerd directly; the dind entrypoint adds an unencrypted listener"
+}
+if ($runner -match "/var/run/docker\.sock.*hostPath" -or $runner -match "hostPath:") {
+  throw "runner must not mount any hostPath"
 }
 
 Assert-Contains $ai "name:\s+INTERNAL_API_TOKEN[\s\S]*key:\s+sandbox-token" `
