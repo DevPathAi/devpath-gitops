@@ -118,16 +118,37 @@ class GitOpsWriteAuthorityTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "target is not exact"):
             self.validate(rule_details=details)
 
-    def test_hidden_or_extra_bypass_actor_fails_closed(self):
+    def test_hidden_bypass_actors_fall_back_to_caller_relative_proof(self):
+        # GitHub 는 bypass_actors 를 룰셋 write 권한자에게만 반환한다(문서 명시).
+        # 릴리스 App 은 Administration read 만 가지므로(최소권한 — App 이 스스로
+        # 봉인을 풀 수 없어야 한다) 숨김이 정상 경로다. 이때는 caller-relative
+        # 증명으로 대체한다: governance 는 호출자(App)가 bypass 가능(always),
+        # integrity 는 불가(never)여야 한다. 둘 다 없으면 fail closed.
         details = copy.deepcopy(self.details)
         del details[102]["bypass_actors"]
-        with self.assertRaisesRegex(ValueError, "bypass_actors.*visible"):
+        with self.assertRaisesRegex(ValueError, "bypass"):
             self.validate(rule_details=details)
+        details[102]["current_user_can_bypass"] = "always"
+        self.validate(rule_details=details)
+        details[102]["current_user_can_bypass"] = "never"
+        with self.assertRaisesRegex(ValueError, "bypass"):
+            self.validate(rule_details=details)
+        details = copy.deepcopy(self.details)
+        del details[101]["bypass_actors"]
+        with self.assertRaisesRegex(ValueError, "bypass"):
+            self.validate(rule_details=details)
+        details[101]["current_user_can_bypass"] = "never"
+        self.validate(rule_details=details)
+        details[101]["current_user_can_bypass"] = "always"
+        with self.assertRaisesRegex(ValueError, "bypass"):
+            self.validate(rule_details=details)
+
+    def test_hidden_or_extra_bypass_actor_fails_closed(self):
         details = copy.deepcopy(self.details)
         details[102]["bypass_actors"].append(
             {"actor_id": 77, "actor_type": "Team", "bypass_mode": "always"}
         )
-        with self.assertRaisesRegex(ValueError, "sole GitHub App"):
+        with self.assertRaisesRegex(ValueError, "bypass actors are not exact"):
             self.validate(rule_details=details)
 
     def test_governance_is_only_exact_non_merge_update_rule(self):
