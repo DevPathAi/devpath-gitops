@@ -7,8 +7,8 @@
   "gitops": {
     "repository": "DevPathAi/devpath-gitops",
     "base_sha": "1111111111111111111111111111111111111111",
-    "base_web_tag": "5c5f3a90f8d3da2523bb1dd13c057655f7b82897-mission-off",
-    "base_web_digest": "sha256:863d6c676bda364d0cbee41aac8712d98f81f507ebc03bb77f0a9ef9082e7ec7",
+    "base_web_tag": "5c5f3a90f8d3da2523bb1dd13c057655f7b82897-mission-on",
+    "base_web_digest": "sha256:6484ed322027ae23e0b722705347b52b2e882e8133af7df91c421e246de542c7",
     "web_kustomization": "apps/devpath-web/base/kustomization.yaml"
   },
   "services": {
@@ -95,7 +95,7 @@
     "selected_on_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "rollback": {
       "mission_off_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "prior_digest": "sha256:863d6c676bda364d0cbee41aac8712d98f81f507ebc03bb77f0a9ef9082e7ec7",
+      "prior_digest": "sha256:6484ed322027ae23e0b722705347b52b2e882e8133af7df91c421e246de542c7",
       "final_target": "prior"
     }
   },
