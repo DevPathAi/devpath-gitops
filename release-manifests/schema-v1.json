@@ -87,7 +87,7 @@
       "properties": {
         "repository": {"const": "DevPathAi/devpath-gitops"},
         "base_sha": {"$ref": "#/$defs/sha40"},
-        "base_web_tag": {"$ref": "#/$defs/sha40"},
+        "base_web_tag": {"type": "string", "pattern": "^[0-9a-f]{40}(-mission-(off|on))?$"},
         "base_web_digest": {"$ref": "#/$defs/digest"},
         "web_kustomization": {"const": "apps/devpath-web/base/kustomization.yaml"}
       },

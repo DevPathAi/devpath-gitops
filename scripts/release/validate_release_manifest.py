@@ -21,6 +21,7 @@ from urllib.parse import urlsplit
 
 RELEASE_ID = re.compile(r"^ms-[0-9]{8}-[a-z0-9][a-z0-9-]{2,40}$")
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
+WEB_BASE_TAG = re.compile(r"^[0-9a-f]{40}(?:-mission-(?:off|on))?$")
 SHA64 = re.compile(r"^[0-9a-f]{64}$")
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -1037,7 +1038,7 @@ def validate_candidate_spec(data: Any, source: Path | None = None) -> dict[str, 
     if gitops["repository"] != "DevPathAi/devpath-gitops":
         _fail("$.gitops.repository", "must be DevPathAi/devpath-gitops")
     _string(gitops["base_sha"], "$.gitops.base_sha", SHA40)
-    _string(gitops["base_web_tag"], "$.gitops.base_web_tag", SHA40)
+    _string(gitops["base_web_tag"], "$.gitops.base_web_tag", WEB_BASE_TAG)
     _string(gitops["base_web_digest"], "$.gitops.base_web_digest", DIGEST)
     if gitops["web_kustomization"] != "apps/devpath-web/base/kustomization.yaml":
         _fail("$.gitops.web_kustomization", "must target only the web base kustomization")
