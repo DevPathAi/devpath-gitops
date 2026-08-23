@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Approve one protected deployment and restore self-review prevention exactly."""
+"""Atomically approve protected deployments and restore self-review prevention."""
 
 from __future__ import annotations
 
@@ -128,77 +128,119 @@ def approve_pending_deployment(
     *,
     repository: str,
     run_id: int,
-    environment_name: str,
     comment: str,
+    environment_name: str | None = None,
+    environment_names: list[str] | None = None,
     api: Api = _gh_api,
 ) -> dict[str, Any]:
     if REPOSITORY.fullmatch(repository) is None:
         raise ValueError("repository is invalid")
     _positive(run_id, "run id")
-    if ENVIRONMENT.fullmatch(environment_name) is None:
-        raise ValueError("environment name is invalid")
+    if environment_names is None:
+        names = [environment_name] if environment_name is not None else []
+    elif environment_name is None:
+        names = list(environment_names)
+    else:
+        raise ValueError("environment name inputs are mutually exclusive")
+    if (
+        not names
+        or len(names) > 10
+        or len(set(names)) != len(names)
+        or any(
+            not isinstance(name, str) or ENVIRONMENT.fullmatch(name) is None
+            for name in names
+        )
+    ):
+        raise ValueError("environment names are invalid")
     if not isinstance(comment, str) or not comment.strip() or len(comment) > 280 or "\n" in comment or "\r" in comment:
         raise ValueError("approval comment is invalid")
-
-    environment_path = f"repos/{repository}/environments/{environment_name}"
-    environment = api("GET", environment_path, None)
-    environment_id = _positive(environment.get("id"), "environment id")
-    if environment.get("name") != environment_name:
-        raise ValueError("protected environment identity mismatch")
-    original = _policy_payload(environment)
-    if original["prevent_self_review"] is not True:
-        raise ValueError("protected environment must initially prevent self-review")
-    _assert_exact_main_policy(
-        api("GET", f"{environment_path}/deployment-branch-policies", None)
-    )
 
     operator = api("GET", "user", None)
     operator_id = _positive(operator.get("id") if isinstance(operator, dict) else None, "operator id")
     operator_login = operator.get("login") if isinstance(operator, dict) else None
     if not isinstance(operator_login, str) or LOGIN.fullmatch(operator_login) is None:
         raise ValueError("operator login is invalid")
-    configured_rule = next(
-        rule
-        for rule in environment["protection_rules"]
-        if isinstance(rule, dict) and rule.get("type") == "required_reviewers"
-    )
-    configured = configured_rule["reviewers"][0]
-    configured_reviewer = configured.get("reviewer") if isinstance(configured, dict) else None
-    if (
-        configured.get("type") != "User"
-        or not isinstance(configured_reviewer, dict)
-        or configured_reviewer.get("id") != operator_id
-        or configured_reviewer.get("login") != operator_login
-    ):
-        raise ValueError("authenticated operator must be the sole configured user reviewer")
+
+    states = []
+    for name in names:
+        environment_path = f"repos/{repository}/environments/{name}"
+        environment = api("GET", environment_path, None)
+        original = _policy_payload(environment)
+        environment_id = _positive(
+            environment.get("id") if isinstance(environment, dict) else None,
+            "environment id",
+        )
+        if environment.get("name") != name:
+            raise ValueError("protected environment identity mismatch")
+        if original["prevent_self_review"] is not True:
+            raise ValueError("protected environment must initially prevent self-review")
+        _assert_exact_main_policy(
+            api("GET", f"{environment_path}/deployment-branch-policies", None)
+        )
+        configured_rule = next(
+            rule
+            for rule in environment["protection_rules"]
+            if isinstance(rule, dict) and rule.get("type") == "required_reviewers"
+        )
+        configured = configured_rule["reviewers"][0]
+        configured_reviewer = (
+            configured.get("reviewer") if isinstance(configured, dict) else None
+        )
+        if (
+            configured.get("type") != "User"
+            or not isinstance(configured_reviewer, dict)
+            or configured_reviewer.get("id") != operator_id
+            or configured_reviewer.get("login") != operator_login
+        ):
+            raise ValueError(
+                "authenticated operator must be the sole configured user reviewer"
+            )
+        relaxed = dict(original)
+        relaxed["prevent_self_review"] = False
+        states.append(
+            {
+                "name": name,
+                "id": environment_id,
+                "path": environment_path,
+                "original": original,
+                "relaxed": relaxed,
+            }
+        )
+    environment_ids = [state["id"] for state in states]
+    if len(set(environment_ids)) != len(environment_ids):
+        raise ValueError("protected environment ids must be unique")
 
     pending_path = f"repos/{repository}/actions/runs/{run_id}/pending_deployments"
     pending = api("GET", pending_path, None)
-    matches = [
-        item
-        for item in pending
-        if isinstance(item, dict)
-        and isinstance(item.get("environment"), dict)
-        and item["environment"].get("id") == environment_id
-        and item["environment"].get("name") == environment_name
-    ] if isinstance(pending, list) else []
-    if len(matches) != 1:
-        raise ValueError("exactly one pending deployment for the environment is required")
+    for state in states:
+        matches = [
+            item
+            for item in pending
+            if isinstance(item, dict)
+            and isinstance(item.get("environment"), dict)
+            and item["environment"].get("id") == state["id"]
+            and item["environment"].get("name") == state["name"]
+        ] if isinstance(pending, list) else []
+        if len(matches) != 1:
+            raise ValueError(
+                "exactly one pending deployment for each environment is required"
+            )
 
-    relaxed = dict(original)
-    relaxed["prevent_self_review"] = False
     approval_error: Exception | None = None
     approval_response: Any = None
+    relaxation_attempted = []
     try:
-        api("PUT", environment_path, relaxed)
-        observed_relaxed = _policy_payload(api("GET", environment_path, None))
-        if observed_relaxed != relaxed:
-            raise ValueError("relaxed environment policy did not materialize exactly")
+        for state in states:
+            relaxation_attempted.append(state)
+            api("PUT", state["path"], state["relaxed"])
+            observed_relaxed = _policy_payload(api("GET", state["path"], None))
+            if observed_relaxed != state["relaxed"]:
+                raise ValueError("relaxed environment policy did not materialize exactly")
         approval_response = api(
             "POST",
             pending_path,
             {
-                "environment_ids": [environment_id],
+                "environment_ids": environment_ids,
                 "state": "approved",
                 "comment": comment,
             },
@@ -206,53 +248,65 @@ def approve_pending_deployment(
     except Exception as exc:
         approval_error = exc
     finally:
-        try:
-            api("PUT", environment_path, original)
-            observed_original = _policy_payload(api("GET", environment_path, None))
-            if observed_original != original:
-                raise ValueError("protected environment policy was not restored exactly")
-            _assert_exact_main_policy(
-                api("GET", f"{environment_path}/deployment-branch-policies", None)
-            )
-        except Exception as restore_exc:
-            raise ValueError("protected environment restore failed") from restore_exc
+        restore_errors = []
+        for state in reversed(relaxation_attempted):
+            try:
+                api("PUT", state["path"], state["original"])
+                observed_original = _policy_payload(api("GET", state["path"], None))
+                if observed_original != state["original"]:
+                    raise ValueError(
+                        "protected environment policy was not restored exactly"
+                    )
+                _assert_exact_main_policy(
+                    api("GET", f"{state['path']}/deployment-branch-policies", None)
+                )
+            except Exception as restore_exc:
+                restore_errors.append(restore_exc)
+        if restore_errors:
+            raise ValueError("protected environment restore failed") from restore_errors[0]
     if approval_error is not None:
         raise approval_error
     approved = approval_response if isinstance(approval_response, list) else []
-    deployment_ids = [
-        _positive(item.get("id"), "approved deployment id")
-        for item in approved
-        if isinstance(item, dict) and item.get("environment") == environment_name
-    ]
+    deployment_ids = []
+    approved_names = []
+    for item in approved:
+        if not isinstance(item, dict) or item.get("environment") not in names:
+            raise ValueError("GitHub approval response did not confirm the exact environments")
+        deployment_ids.append(_positive(item.get("id"), "approved deployment id"))
+        approved_names.append(item["environment"])
     if (
         not approved
-        or len(deployment_ids) != len(approved)
+        or any(name not in approved_names for name in names)
         or len(set(deployment_ids)) != len(deployment_ids)
     ):
-        raise ValueError("GitHub approval response did not confirm the exact environment")
-    return {
+        raise ValueError("GitHub approval response did not confirm the exact environments")
+    result = {
         "repository": repository,
         "run_id": run_id,
-        "environment": environment_name,
-        "environment_id": environment_id,
+        "environments": names,
+        "environment_ids": environment_ids,
         "approved_by": operator_login,
         "approved_by_id": operator_id,
         "deployment_ids": deployment_ids,
         "restored_prevent_self_review": True,
     }
+    if len(states) == 1:
+        result["environment"] = states[0]["name"]
+        result["environment_id"] = states[0]["id"]
+    return result
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repository", required=True)
     parser.add_argument("--run-id", required=True, type=int)
-    parser.add_argument("--environment", required=True)
+    parser.add_argument("--environment", required=True, action="append")
     parser.add_argument("--comment", required=True)
     args = parser.parse_args()
     result = approve_pending_deployment(
         repository=args.repository,
         run_id=args.run_id,
-        environment_name=args.environment,
+        environment_names=args.environment,
         comment=args.comment,
     )
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))

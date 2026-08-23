@@ -53,6 +53,13 @@ class FakeApi:
                 {"type": "branch_policy"},
             ],
         }
+        second = copy.deepcopy(self.environment)
+        second["id"] = 502
+        second["name"] = "mission-spine-production-on"
+        self.environments = {
+            self.environment["name"]: self.environment,
+            second["name"]: second,
+        }
 
     def __call__(self, method, path, payload=None):
         self.calls.append((method, path, copy.deepcopy(payload)))
@@ -64,10 +71,11 @@ class FakeApi:
             return [
                 {
                     "environment": {
-                        "id": 501,
-                        "name": "mission-spine-production-off",
+                        "id": environment["id"],
+                        "name": environment["name"],
                     }
                 }
+                for environment in self.environments.values()
             ]
         if path.endswith("/pending_deployments") and method == "POST":
             if self.fail_approval:
@@ -76,28 +84,29 @@ class FakeApi:
                 return copy.deepcopy(self.approval_response)
             return [
                 {
-                    "id": 901,
-                    "original_environment": "mission-spine-production-off",
-                    "environment": "mission-spine-production-off",
-                },
-                {
-                    "id": 902,
-                    "original_environment": "mission-spine-production-off",
-                    "environment": "mission-spine-production-off",
-                },
+                    "id": 900 + environment_id - 500,
+                    "original_environment": environment["name"],
+                    "environment": environment["name"],
+                }
+                for environment_id in payload["environment_ids"]
+                for environment in self.environments.values()
+                if environment["id"] == environment_id
             ]
+        if "/environments/" in path:
+            environment_name = path.split("/environments/", 1)[1].split("/", 1)[0]
+            environment = self.environments[environment_name]
         if "/environments/" in path and method == "GET":
-            return copy.deepcopy(self.environment)
+            return copy.deepcopy(environment)
         if "/environments/" in path and method == "PUT":
             if payload["prevent_self_review"] is True and self.fail_restore:
                 raise ValueError("restore failed")
-            self.environment["can_admins_bypass"] = payload["can_admins_bypass"]
-            self.environment["deployment_branch_policy"] = copy.deepcopy(
+            environment["can_admins_bypass"] = payload["can_admins_bypass"]
+            environment["deployment_branch_policy"] = copy.deepcopy(
                 payload["deployment_branch_policy"]
             )
             reviewer_rule = next(
                 rule
-                for rule in self.environment["protection_rules"]
+                for rule in environment["protection_rules"]
                 if rule["type"] == "required_reviewers"
             )
             reviewer_rule["prevent_self_review"] = payload["prevent_self_review"]
@@ -111,7 +120,7 @@ class FakeApi:
                 }
                 for entry in payload["reviewers"]
             ]
-            return copy.deepcopy(self.environment)
+            return copy.deepcopy(environment)
         raise AssertionError(f"unexpected API call: {method} {path}")
 
 
@@ -142,7 +151,33 @@ class ApprovePendingDeploymentTest(unittest.TestCase):
         )
         posts = [call for call in api.calls if call[0] == "POST"]
         self.assertEqual(posts[0][2]["environment_ids"], [501])
+        self.assertEqual(result["deployment_ids"], [901])
+
+    def test_relaxes_all_environments_before_one_atomic_approval_and_restores_all(self):
+        api = FakeApi()
+        names = ["mission-spine-production-off", "mission-spine-production-on"]
+
+        result = module.approve_pending_deployment(
+            repository="DevPathAi/devpath-gitops",
+            run_id=7001,
+            environment_names=names,
+            comment="AI-operated release approval",
+            api=api,
+        )
+
+        mutations = [call for call in api.calls if call[0] in {"PUT", "POST"}]
+        self.assertEqual([call[0] for call in mutations], ["PUT", "PUT", "POST", "PUT", "PUT"])
+        self.assertEqual(mutations[2][2]["environment_ids"], [501, 502])
+        self.assertEqual(result["environments"], names)
+        self.assertEqual(result["environment_ids"], [501, 502])
         self.assertEqual(result["deployment_ids"], [901, 902])
+        for environment in api.environments.values():
+            reviewer_rule = next(
+                rule
+                for rule in environment["protection_rules"]
+                if rule["type"] == "required_reviewers"
+            )
+            self.assertTrue(reviewer_rule["prevent_self_review"])
 
     def test_restores_policy_when_approval_fails(self):
         api = FakeApi(fail_approval=True)
