@@ -35,6 +35,14 @@ do not replace this with a TCP-only probe. The Unix Docker socket is internal to
 the privileged runner pod and is never exposed through a Service, volume, or
 application-pod mount. External runner traffic remains mTLS-only on 2376.
 
+Service/runtime binding (2026-08-23): production uses source commit
+`f98b3f2f62ec3a539f2e421009d9661d9fce545f` (published OCI digest
+`sha256:e294815f8faf935e1183fd146464f3976765b9284749cb41b375435aa631de88`).
+This release binds `SANDBOX_RUNNER_TLS_VERIFY` into the Docker client and moves
+submitted source into a runner-owned labelled volume before starting the
+read-only runsc container. The prior `bf9ad1a…` image predates both remote-runner
+contracts and must not be restored as an operational rollback target.
+
 Required order:
 
 1. Preserve the exact ET8 `devpath-shared` checkpoint
