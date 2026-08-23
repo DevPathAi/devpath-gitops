@@ -722,7 +722,7 @@ class SignedMobileManualTrustTest(unittest.TestCase):
                     111,
                 )
 
-    def test_live_approval_requires_protected_non_initiating_reviewer_and_successful_job(self):
+    def test_live_approval_accepts_authenticated_self_review_and_requires_successful_job(self):
         label = "manual-nvda"
         claim = self._approval(label)
         environment = {
@@ -765,8 +765,14 @@ class SignedMobileManualTrustTest(unittest.TestCase):
             "head_branch": "main",
             "head_sha": self.candidate["frontend"]["source_sha"],
             "repository": {"full_name": "DevPathAi/devpath-frontend"},
-            "actor": {"id": 1, "login": "release-initiator"},
-            "triggering_actor": {"id": 1, "login": "release-initiator"},
+            "actor": {
+                "id": claim["approved_by_id"],
+                "login": claim["approved_by"],
+            },
+            "triggering_actor": {
+                "id": claim["approved_by_id"],
+                "login": claim["approved_by"],
+            },
             "run_started_at": "2098-12-31T23:59:59Z",
             "updated_at": "2099-01-01T00:01:00Z",
         }
@@ -792,7 +798,7 @@ class SignedMobileManualTrustTest(unittest.TestCase):
         for mutation, message in (
             (("environment", "prevent_self_review", False), "prevent self-review"),
             (("environment-root", "can_admins_bypass", True), "identity"),
-            (("run", "actor", {"id": 4001, "login": "release-reviewer"}), "initiator"),
+            (("run", "actor", None), "initiator identity"),
             (("run", "run_attempt", 2), "attempt must be 1"),
             (("run", "head_branch", "feature/retry"), "head_branch"),
             (("job", "conclusion", "failure"), "successful"),

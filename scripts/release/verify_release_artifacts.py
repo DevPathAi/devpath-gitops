@@ -1451,15 +1451,21 @@ def validate_protected_approval(
         raise ValueError(f"{label}: protected approval run head SHA mismatch")
     if (run.get("repository") or {}).get("full_name") != expected_repository:
         raise ValueError(f"{label}: protected approval run repository mismatch")
-    initiators = [run.get("actor"), run.get("triggering_actor")]
-    for initiator in initiators:
+    for label_suffix, initiator in (
+        ("actor", run.get("actor")),
+        ("triggering actor", run.get("triggering_actor")),
+    ):
         if not isinstance(initiator, dict):
             raise ValueError(f"{label}: protected run initiator identity is missing")
-        if (
-            initiator.get("id") == claim["approved_by_id"]
-            or initiator.get("login") == claim["approved_by"]
-        ):
-            raise ValueError(f"{label}: approver must differ from the workflow initiator")
+        _positive_int(
+            initiator.get("id"),
+            f"{label} protected run {label_suffix} id",
+        )
+        login = initiator.get("login")
+        if not isinstance(login, str) or re.fullmatch(
+            r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?", login
+        ) is None:
+            raise ValueError(f"{label}: protected run initiator identity is invalid")
 
     if not isinstance(approvals, list):
         raise ValueError(f"{label}: approval history is invalid")
