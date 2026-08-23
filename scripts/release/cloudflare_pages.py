@@ -156,12 +156,20 @@ def _project(token: str, base: str) -> dict:
     project = payload.get("result")
     source = project.get("source") if isinstance(project, dict) else None
     config = source.get("config") if isinstance(source, dict) else None
+    direct_upload = (
+        isinstance(project, dict)
+        and "source" in project
+        and source is None
+    )
+    git_source_fenced = (
+        isinstance(config, dict)
+        and config.get("production_branch") == PRODUCTION_BRANCH
+        and config.get("production_deployments_enabled") is False
+    )
     if (
         not isinstance(project, dict)
         or project.get("production_branch") != PRODUCTION_BRANCH
-        or not isinstance(config, dict)
-        or config.get("production_branch") != PRODUCTION_BRANCH
-        or config.get("production_deployments_enabled") is not False
+        or not (direct_upload or git_source_fenced)
     ):
         raise ValueError(
             "Cloudflare project must disable external production deployments on the exact branch"
