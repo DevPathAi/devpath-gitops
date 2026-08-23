@@ -36,12 +36,15 @@ the privileged runner pod and is never exposed through a Service, volume, or
 application-pod mount. External runner traffic remains mTLS-only on 2376.
 
 Service/runtime binding (2026-08-23): production uses source commit
-`f98b3f2f62ec3a539f2e421009d9661d9fce545f` (published OCI digest
-`sha256:e294815f8faf935e1183fd146464f3976765b9284749cb41b375435aa631de88`).
+`649bef299dd10a37e94647b8cd6fb1eaaaea6267` (published OCI digest
+`sha256:966af62fa62c46a3552ab2a7d4ee39eadd62324e3716952b164e2450a80bc205`).
 This release binds `SANDBOX_RUNNER_TLS_VERIFY` into the Docker client and moves
 submitted source into a runner-owned labelled volume before starting the
-read-only runsc container. The prior `bf9ad1a…` image predates both remote-runner
-contracts and must not be restored as an operational rollback target.
+read-only runsc container. Because this gVisor release fails sandbox creation
+when Docker cgroup `PidsLimit` is set, process limits are enforced inside runsc
+with `nproc` ulimits (128 for execution and 16 for source-loader containers).
+The prior `bf9ad1a…` image predates both remote-runner contracts and must not be
+restored as an operational rollback target.
 The immutable image runs as UID/GID `100:101`; the pod `fsGroup` must remain
 `101` and the projected mTLS Secret mode must remain `0440` so the non-root app
 can read the client key without making it world-readable.
