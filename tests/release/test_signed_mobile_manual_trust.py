@@ -64,17 +64,13 @@ class SignedMobileManualTrustTest(unittest.TestCase):
             "failed_case_count": 0,
             "assistive_technology": {
                 "manual-nvda": "NVDA+Chromium",
-                "manual-voiceover": "VoiceOver+Safari+iOS",
                 "manual-talkback": "TalkBack+Android",
             }[label],
             "test_provenance_sha256": catalog["provenance_sha256"],
             **self._approval(label),
         }
         mobile = self.candidate["quality_evidence_inputs"]["mobile_test_artifacts"]
-        if label == "manual-voiceover":
-            payload["build_provenance_sha256"] = mobile["build_provenance_sha256"]
-            payload["signed_ipa_sha256"] = mobile["signed_ipa_sha256"]
-        elif label == "manual-talkback":
+        if label == "manual-talkback":
             payload["build_provenance_sha256"] = mobile["build_provenance_sha256"]
             payload["signed_apk_sha256"] = mobile["signed_apk_sha256"]
         return payload
@@ -82,7 +78,7 @@ class SignedMobileManualTrustTest(unittest.TestCase):
     def _build_provenance(self) -> dict:
         mobile = self.candidate["quality_evidence_inputs"]["mobile_test_artifacts"]
         return {
-            "schema_version": "leva.mission-spine.signed-mobile-build.v1",
+            "schema_version": "leva.mission-spine.signed-android-build.v2",
             "release_id": self.candidate["release_id"],
             "repository": mobile["repository"],
             "source_sha": mobile["source_sha"],
@@ -103,11 +99,6 @@ class SignedMobileManualTrustTest(unittest.TestCase):
                     ),
                     "compile_sdk": 36,
                 },
-                "ios": {
-                    "xcode_version": "26.4.1",
-                    "xcode_build": "17E202",
-                    "iphoneos_sdk": "26.4",
-                },
             },
             "build_configuration": {
                 "use_mock": False,
@@ -126,25 +117,8 @@ class SignedMobileManualTrustTest(unittest.TestCase):
                 "play_app_signing": False,
                 "signing_certificate_sha256": "a" * 64,
             },
-            "ios": {
-                "artifact_path": mobile["signed_ipa_file"],
-                "sha256": mobile["signed_ipa_sha256"],
-                "bytes": 2048,
-                "bundle_id": "ai.devpath.devpathMobile",
-                "short_version": "1.0.0",
-                "bundle_version": "1",
-                "signature_verified": True,
-                "signing_classification": "organization_distribution",
-                "export_method": "ad-hoc",
-                "distribution_scope": "protected_manual_at_test_devices",
-                "team_id": "ABCDE12345",
-                "signing_certificate_sha256": "b" * 64,
-                "provisioning_profile_uuid": "12345678-1234-1234-1234-123456789abc",
-                "provisioning_profile_expires_at": "2099-12-31T23:59:59Z",
-            },
             "approvals": {
                 "android": self._approval("signed-mobile-android"),
-                "ios": self._approval("signed-mobile-ios"),
             },
         }
 
@@ -227,7 +201,7 @@ class SignedMobileManualTrustTest(unittest.TestCase):
         replace(release)
         return release
 
-    def test_candidate_exactly_binds_one_signed_mobile_artifact(self):
+    def test_candidate_exactly_binds_one_signed_android_artifact(self):
         mobile = self.candidate["quality_evidence_inputs"]["mobile_test_artifacts"]
         self.assertEqual(set(mobile), self.validator.SIGNED_MOBILE_BINDING_KEYS)
         self.validator.validate_candidate_spec(copy.deepcopy(self.candidate), CANDIDATE_FIXTURE)
@@ -237,7 +211,7 @@ class SignedMobileManualTrustTest(unittest.TestCase):
             ("source_sha", "0" * 40),
             ("event", "push"),
             ("workflow_path", ".github/workflows/ci.yml"),
-            ("artifact_name", "signed-mobile-build"),
+            ("artifact_name", "signed-android-build"),
             ("build_provenance_file", "provenance.json"),
             ("signed_apk_file", "leva-release.apk"),
             ("signed_ipa_file", "leva-release.ipa"),
@@ -259,7 +233,7 @@ class SignedMobileManualTrustTest(unittest.TestCase):
 
         invalid = copy.deepcopy(self.candidate)
         mobile = invalid["quality_evidence_inputs"]["mobile_test_artifacts"]
-        mobile["signed_ipa_sha256"] = mobile["signed_apk_sha256"]
+        mobile["build_provenance_sha256"] = mobile["signed_apk_sha256"]
         with self.assertRaisesRegex(ValueError, "distinct"):
             self.validator.validate_candidate_spec(invalid, CANDIDATE_FIXTURE)
 
@@ -268,7 +242,7 @@ class SignedMobileManualTrustTest(unittest.TestCase):
         mobile = invalid["quality_evidence_inputs"]["mobile_test_artifacts"]
         mobile["run_attempt"] = 2
         mobile["artifact_name"] = (
-            f'{invalid["release_id"]}-signed-mobile-build-run-'
+            f'{invalid["release_id"]}-signed-android-build-run-'
             f'{mobile["workflow_run_id"]}-attempt-2'
         )
         with self.assertRaisesRegex(ValueError, "attempt 1"):
@@ -279,7 +253,7 @@ class SignedMobileManualTrustTest(unittest.TestCase):
         mobile["workflow_run_id"] += 1
         mobile["artifact_id"] += 1
         mobile["artifact_name"] = (
-            f'{fresh["release_id"]}-signed-mobile-build-run-'
+            f'{fresh["release_id"]}-signed-android-build-run-'
             f'{mobile["workflow_run_id"]}-attempt-1'
         )
         self.validator.validate_candidate_spec(fresh, CANDIDATE_FIXTURE)
@@ -322,8 +296,6 @@ class SignedMobileManualTrustTest(unittest.TestCase):
             (("build_configuration", "use_mock"), True),
             (("build_configuration", "api_base_url"), "https://mock.devpath.ai"),
             (("android", "signature_verified"), False),
-            (("ios", "signature_verified"), False),
-            (("ios", "provisioning_profile_expires_at"), "not-a-time"),
             (("approvals", "android", "approval_environment"), "unprotected"),
         )
         for path, value in mutations:
@@ -343,23 +315,26 @@ class SignedMobileManualTrustTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             (root / "mobile" / "android").mkdir(parents=True)
-            (root / "mobile" / "ios").mkdir(parents=True)
             (root / mobile["build_provenance_file"]).write_bytes(raw)
             (root / mobile["signed_apk_file"]).write_bytes(b"apk")
-            (root / mobile["signed_ipa_file"]).write_bytes(b"ipa")
             bound = copy.deepcopy(self.candidate)
             binding = bound["quality_evidence_inputs"]["mobile_test_artifacts"]
             binding["build_provenance_sha256"] = hashlib.sha256(raw).hexdigest()
             binding["signed_apk_sha256"] = hashlib.sha256(b"apk").hexdigest()
-            binding["signed_ipa_sha256"] = hashlib.sha256(b"ipa").hexdigest()
             provenance["android"]["sha256"] = binding["signed_apk_sha256"]
-            provenance["ios"]["sha256"] = binding["signed_ipa_sha256"]
             provenance["android"]["bytes"] = len(b"apk")
-            provenance["ios"]["bytes"] = len(b"ipa")
             raw = json.dumps(provenance, separators=(",", ":")).encode("utf-8")
             (root / mobile["build_provenance_file"]).write_bytes(raw)
             binding["build_provenance_sha256"] = hashlib.sha256(raw).hexdigest()
             self.verifier.validate_signed_mobile_bundle(root, bound)
+
+            legacy_ios = root / "mobile" / "ios"
+            legacy_ios.mkdir()
+            (legacy_ios / "leva-release.ipa").write_bytes(b"legacy ipa")
+            with self.assertRaisesRegex(ValueError, "file set"):
+                self.verifier.validate_signed_mobile_bundle(root, bound)
+            (legacy_ios / "leva-release.ipa").unlink()
+            legacy_ios.rmdir()
 
             (root / "extra.txt").write_text("unexpected", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "file set"):
@@ -370,7 +345,6 @@ class SignedMobileManualTrustTest(unittest.TestCase):
         expected = {
             mobile["build_provenance_file"]: b"{}",
             mobile["signed_apk_file"]: b"apk",
-            mobile["signed_ipa_file"]: b"ipa",
         }
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -398,6 +372,13 @@ class SignedMobileManualTrustTest(unittest.TestCase):
                 (
                     "extra.zip",
                     lambda output: output.writestr("extra.txt", b"bad"),
+                    "unexpected",
+                ),
+                (
+                    "legacy-ipa.zip",
+                    lambda output: output.writestr(
+                        "mobile/ios/leva-release.ipa", b"legacy ipa"
+                    ),
                     "unexpected",
                 ),
                 (
@@ -635,7 +616,7 @@ class SignedMobileManualTrustTest(unittest.TestCase):
             )
 
     def test_manual_evidence_requires_exact_protected_approval_claim(self):
-        for label in ("manual-nvda", "manual-voiceover", "manual-talkback"):
+        for label in ("manual-nvda", "manual-talkback"):
             with self.subTest(label=label):
                 payload = self._manual_payload(label)
                 self.verifier.validate_evidence_payload(
@@ -864,31 +845,22 @@ class SignedMobileManualTrustTest(unittest.TestCase):
             approved_team_ids={6001},
         )
 
-    def test_signed_mobile_must_complete_before_manual_approval_and_profile_must_outlive_it(self):
+    def test_signed_android_must_complete_before_manual_approval(self):
         provenance = self._build_provenance()
-        claim = self._approval("manual-voiceover")
+        claim = self._approval("manual-talkback")
         signed_run = {"updated_at": "2098-12-31T23:00:00Z"}
         manual_run = {"run_started_at": "2098-12-31T23:30:00Z"}
         self.verifier.validate_manual_chronology(
-            "manual-voiceover", provenance, signed_run, manual_run, claim
+            "manual-talkback", provenance, signed_run, manual_run, claim
         )
 
         with self.assertRaisesRegex(ValueError, "before signed-mobile completion"):
             self.verifier.validate_manual_chronology(
-                "manual-voiceover",
+                "manual-talkback",
                 provenance,
                 {"updated_at": "2098-12-31T23:31:00Z"},
                 manual_run,
                 claim,
-            )
-
-        expired = copy.deepcopy(provenance)
-        expired["ios"]["provisioning_profile_expires_at"] = claim[
-            "approval_effective_at"
-        ]
-        with self.assertRaisesRegex(ValueError, "expired before manual approval"):
-            self.verifier.validate_manual_chronology(
-                "manual-voiceover", expired, signed_run, manual_run, claim
             )
 
 

@@ -332,23 +332,22 @@
     },
     "qualityCatalogs": {
       "type": "object",
-      "required": ["frontend-visual", "home-visual", "frontend-automated-a11y", "home-axe-browser-a11y", "manual-nvda", "manual-voiceover", "manual-talkback"],
+      "required": ["frontend-visual", "home-visual", "frontend-automated-a11y", "home-axe-browser-a11y", "manual-nvda", "manual-talkback"],
       "properties": {
         "frontend-visual": {"$ref": "#/$defs/frontendVisualCatalog"},
         "home-visual": {"$ref": "#/$defs/homeQualityCatalog"},
         "frontend-automated-a11y": {"$ref": "#/$defs/frontendAutomatedA11yCatalog"},
         "home-axe-browser-a11y": {"$ref": "#/$defs/homeQualityCatalog"},
         "manual-nvda": {"allOf": [{"$ref": "#/$defs/qualityCatalog"}, {"properties": {"repository": {"const": "DevPathAi/devpath-frontend"}, "path": {"const": "tool/release-evidence/catalogs/manual-nvda.v1.json"}, "case_count": {"const": 2}}}]},
-        "manual-voiceover": {"allOf": [{"$ref": "#/$defs/qualityCatalog"}, {"properties": {"repository": {"const": "DevPathAi/devpath-frontend"}, "path": {"const": "tool/release-evidence/catalogs/manual-voiceover.v1.json"}, "case_count": {"const": 4}}}]},
         "manual-talkback": {"allOf": [{"$ref": "#/$defs/qualityCatalog"}, {"properties": {"repository": {"const": "DevPathAi/devpath-frontend"}, "path": {"const": "tool/release-evidence/catalogs/manual-talkback.v1.json"}, "case_count": {"const": 4}}}]}
       },
       "additionalProperties": false
     },
     "mobileTestArtifacts": {
       "type": "object",
-      "required": ["schema_version", "repository", "source_sha", "event", "workflow_path", "workflow_sha256", "workflow_run_id", "run_attempt", "artifact_id", "artifact_name", "artifact_archive_sha256", "build_provenance_file", "build_provenance_sha256", "signed_apk_file", "signed_apk_sha256", "signed_ipa_file", "signed_ipa_sha256"],
+      "required": ["schema_version", "repository", "source_sha", "event", "workflow_path", "workflow_sha256", "workflow_run_id", "run_attempt", "artifact_id", "artifact_name", "artifact_archive_sha256", "build_provenance_file", "build_provenance_sha256", "signed_apk_file", "signed_apk_sha256"],
       "properties": {
-        "schema_version": {"const": "leva.mission-spine.signed-mobile-build-binding.v1"},
+        "schema_version": {"const": "leva.mission-spine.signed-android-build-binding.v2"},
         "repository": {"const": "DevPathAi/devpath-frontend"},
         "source_sha": {"$ref": "#/$defs/sha40"},
         "event": {"const": "workflow_dispatch"},
@@ -359,12 +358,10 @@
         "artifact_id": {"type": "integer", "minimum": 1},
         "artifact_name": {"$ref": "#/$defs/safeId"},
         "artifact_archive_sha256": {"$ref": "#/$defs/sha64"},
-        "build_provenance_file": {"const": "build-provenance.v1.json"},
+        "build_provenance_file": {"const": "build-provenance.v2.json"},
         "build_provenance_sha256": {"$ref": "#/$defs/sha64"},
         "signed_apk_file": {"const": "mobile/android/leva-release.apk"},
-        "signed_apk_sha256": {"$ref": "#/$defs/sha64"},
-        "signed_ipa_file": {"const": "mobile/ios/leva-release.ipa"},
-        "signed_ipa_sha256": {"$ref": "#/$defs/sha64"}
+        "signed_apk_sha256": {"$ref": "#/$defs/sha64"}
       },
       "additionalProperties": false
     },
@@ -536,14 +533,13 @@
     },
     "qualityEvidence": {
       "type": "object",
-      "required": ["frontend_visual", "home_visual", "frontend_automated_a11y", "home_axe_browser_a11y", "manual_nvda", "manual_voiceover", "manual_talkback"],
+      "required": ["frontend_visual", "home_visual", "frontend_automated_a11y", "home_axe_browser_a11y", "manual_nvda", "manual_talkback"],
       "properties": {
         "frontend_visual": {"$ref": "#/$defs/artifact"},
         "home_visual": {"$ref": "#/$defs/homeVisualArtifact"},
         "frontend_automated_a11y": {"$ref": "#/$defs/artifact"},
         "home_axe_browser_a11y": {"$ref": "#/$defs/homeA11yArtifact"},
         "manual_nvda": {"$ref": "#/$defs/manualArtifact"},
-        "manual_voiceover": {"$ref": "#/$defs/manualArtifact"},
         "manual_talkback": {"$ref": "#/$defs/manualArtifact"}
       },
       "additionalProperties": false

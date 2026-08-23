@@ -124,7 +124,7 @@ class Et13EvidenceContractTest(unittest.TestCase):
             inputs["mobile_test_artifacts"]["source_sha"],
             self.candidate["frontend"]["source_sha"],
         )
-        for field in ("build_provenance_sha256", "signed_apk_sha256", "signed_ipa_sha256"):
+        for field in ("build_provenance_sha256", "signed_apk_sha256"):
             self.assertRegex(inputs["mobile_test_artifacts"][field], r"^[0-9a-f]{64}$")
         self.validator.validate_candidate_spec(copy.deepcopy(self.candidate), CANDIDATE_FIXTURE)
 
@@ -214,7 +214,7 @@ class Et13EvidenceContractTest(unittest.TestCase):
                     collect_candidate_hashes(nested)
 
         collect_candidate_hashes(self.release)
-        self.assertEqual(len(bound_candidate_hashes), 14)
+        self.assertEqual(len(bound_candidate_hashes), 13)
         self.assertEqual(set(bound_candidate_hashes), {self.candidate_sha})
         self.assertEqual(
             (CANDIDATE_FIXTURE.with_suffix(".sha256")).read_text(encoding="utf-8").split(),
@@ -264,10 +264,10 @@ class Et13EvidenceContractTest(unittest.TestCase):
             {"const": "workflow_dispatch"},
         )
 
-    def test_final_manifest_has_seven_distinct_source_pinned_artifacts(self):
+    def test_final_manifest_has_six_distinct_source_pinned_artifacts(self):
         quality = self.release["quality_evidence"]
         self.assertEqual(set(quality), set(self.validator.QUALITY_EVIDENCE_KEYS))
-        self.assertEqual(len(quality), 7)
+        self.assertEqual(len(quality), 6)
         self.assertEqual(
             quality["home_visual"]["artifact_id"],
             quality["home_axe_browser_a11y"]["artifact_id"],
@@ -357,7 +357,7 @@ class Et13EvidenceContractTest(unittest.TestCase):
     def test_manual_artifact_names_and_workflow_path_are_exact(self):
         mutations = (
             ("manual_nvda", "artifact_name", "ms-20990101-fixture-nvda-evidence"),
-            ("manual_voiceover", "workflow_path", ".github/workflows/ci.yml"),
+            ("manual_nvda", "workflow_path", ".github/workflows/ci.yml"),
             ("manual_talkback", "artifact_name", "talkback-evidence-copy"),
         )
         for key, field, value in mutations:
@@ -427,7 +427,6 @@ class Et13EvidenceContractTest(unittest.TestCase):
             payload.update({
                 "assistive_technology": {
                     "manual-nvda": "NVDA+Chromium",
-                    "manual-voiceover": "VoiceOver+Safari+iOS",
                     "manual-talkback": "TalkBack+Android",
                 }[label],
                 "test_provenance_sha256": catalog["provenance_sha256"],
@@ -438,14 +437,10 @@ class Et13EvidenceContractTest(unittest.TestCase):
                 "approved_by_id": 702,
                 "approval_effective_at": "2026-08-16T10:15:00Z",
             })
-            if label in {"manual-voiceover", "manual-talkback"}:
+            if label == "manual-talkback":
                 mobile = self.candidate["quality_evidence_inputs"]["mobile_test_artifacts"]
                 payload["build_provenance_sha256"] = mobile["build_provenance_sha256"]
-                payload[
-                    "signed_ipa_sha256" if label == "manual-voiceover" else "signed_apk_sha256"
-                ] = mobile[
-                    "signed_ipa_sha256" if label == "manual-voiceover" else "signed_apk_sha256"
-                ]
+                payload["signed_apk_sha256"] = mobile["signed_apk_sha256"]
         return payload
 
     def _home_payload(self, kind, catalog):
@@ -714,8 +709,6 @@ class Et13EvidenceContractTest(unittest.TestCase):
 
     def test_mobile_manual_evidence_binds_exact_signed_artifact_and_build(self):
         mutations = (
-            ("manual-voiceover", "signed_ipa_sha256"),
-            ("manual-voiceover", "build_provenance_sha256"),
             ("manual-talkback", "signed_apk_sha256"),
             ("manual-talkback", "build_provenance_sha256"),
         )
@@ -735,7 +728,6 @@ class Et13EvidenceContractTest(unittest.TestCase):
             "frontend-automated-a11y": ".github/workflows/et13-evidence.yml",
             "home-axe-browser-a11y": ".github/workflows/mission-spine-validate.yml",
             "manual-nvda": ".github/workflows/mission-spine-manual-at-evidence.yml",
-            "manual-voiceover": ".github/workflows/mission-spine-manual-at-evidence.yml",
             "manual-talkback": ".github/workflows/mission-spine-manual-at-evidence.yml",
         }
         self.assertEqual(

@@ -282,7 +282,7 @@ class ReleaseManifestContractTest(unittest.TestCase):
             candidate_data["release_id"] = "ms-20990101-other"
             mobile = candidate_data["quality_evidence_inputs"]["mobile_test_artifacts"]
             mobile["artifact_name"] = (
-                f'{candidate_data["release_id"]}-signed-mobile-build-run-'
+                f'{candidate_data["release_id"]}-signed-android-build-run-'
                 f'{mobile["workflow_run_id"]}-attempt-{mobile["run_attempt"]}'
             )
             candidate_path = candidates / "ms-20990101-contract-fixture.candidate-spec.json"
