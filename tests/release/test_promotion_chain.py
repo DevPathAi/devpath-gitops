@@ -50,6 +50,7 @@ class PromotionChainTest(unittest.TestCase):
         self.base = git(self.root, "rev-parse", "HEAD")
         self.candidate = copy.deepcopy(self.fixture)
         self.candidate["gitops"]["base_sha"] = self.base
+        self.candidate_hash = "c" * 64
         self.release_hash = "a" * 64
 
     def tearDown(self):
@@ -89,7 +90,11 @@ class PromotionChainTest(unittest.TestCase):
         path = self.root / "apps/devpath-web/base/kustomization.yaml"
         path.write_text(
             self.web.render_kustomization(
-                path.read_text(encoding="utf-8"), self.candidate, target, expected
+                path.read_text(encoding="utf-8"),
+                self.candidate,
+                target,
+                expected,
+                candidate_spec_sha256=self.candidate_hash,
             ),
             encoding="utf-8",
             newline="\n",
@@ -97,7 +102,11 @@ class PromotionChainTest(unittest.TestCase):
 
     def inspect(self, commit: str):
         return self.chain.inspect_chain(
-            self.root, self.candidate, self.release_hash, commit
+            self.root,
+            self.candidate,
+            self.candidate_hash,
+            self.release_hash,
+            commit,
         )
 
     def set_next_release_candidate(self, base: str, base_web_digest: str):
@@ -115,6 +124,7 @@ class PromotionChainTest(unittest.TestCase):
                 "sha256:" + f"{index:x}a" * 32
             )
         self.candidate = candidate
+        self.candidate_hash = "d" * 64
         self.release_hash = "b" * 64
 
     def test_full_chain_and_completed_rollback_cycle_are_exact_and_resumable(self):

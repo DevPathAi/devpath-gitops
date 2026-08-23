@@ -393,14 +393,37 @@ class ReleaseHardeningTest(unittest.TestCase):
 
     def test_legacy_tag_must_equal_sealed_base_tag_before_digest_mutation(self):
         manifest = copy.deepcopy(self.candidate)
-        source = """images:\n- name: ghcr.io/devpathai/devpath-web\n  newName: ghcr.io/devpathai/devpath-web\n  newTag: 5c5f3a90f8d3da2523bb1dd13c057655f7b82897-mission-on\n"""
-        rendered = self.promoter.render_kustomization(source, manifest, "mission-off", "base")
+        source = """configMapGenerator:
+- name: devpath-web-release-identity
+  literals:
+  - MISSION_RELEASE_READY=false
+  - MISSION_RELEASE_ID=unreleased
+  - MISSION_CANDIDATE_SPEC_SHA256=0000000000000000000000000000000000000000000000000000000000000000
+  - MISSION_IMAGE_DIGEST=sha256:0000000000000000000000000000000000000000000000000000000000000000
+images:
+- name: ghcr.io/devpathai/devpath-web
+  newName: ghcr.io/devpathai/devpath-web
+  newTag: 5c5f3a90f8d3da2523bb1dd13c057655f7b82897-mission-on
+"""
+        rendered = self.promoter.render_kustomization(
+            source,
+            manifest,
+            "mission-off",
+            "base",
+            candidate_spec_sha256=self.candidate_hash,
+        )
         self.assertIn("digest: " + manifest["frontend"]["mission_off"]["image_digest"], rendered)
         arbitrary = source.replace(
             "5c5f3a90f8d3da2523bb1dd13c057655f7b82897-mission-on", "f" * 40
         )
         with self.assertRaisesRegex(ValueError, "trusted base tag"):
-            self.promoter.render_kustomization(arbitrary, manifest, "mission-off", "base")
+            self.promoter.render_kustomization(
+                arbitrary,
+                manifest,
+                "mission-off",
+                "base",
+                candidate_spec_sha256=self.candidate_hash,
+            )
         promote = (ROOT / ".github/workflows/mission-spine-promote.yml").read_text(encoding="utf-8")
         ordered = [
             "--phase migration",

@@ -23,7 +23,10 @@ from promote_service_digests import (
     render_kustomization as render_service_kustomization,
     validate_image_selector,
 )
-from set_web_digest import render_kustomization as render_web_kustomization
+from set_web_digest import (
+    render_kustomization as render_web_kustomization,
+    validate_release_identity as validate_web_release_identity,
+)
 from validate_release_manifest import resolve_release_bundle, validate_candidate_spec
 
 
@@ -326,10 +329,11 @@ def _require_web(
     root: Path,
     commit: str,
     candidate: dict[str, Any],
+    candidate_spec_sha256: str,
     phase: str,
 ) -> None:
+    source = _blob(root, commit, WEB_PATH)
     if phase == "base":
-        source = _blob(root, commit, WEB_PATH)
         try:
             validate_image_selector(
                 source,
@@ -346,6 +350,9 @@ def _require_web(
                 expected_value=candidate["gitops"]["base_web_digest"],
                 label="web-base-digest",
             )
+        validate_web_release_identity(
+            source, candidate, candidate_spec_sha256, phase
+        )
         return
     elif phase == "prior":
         kind = "digest"
@@ -359,12 +366,13 @@ def _require_web(
     else:
         raise ValueError("promotion chain web phase is unknown")
     validate_image_selector(
-        _blob(root, commit, WEB_PATH),
+        source,
         WEB_IMAGE,
         expected_kind=kind,
         expected_value=value,
         label=f"web-{phase}",
     )
+    validate_web_release_identity(source, candidate, candidate_spec_sha256, phase)
 
 
 def _require_web_transform(
@@ -372,21 +380,27 @@ def _require_web_transform(
     commit: str,
     parent: str,
     candidate: dict[str, Any],
+    candidate_spec_sha256: str,
     target: str,
     expected_current: str,
 ) -> None:
     expected = render_web_kustomization(
-        _blob(root, parent, WEB_PATH), candidate, target, expected_current
+        _blob(root, parent, WEB_PATH),
+        candidate,
+        target,
+        expected_current,
+        candidate_spec_sha256=candidate_spec_sha256,
     )
     actual = _blob(root, commit, WEB_PATH)
     if actual != expected:
         raise ValueError("web commit changed more than the exact image selector")
-    _require_web(root, commit, candidate, target)
+    _require_web(root, commit, candidate, candidate_spec_sha256, target)
 
 
 def inspect_chain(
     root: Path,
     candidate: dict[str, Any],
+    candidate_spec_sha256: str,
     release_manifest_sha256: str,
     current_sha: str,
 ) -> dict[str, str]:
@@ -397,6 +411,8 @@ def inspect_chain(
         current_sha = str(_git(root, ["rev-parse", current_sha]))
     if SHA40.fullmatch(current_sha) is None:
         raise ValueError("promotion chain current SHA is invalid")
+    if re.fullmatch(r"[0-9a-f]{64}", candidate_spec_sha256) is None:
+        raise ValueError("promotion chain candidate-spec hash is invalid")
     if re.fullmatch(r"[0-9a-f]{64}", release_manifest_sha256) is None:
         raise ValueError("promotion chain release manifest hash is invalid")
     base = candidate["gitops"]["base_sha"]
@@ -419,7 +435,7 @@ def inspect_chain(
             _require_inert_migration_base(root, base)
             _require_migration_base_selector(root, base)
             _require_service_base_selectors(root, base, candidate)
-            _require_web(root, commit, candidate, "base")
+            _require_web(root, commit, candidate, candidate_spec_sha256, "base")
             return {
                 "phase": "base",
                 "web_phase": "base",
@@ -458,7 +474,7 @@ def inspect_chain(
             _require_delta(root, commit, _service_delta_paths(root, parent, candidate))
             _require_migration(root, commit, candidate, release_manifest_sha256)
             _require_services(root, commit, candidate, transformed_from=parent)
-            _require_web(root, commit, candidate, "base")
+            _require_web(root, commit, candidate, candidate_spec_sha256, "base")
             return {
                 **prior,
                 "phase": "services",
@@ -474,7 +490,13 @@ def inspect_chain(
             _require_migration(root, commit, candidate, release_manifest_sha256)
             _require_services(root, commit, candidate)
             _require_web_transform(
-                root, commit, parent, candidate, "mission-off", prior["web_phase"]
+                root,
+                commit,
+                parent,
+                candidate,
+                candidate_spec_sha256,
+                "mission-off",
+                prior["web_phase"],
             )
             return {
                 **prior,
@@ -494,7 +516,13 @@ def inspect_chain(
             _require_migration(root, commit, candidate, release_manifest_sha256)
             _require_services(root, commit, candidate)
             _require_web_transform(
-                root, commit, parent, candidate, "mission-on", "mission-off"
+                root,
+                commit,
+                parent,
+                candidate,
+                candidate_spec_sha256,
+                "mission-on",
+                "mission-off",
             )
             return {
                 **prior,
@@ -513,7 +541,13 @@ def inspect_chain(
             _require_migration(root, commit, candidate, release_manifest_sha256)
             _require_services(root, commit, candidate)
             _require_web_transform(
-                root, commit, parent, candidate, "mission-off", "mission-on"
+                root,
+                commit,
+                parent,
+                candidate,
+                candidate_spec_sha256,
+                "mission-off",
+                "mission-on",
             )
             return {
                 **prior,
@@ -531,7 +565,13 @@ def inspect_chain(
             _require_migration(root, commit, candidate, release_manifest_sha256)
             _require_services(root, commit, candidate)
             _require_web_transform(
-                root, commit, parent, candidate, "prior", "mission-off"
+                root,
+                commit,
+                parent,
+                candidate,
+                candidate_spec_sha256,
+                "prior",
+                "mission-off",
             )
             return {
                 **prior,
@@ -568,12 +608,18 @@ def main(argv: list[str] | None = None) -> int:
     try:
         root = args.root.resolve()
         release_root = (args.release_root or root).resolve()
-        release_path, _, _, candidate, _ = resolve_release_bundle(
+        release_path, _, _, candidate, candidate_spec_sha256 = resolve_release_bundle(
             release_root, args.release_id
         )
         release_hash = hashlib.sha256(release_path.read_bytes()).hexdigest()
         current = str(_git(root, ["rev-parse", args.current]))
-        state = inspect_chain(root, candidate, release_hash, current)
+        state = inspect_chain(
+            root,
+            candidate,
+            candidate_spec_sha256,
+            release_hash,
+            current,
+        )
         if args.github_output is not None:
             _write_outputs(args.github_output, state)
         print(json.dumps(state, sort_keys=True, separators=(",", ":")))

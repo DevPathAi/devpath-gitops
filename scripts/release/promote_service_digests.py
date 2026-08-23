@@ -44,7 +44,24 @@ def _image_block(source: str, image: str, label: str) -> tuple[list[str], int, i
     ]
     if len(matches) != 1:
         raise ValueError(f"{label}: expected exactly one target image entry")
-    if sum(1 for line in lines if line.lstrip().startswith("- name:")) != 1:
+    image_headers = [
+        index for index, line in enumerate(lines) if line.strip() == "images:"
+    ]
+    if len(image_headers) != 1:
+        raise ValueError(f"{label}: kustomization must contain one images section")
+    section_start = image_headers[0] + 1
+    section_end = len(lines)
+    for index in range(section_start, len(lines)):
+        line = lines[index]
+        if line and not line.startswith((" ", "\t", "-", "#", "\n")):
+            section_end = index
+            break
+    image_entries = [
+        index
+        for index in range(section_start, section_end)
+        if lines[index].lstrip().startswith("- name:")
+    ]
+    if len(image_entries) != 1 or matches[0] != image_entries[0]:
         raise ValueError(f"{label}: image transformer must contain exactly one image entry")
     start = matches[0]
     indent = len(lines[start]) - len(lines[start].lstrip(" "))

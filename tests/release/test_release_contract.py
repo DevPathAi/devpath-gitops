@@ -299,17 +299,34 @@ class ReleaseManifestContractTest(unittest.TestCase):
 kind: Kustomization
 resources:
 - deployment.yaml
+configMapGenerator:
+- name: devpath-web-release-identity
+  literals:
+  - MISSION_RELEASE_READY=false
+  - MISSION_RELEASE_ID=unreleased
+  - MISSION_CANDIDATE_SPEC_SHA256=0000000000000000000000000000000000000000000000000000000000000000
+  - MISSION_IMAGE_DIGEST=sha256:0000000000000000000000000000000000000000000000000000000000000000
 images:
 - name: ghcr.io/devpathai/devpath-web
   newName: ghcr.io/devpathai/devpath-web
   newTag: 5c5f3a90f8d3da2523bb1dd13c057655f7b82897-mission-on
 """
-        rendered = self.promoter.render_kustomization(source, self.candidate, "mission-on")
+        rendered = self.promoter.render_kustomization(
+            source,
+            self.candidate,
+            "mission-on",
+            candidate_spec_sha256=self.candidate_sha,
+        )
         self.assertIn("  digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", rendered)
         self.assertNotIn("newTag:", rendered)
         self.assertEqual(rendered.count("digest:"), 1)
         with self.assertRaisesRegex(ValueError, "current digest"):
-            self.promoter.render_kustomization(rendered, self.candidate, "mission-off")
+            self.promoter.render_kustomization(
+                rendered,
+                self.candidate,
+                "mission-off",
+                candidate_spec_sha256=self.candidate_sha,
+            )
 
     def test_kustomize_accepts_and_renders_exact_digest_syntax(self):
         if shutil.which("kubectl") is None:
@@ -322,6 +339,7 @@ images:
                 kustomization.read_text(encoding="utf-8"),
                 self.candidate,
                 "mission-on",
+                candidate_spec_sha256=self.candidate_sha,
             )
             kustomization.write_text(rendered, encoding="utf-8", newline="\n")
             result = subprocess.run(
