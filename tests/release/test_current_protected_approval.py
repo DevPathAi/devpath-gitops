@@ -70,8 +70,8 @@ class CurrentProtectedApprovalTest(unittest.TestCase):
             "head_repository": {"full_name": module.REPOSITORY},
             "status": "in_progress",
             "conclusion": None,
-            "actor": {"id": 1, "login": "release-initiator"},
-            "triggering_actor": {"id": 1, "login": "release-initiator"},
+            "actor": {"id": 92, "login": "release-reviewer"},
+            "triggering_actor": {"id": 92, "login": "release-reviewer"},
             "run_started_at": "2026-08-17T01:00:00Z",
         }
 
@@ -93,20 +93,30 @@ class CurrentProtectedApprovalTest(unittest.TestCase):
         values.update(changes)
         return module.validate_current_protected_approval(**values)
 
-    def test_accepts_exact_non_self_attempt_one_approval(self):
+    def test_accepts_exact_authenticated_attempt_one_self_approval(self):
         result = self.validate()
         self.assertEqual(result["approved_by"], "release-reviewer")
         self.assertEqual(result["approval_effective_at"], "2026-08-17T01:00:01Z")
 
-    def test_rejects_missing_self_or_wrong_environment_approval(self):
+    def test_accepts_non_self_approval_too(self):
+        run = copy.deepcopy(self.run)
+        run["actor"] = {"id": 1, "login": "release-initiator"}
+        run["triggering_actor"] = {"id": 1, "login": "release-initiator"}
+        result = self.validate(run=run)
+        self.assertEqual(result["approved_by_id"], 92)
+
+    def test_rejects_missing_or_wrong_environment_approval(self):
         with self.assertRaisesRegex(ValueError, "at least one approved"):
             self.validate(approvals=[])
-        self.run["actor"] = {"id": 92, "login": "release-reviewer"}
-        with self.assertRaisesRegex(ValueError, "differ"):
-            self.validate()
         self.approvals[0]["environments"][0]["name"] = "wrong"
         with self.assertRaisesRegex(ValueError, "at least one approved"):
             self.validate()
+
+    def test_rejects_missing_run_initiator_identity(self):
+        run = copy.deepcopy(self.run)
+        run["actor"] = None
+        with self.assertRaisesRegex(ValueError, "run actor identity is missing"):
+            self.validate(run=run)
 
     def test_accepts_repeated_same_reviewer_approvals_but_rejects_mixed_identity(self):
         approvals = copy.deepcopy(self.approvals)
