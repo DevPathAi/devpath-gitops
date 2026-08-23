@@ -17,9 +17,16 @@ SPEC.loader.exec_module(module)
 
 
 class FakeApi:
-    def __init__(self, *, fail_approval=False, fail_restore=False):
+    def __init__(
+        self,
+        *,
+        fail_approval=False,
+        fail_restore=False,
+        approval_response=None,
+    ):
         self.fail_approval = fail_approval
         self.fail_restore = fail_restore
+        self.approval_response = approval_response
         self.calls = []
         self.environment = {
             "id": 501,
@@ -65,7 +72,20 @@ class FakeApi:
         if path.endswith("/pending_deployments") and method == "POST":
             if self.fail_approval:
                 raise ValueError("approval failed")
-            return [{"environment": {"id": 501, "name": "mission-spine-production-off"}}]
+            if self.approval_response is not None:
+                return copy.deepcopy(self.approval_response)
+            return [
+                {
+                    "id": 901,
+                    "original_environment": "mission-spine-production-off",
+                    "environment": "mission-spine-production-off",
+                },
+                {
+                    "id": 902,
+                    "original_environment": "mission-spine-production-off",
+                    "environment": "mission-spine-production-off",
+                },
+            ]
         if "/environments/" in path and method == "GET":
             return copy.deepcopy(self.environment)
         if "/environments/" in path and method == "PUT":
@@ -122,6 +142,7 @@ class ApprovePendingDeploymentTest(unittest.TestCase):
         )
         posts = [call for call in api.calls if call[0] == "POST"]
         self.assertEqual(posts[0][2]["environment_ids"], [501])
+        self.assertEqual(result["deployment_ids"], [901, 902])
 
     def test_restores_policy_when_approval_fails(self):
         api = FakeApi(fail_approval=True)
@@ -133,6 +154,14 @@ class ApprovePendingDeploymentTest(unittest.TestCase):
         api = FakeApi(fail_restore=True)
         with self.assertRaisesRegex(ValueError, "restore failed"):
             self.approve(api)
+
+    def test_rejects_a_deployment_response_for_another_environment(self):
+        api = FakeApi(
+            approval_response=[{"id": 901, "environment": "wrong-environment"}]
+        )
+        with self.assertRaisesRegex(ValueError, "exact environment"):
+            self.approve(api)
+        self.assertTrue(api.environment["protection_rules"][0]["prevent_self_review"])
 
     def test_rejects_unconfigured_operator_and_non_main_policy_before_mutation(self):
         api = FakeApi()
