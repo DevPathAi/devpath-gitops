@@ -52,7 +52,7 @@ MAX_HOME_ARTIFACT_ZIP_BYTES = 105 * 1024 * 1024
 MAX_HOME_ARCHIVE_FILES = 10_000
 MAX_AI_ARTIFACT_ZIP_BYTES = 1024 * 1024
 MAX_SIGNED_MOBILE_BINARY_BYTES = 500 * 1024 * 1024
-MAX_SIGNED_MOBILE_ARCHIVE_BYTES = 1100 * 1024 * 1024
+MAX_SIGNED_MOBILE_ARCHIVE_BYTES = 550 * 1024 * 1024
 CANDIDATE_REPOSITORY = "DevPathAi/devpath-gitops"
 CANDIDATE_WORKFLOW = ".github/workflows/mission-spine-candidate.yml"
 AI_RENDER_PATH = "apps/devpath-ai-svc/base"
@@ -144,10 +144,6 @@ PROTECTED_APPROVAL_CONTRACTS = {
         "mission-spine-mobile-signing-android",
         "Sign Android release",
     ),
-    "signed-mobile-ios": (
-        "mission-spine-mobile-signing-ios",
-        "Sign iOS release",
-    ),
     "ai-release-eval": (
         "mission-spine-ai-release-eval",
         "Run AI release evaluation",
@@ -157,10 +153,6 @@ PROTECTED_APPROVAL_CONTRACTS = {
         "Approve analytics privacy release",
     ),
     "manual-nvda": ("manual-at-nvda", "Approve manual NVDA evidence"),
-    "manual-voiceover": (
-        "manual-at-voiceover",
-        "Approve manual VoiceOver evidence",
-    ),
     "manual-talkback": (
         "manual-at-talkback",
         "Approve manual TalkBack evidence",
@@ -180,7 +172,6 @@ SIGNED_MOBILE_PROVENANCE_KEYS = {
     "toolchain",
     "build_configuration",
     "android",
-    "ios",
     "approvals",
 }
 MANUAL_CATALOG_KEYS = {
@@ -411,7 +402,7 @@ def validate_signed_mobile_provenance(
     value: Any,
     candidate: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:
-    """Validate the exact protected Android/iOS build-provenance document."""
+    """Validate the exact protected Android build-provenance document."""
     _validate_sanitized(value, "signed-mobile provenance")
     provenance = _exact_payload(
         value,
@@ -420,7 +411,7 @@ def validate_signed_mobile_provenance(
     )
     mobile = candidate["quality_evidence_inputs"]["mobile_test_artifacts"]
     expected_top = {
-        "schema_version": "leva.mission-spine.signed-mobile-build.v1",
+        "schema_version": "leva.mission-spine.signed-android-build.v2",
         "release_id": candidate["release_id"],
         "repository": mobile["repository"],
         "source_sha": mobile["source_sha"],
@@ -440,7 +431,7 @@ def validate_signed_mobile_provenance(
 
     toolchain = _exact_payload(
         provenance["toolchain"],
-        {"flutter_version", "flutter_revision", "dart_sdk_version", "android", "ios"},
+        {"flutter_version", "flutter_revision", "dart_sdk_version", "android"},
         "signed-mobile toolchain",
     )
     expected_toolchain = {
@@ -463,18 +454,6 @@ def validate_signed_mobile_provenance(
         "compile_sdk": 36,
     }:
         raise ValueError("signed-mobile Android toolchain mismatch")
-    ios_toolchain = _exact_payload(
-        toolchain["ios"],
-        {"xcode_version", "xcode_build", "iphoneos_sdk"},
-        "signed-mobile iOS toolchain",
-    )
-    if ios_toolchain != {
-        "xcode_version": "26.4.1",
-        "xcode_build": "17E202",
-        "iphoneos_sdk": "26.4",
-    }:
-        raise ValueError("signed-mobile iOS toolchain mismatch")
-
     configuration = _exact_payload(
         provenance["build_configuration"],
         {"use_mock", "api_base_url", "web_app_url"},
@@ -523,83 +502,16 @@ def validate_signed_mobile_provenance(
     ) is None:
         raise ValueError("signed-mobile Android signing certificate is invalid")
 
-    ios = _exact_payload(
-        provenance["ios"],
-        {
-            "artifact_path",
-            "sha256",
-            "bytes",
-            "bundle_id",
-            "short_version",
-            "bundle_version",
-            "signature_verified",
-            "signing_classification",
-            "export_method",
-            "distribution_scope",
-            "team_id",
-            "signing_certificate_sha256",
-            "provisioning_profile_uuid",
-            "provisioning_profile_expires_at",
-        },
-        "signed-mobile iOS provenance",
-    )
-    ios_expected = {
-        "artifact_path": mobile["signed_ipa_file"],
-        "sha256": mobile["signed_ipa_sha256"],
-        "bundle_id": "ai.devpath.devpathMobile",
-        "signature_verified": True,
-        "signing_classification": "organization_distribution",
-        "export_method": "ad-hoc",
-        "distribution_scope": "protected_manual_at_test_devices",
-    }
-    for field, expected in ios_expected.items():
-        if ios[field] != expected:
-            raise ValueError(f"signed-mobile iOS {field} mismatch")
-    _positive_int(ios["bytes"], "signed-mobile iOS bytes")
-    for field in ("short_version", "bundle_version"):
-        if not isinstance(ios[field], str) or not ios[field].strip():
-            raise ValueError(f"signed-mobile iOS {field} is invalid")
-    if not isinstance(ios["team_id"], str) or re.fullmatch(r"[A-Z0-9]{10}", ios["team_id"]) is None:
-        raise ValueError("signed-mobile iOS team_id is invalid")
-    if not isinstance(ios["signing_certificate_sha256"], str) or SHA64.fullmatch(
-        ios["signing_certificate_sha256"]
-    ) is None:
-        raise ValueError("signed-mobile iOS signing certificate is invalid")
-    if not isinstance(ios["provisioning_profile_uuid"], str) or re.fullmatch(
-        r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}",
-        ios["provisioning_profile_uuid"],
-    ) is None:
-        raise ValueError("signed-mobile iOS provisioning profile UUID is invalid")
-    _utc_z(
-        ios["provisioning_profile_expires_at"],
-        "signed-mobile iOS provisioning_profile_expires_at",
-    )
-
     approvals = _exact_payload(
         provenance["approvals"],
-        {"android", "ios"},
+        {"android"},
         "signed-mobile approvals",
     )
     validated_approvals = {
         "signed-mobile-android": validate_approval_claim(
             "signed-mobile-android", approvals["android"]
         ),
-        "signed-mobile-ios": validate_approval_claim(
-            "signed-mobile-ios", approvals["ios"]
-        ),
     }
-    profile_expiry = _utc_z(
-        ios["provisioning_profile_expires_at"],
-        "signed-mobile iOS provisioning_profile_expires_at",
-    )
-    for label, approval in validated_approvals.items():
-        if profile_expiry <= _utc_z(
-            approval["approval_effective_at"],
-            f"{label} approval_effective_at",
-        ):
-            raise ValueError(
-                "signed-mobile iOS provisioning profile must outlive signing approvals"
-            )
     return validated_approvals
 
 
@@ -1218,7 +1130,6 @@ def _extract_signed_mobile_archive(
     expected_files = {
         mobile["build_provenance_file"],
         mobile["signed_apk_file"],
-        mobile["signed_ipa_file"],
     }
     expected_directories = {
         parent.as_posix()
@@ -1350,21 +1261,18 @@ def validate_signed_mobile_bundle(
             "mobile",
             "mobile/android",
             mobile["signed_apk_file"],
-            "mobile/ios",
-            mobile["signed_ipa_file"],
         }
     )
     entries = sorted(path.relative_to(root).as_posix() for path in root.rglob("*"))
     if entries != expected_entries:
         raise ValueError("signed-mobile artifact contains an unexpected file set")
-    for relative in ("mobile", "mobile/android", "mobile/ios"):
+    for relative in ("mobile", "mobile/android"):
         directory = root / relative
         if not directory.is_dir() or directory.is_symlink():
             raise ValueError("signed-mobile artifact directories must not be links")
     for field, hash_field in (
         ("build_provenance_file", "build_provenance_sha256"),
         ("signed_apk_file", "signed_apk_sha256"),
-        ("signed_ipa_file", "signed_ipa_sha256"),
     ):
         path = root / mobile[field]
         if not path.is_file() or path.is_symlink():
@@ -1381,9 +1289,8 @@ def validate_signed_mobile_bundle(
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError("signed-mobile build provenance is not valid UTF-8 JSON") from exc
     approvals = validate_signed_mobile_provenance(provenance, candidate)
-    for platform, file_field in (("android", "signed_apk_file"), ("ios", "signed_ipa_file")):
-        if provenance[platform]["bytes"] != (root / mobile[file_field]).stat().st_size:
-            raise ValueError(f"signed-mobile {platform} byte count mismatch")
+    if provenance["android"]["bytes"] != (root / mobile["signed_apk_file"]).stat().st_size:
+        raise ValueError("signed-mobile Android byte count mismatch")
     return approvals
 
 
@@ -1532,17 +1439,6 @@ def validate_manual_chronology(
     )
     if signed_completed >= manual_started:
         raise ValueError(f"{label}: manual run started before signed-mobile completion")
-    profile_expiry = _utc_z(
-        signed_provenance["ios"]["provisioning_profile_expires_at"],
-        "signed-mobile iOS provisioning_profile_expires_at",
-    )
-    if profile_expiry <= _utc_z(
-        approval_claim["approval_effective_at"],
-        f"{label} approval_effective_at",
-    ):
-        raise ValueError(
-            f"{label}: iOS provisioning profile expired before manual approval"
-        )
 
 
 def _frontend_surface(fixture_id: str) -> str:
@@ -2201,12 +2097,6 @@ def validate_evidence_payload(
                 "test_provenance_sha256",
                 *PROTECTED_APPROVAL_KEYS,
             }
-        elif label == "manual-voiceover":
-            extras = {
-                "assistive_technology", "test_provenance_sha256",
-                "build_provenance_sha256", "signed_ipa_sha256",
-                *PROTECTED_APPROVAL_KEYS,
-            }
         elif label == "manual-talkback":
             extras = {
                 "assistive_technology", "test_provenance_sha256",
@@ -2306,14 +2196,13 @@ def validate_evidence_payload(
                 label,
                 {field: value[field] for field in PROTECTED_APPROVAL_KEYS},
             )
-        if label in {"manual-voiceover", "manual-talkback"}:
+        if label == "manual-talkback":
             mobile = candidate["quality_evidence_inputs"]["mobile_test_artifacts"]
             for field in ("build_provenance_sha256",):
                 if value[field] != mobile[field]:
                     raise ValueError(f"{label} {field} mismatch")
-            signed_field = "signed_ipa_sha256" if label == "manual-voiceover" else "signed_apk_sha256"
-            if value[signed_field] != mobile[signed_field]:
-                raise ValueError(f"{label} {signed_field} mismatch")
+            if value["signed_apk_sha256"] != mobile["signed_apk_sha256"]:
+                raise ValueError(f"{label} signed_apk_sha256 mismatch")
         return
     raise ValueError(f"unknown evidence kind: {label}")
 
@@ -3344,7 +3233,7 @@ def select_unique_protected_producer_run(
         if kind == "privacy-approval":
             return (privacy_approval_artifact_name(release_id, run_id, 1),)
         if kind == "signed-mobile":
-            return (f"{release_id}-signed-mobile-build-run-{run_id}-attempt-1",)
+            return (f"{release_id}-signed-android-build-run-{run_id}-attempt-1",)
         if kind == "frontend-baseline":
             return (
                 f"{release_id}-frontend-visual-approved-baseline-run-{run_id}-attempt-1",
@@ -3772,16 +3661,8 @@ def verify_signed_mobile_artifact(
     if (
         provenance["android"]["version_name"] != version_name
         or provenance["android"]["version_code"] != version_code
-        or provenance["ios"]["short_version"] != version_name
-        or provenance["ios"]["bundle_version"] != str(version_code)
     ):
         raise ValueError("signed-mobile: packaged version does not match mobile pubspec.yaml")
-    profile_expiry = _utc_z(
-        provenance["ios"]["provisioning_profile_expires_at"],
-        "signed-mobile iOS provisioning_profile_expires_at",
-    )
-    if profile_expiry <= datetime.now().astimezone():
-        raise ValueError("signed-mobile: iOS provisioning profile is expired")
     for label, claim in approvals.items():
         verify_live_protected_approval(
             command_env,

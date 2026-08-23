@@ -48,7 +48,6 @@ PRODUCER_WORKFLOWS = {
     "frontend-automated-a11y": ".github/workflows/et13-evidence.yml",
     "home-axe-browser-a11y": ".github/workflows/mission-spine-validate.yml",
     "manual-nvda": ".github/workflows/mission-spine-manual-at-evidence.yml",
-    "manual-voiceover": ".github/workflows/mission-spine-manual-at-evidence.yml",
     "manual-talkback": ".github/workflows/mission-spine-manual-at-evidence.yml",
 }
 
@@ -58,7 +57,6 @@ QUALITY_EVIDENCE = {
     "frontend-automated-a11y": "frontend_automated_a11y",
     "home-axe-browser-a11y": "home_axe_browser_a11y",
     "manual-nvda": "manual_nvda",
-    "manual-voiceover": "manual_voiceover",
     "manual-talkback": "manual_talkback",
 }
 QUALITY_EVIDENCE_LABELS = tuple(QUALITY_EVIDENCE)
@@ -70,7 +68,6 @@ QUALITY_EVIDENCE_FILES = {
     "frontend-automated-a11y": "evidence.json",
     "home-axe-browser-a11y": "a11y-evidence.v2.json",
     "manual-nvda": "evidence.json",
-    "manual-voiceover": "evidence.json",
     "manual-talkback": "evidence.json",
 }
 
@@ -252,15 +249,12 @@ SIGNED_MOBILE_BINDING_KEYS = {
     "build_provenance_sha256",
     "signed_apk_file",
     "signed_apk_sha256",
-    "signed_ipa_file",
-    "signed_ipa_sha256",
 }
-SIGNED_MOBILE_BINDING_VERSION = "leva.mission-spine.signed-mobile-build-binding.v1"
+SIGNED_MOBILE_BINDING_VERSION = "leva.mission-spine.signed-android-build-binding.v2"
 SIGNED_MOBILE_WORKFLOW = ".github/workflows/mission-spine-signed-mobile-build.yml"
 SIGNED_MOBILE_FILES = {
-    "build_provenance_file": "build-provenance.v1.json",
+    "build_provenance_file": "build-provenance.v2.json",
     "signed_apk_file": "mobile/android/leva-release.apk",
-    "signed_ipa_file": "mobile/ios/leva-release.ipa",
 }
 
 MANUAL_CATALOG_CONTRACTS = {
@@ -277,22 +271,6 @@ MANUAL_CATALOG_CONTRACTS = {
         "required_platform": "windows_physical_host",
         "required_client": "chromium",
         "required_artifact": "exact_source_web_release_build",
-    },
-    "manual-voiceover": {
-        "path": "tool/release-evidence/catalogs/manual-voiceover.v1.json",
-        "provenance_path": "tool/release-evidence/provenance/manual-voiceover.v1.json",
-        "case_count": 4,
-        "assistive_technology": "VoiceOver+Safari+iOS",
-        "surface": "ios",
-        "case_ids": (
-            "voiceover-ios-today-mission-spine",
-            "voiceover-ios-next-action-navigation",
-            "voiceover-ios-content-reading",
-            "voiceover-ios-offline-status",
-        ),
-        "required_platform": "ios_physical_device",
-        "required_client": "native_flutter_ios",
-        "required_artifact": "candidate_signed_ipa",
     },
     "manual-talkback": {
         "path": "tool/release-evidence/catalogs/manual-talkback.v1.json",
@@ -979,7 +957,7 @@ def _validate_quality_evidence_inputs(value: Any, candidate: dict[str, Any]) -> 
     mobile = _object(obj["mobile_test_artifacts"], mobile_path)
     _exact_keys(mobile, SIGNED_MOBILE_BINDING_KEYS, mobile_path)
     if mobile["schema_version"] != SIGNED_MOBILE_BINDING_VERSION:
-        _fail(f"{mobile_path}.schema_version", "signed-mobile binding schema is not approved")
+        _fail(f"{mobile_path}.schema_version", "signed-Android binding schema is not approved")
     if mobile["repository"] != candidate["frontend"]["repository"]:
         _fail(f"{mobile_path}.repository", "must be DevPathAi/devpath-frontend")
     if mobile["source_sha"] != candidate["frontend"]["source_sha"]:
@@ -996,7 +974,7 @@ def _validate_quality_evidence_inputs(value: Any, candidate: dict[str, Any]) -> 
             "protected signing approval is sealable only on attempt 1; retry with a fresh dispatch",
         )
     expected_name = (
-        f"{candidate['release_id']}-signed-mobile-build-run-"
+        f"{candidate['release_id']}-signed-android-build-run-"
         f"{mobile['workflow_run_id']}-attempt-{mobile['run_attempt']}"
     )
     if mobile["artifact_name"] != expected_name:
@@ -1009,16 +987,14 @@ def _validate_quality_evidence_inputs(value: Any, candidate: dict[str, Any]) -> 
         "artifact_archive_sha256",
         "build_provenance_sha256",
         "signed_apk_sha256",
-        "signed_ipa_sha256",
     ):
         _string(mobile[field], f"{mobile_path}.{field}", SHA64)
     mobile_hashes = {
         mobile["build_provenance_sha256"],
         mobile["signed_apk_sha256"],
-        mobile["signed_ipa_sha256"],
     }
-    if len(mobile_hashes) != 3:
-        _fail(mobile_path, "build provenance, signed APK, and signed IPA hashes must be distinct")
+    if len(mobile_hashes) != 2:
+        _fail(mobile_path, "build provenance and signed APK hashes must be distinct")
 
 
 def validate_candidate_spec(data: Any, source: Path | None = None) -> dict[str, Any]:
@@ -1526,7 +1502,7 @@ def validate_release_manifest(
 
     logical_hashes = [artifact["sha256"] for artifact in artifacts.values()]
     if len(set(logical_hashes)) != len(logical_hashes):
-        _fail("$.quality_evidence", "all seven logical evidence manifest hashes must be distinct")
+        _fail("$.quality_evidence", "all six logical evidence manifest hashes must be distinct")
     physical_ids = {
         label: (artifact["repository"], artifact["artifact_id"])
         for label, artifact in artifacts.items()
