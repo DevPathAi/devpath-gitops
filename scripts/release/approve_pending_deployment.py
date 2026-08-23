@@ -218,15 +218,17 @@ def approve_pending_deployment(
             raise ValueError("protected environment restore failed") from restore_exc
     if approval_error is not None:
         raise approval_error
-    approved = [
-        item
-        for item in approval_response
-        if isinstance(item, dict)
-        and isinstance(item.get("environment"), dict)
-        and item["environment"].get("id") == environment_id
-        and item["environment"].get("name") == environment_name
-    ] if isinstance(approval_response, list) else []
-    if len(approved) != 1:
+    approved = approval_response if isinstance(approval_response, list) else []
+    deployment_ids = [
+        _positive(item.get("id"), "approved deployment id")
+        for item in approved
+        if isinstance(item, dict) and item.get("environment") == environment_name
+    ]
+    if (
+        not approved
+        or len(deployment_ids) != len(approved)
+        or len(set(deployment_ids)) != len(deployment_ids)
+    ):
         raise ValueError("GitHub approval response did not confirm the exact environment")
     return {
         "repository": repository,
@@ -235,6 +237,7 @@ def approve_pending_deployment(
         "environment_id": environment_id,
         "approved_by": operator_login,
         "approved_by_id": operator_id,
+        "deployment_ids": deployment_ids,
         "restored_prevent_self_review": True,
     }
 
