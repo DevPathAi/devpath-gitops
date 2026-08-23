@@ -62,6 +62,10 @@ Assert-Contains $sandbox 'name:\s+SANDBOX_REQUIRE_ISOLATION[\s\S]*value:\s+"true
   "sandbox must fail closed when isolation is unavailable"
 Assert-Contains $sandbox "secretName:\s+sandbox-runner-mtls" `
   "sandbox must mount runner mTLS credentials"
+Assert-Contains $sandbox "securityContext:[\s\S]*fsGroup:\s+101[\s\S]*fsGroupChangePolicy:\s+OnRootMismatch" `
+  "sandbox pod must grant the immutable app group access to projected mTLS credentials"
+Assert-Contains $sandbox "defaultMode:\s+288[\s\S]*secretName:\s+sandbox-runner-mtls" `
+  "sandbox runner mTLS credentials must be group-readable but not world-readable"
 Assert-Contains $sandbox "name:\s+INTERNAL_API_TOKEN[\s\S]*key:\s+sandbox-token[\s\S]*name:\s+devpath-internal-auth" `
   "sandbox internal endpoints need a workload credential"
 Assert-Contains $sandbox "kind:\s+NetworkPolicy[\s\S]*name:\s+devpath-sandbox-svc-ingress" `
