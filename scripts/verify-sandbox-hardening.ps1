@@ -82,6 +82,8 @@ Assert-Contains $runner "d6c12a4cb4f714bfcba6fd6611ad4ca73fd88dce790a083d2ceda80
   "runner must verify the pinned runsc sha512 before install"
 Assert-Contains $runner "--add-runtime=runsc=/gvisor/runsc" `
   "runner engine must register the runsc runtime"
+Assert-Contains $runner "--host=unix:///var/run/docker\.sock" `
+  "runner must keep an internal-only Unix socket for preload and health probes"
 Assert-Contains $runner "--tlsverify" `
   "runner API must verify client certificates"
 Assert-Contains $runner "secretName:\s+sandbox-runner-server-tls" `
@@ -95,6 +97,14 @@ if ($runner -match "dockerd-entrypoint") {
 if ($runner -match "/var/run/docker\.sock.*hostPath" -or $runner -match "hostPath:") {
   throw "runner must not mount any hostPath"
 }
+Assert-Contains $runner "postStart:[\s\S]*docker pull" `
+  "runner must preload runtime images before it becomes ready"
+Assert-Contains $runner "postStart:[\s\S]*eclipse-temurin:21-jdk[\s\S]*node:20-alpine[\s\S]*python:3\.12-slim" `
+  "runner preload must cover the exact Java, JavaScript, and Python runtime images"
+Assert-Contains $runner "readinessProbe:[\s\S]*sandbox-runtimes-ready[\s\S]*docker image inspect" `
+  "runner readiness must fail closed until every runtime image is locally available"
+Assert-Contains $runner "livenessProbe:[\s\S]*docker info" `
+  "runner liveness must verify the Docker daemon through its internal Unix socket"
 
 Assert-Contains $ai "name:\s+INTERNAL_API_TOKEN[\s\S]*key:\s+sandbox-token" `
   "ai workload must receive the sandbox internal credential"

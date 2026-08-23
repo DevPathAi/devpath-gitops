@@ -27,6 +27,14 @@ canary of the released sandbox image (bf9ad1a…) with this base's full hardened
 environment reached readiness UP against the live runner (readiness group
 includes `sandboxRunner`).
 
+Runner restart gate (2026-08-23): `/var/lib/docker` is intentionally ephemeral,
+so the runner preloads the exact runtime image tags used by `sandbox-svc`
+(`eclipse-temurin:21-jdk`, `node:20-alpine`, and `python:3.12-slim`) after every
+start. Readiness remains false until all three images are locally inspectable;
+do not replace this with a TCP-only probe. The Unix Docker socket is internal to
+the privileged runner pod and is never exposed through a Service, volume, or
+application-pod mount. External runner traffic remains mTLS-only on 2376.
+
 Required order:
 
 1. Preserve the exact ET8 `devpath-shared` checkpoint
