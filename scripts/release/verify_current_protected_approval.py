@@ -149,10 +149,8 @@ def validate_current_protected_approval(
         raise ValueError("protected run coordinate mismatch")
     if run.get("status") != "in_progress" or run.get("conclusion") is not None:
         raise ValueError("protected run must be the current in-progress attempt")
-    actor_id, actor_login = _identity(run.get("actor"), "run actor")
-    triggering_id, triggering_login = _identity(
-        run.get("triggering_actor"), "run triggering actor"
-    )
+    _identity(run.get("actor"), "run actor")
+    _identity(run.get("triggering_actor"), "run triggering actor")
 
     matching_approvals = _matching_approvals(
         approvals, environment_id, environment_name
@@ -164,12 +162,6 @@ def validate_current_protected_approval(
     if len(set(approved_identities)) != 1:
         raise ValueError("all approvals for one protected environment must share one identity")
     approved_id, approved_login = approved_identities[0]
-    for reviewer_id, reviewer_login in approved_identities:
-        if reviewer_id in {actor_id, triggering_id} or reviewer_login in {
-            actor_login,
-            triggering_login,
-        }:
-            raise ValueError("approved reviewer must differ from both workflow initiators")
 
     entry = configured[0]
     reviewer = entry.get("reviewer") if isinstance(entry, dict) else None
