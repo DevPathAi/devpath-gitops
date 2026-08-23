@@ -655,9 +655,32 @@ class ReleaseHardeningTest(unittest.TestCase):
         api.assert_called_once_with(
             "test-token", "GET", "/accounts/a/pages/projects/p"
         )
+
+        # A Direct Upload Pages project has no external Git source at all.
+        # This is a stronger sole-writer posture than a connected source with
+        # production deployments disabled and must remain sealable.
+        with mock.patch.object(
+            self.cloudflare,
+            "_api",
+            return_value={
+                "result": {
+                    "canonical_deployment": deployment,
+                    "production_branch": "develop",
+                    "source": None,
+                }
+            },
+        ):
+            self.assertEqual(
+                self.cloudflare._current_production(
+                    "test-token", "/accounts/a/pages/projects/p/deployments"
+                ),
+                deployment,
+            )
+
         for mutation in (
             {"production_branch": "main"},
             {"source": {"config": {"production_branch": "develop", "production_deployments_enabled": True}}},
+            {"source": {}},
         ):
             project = {
                 "canonical_deployment": deployment,
