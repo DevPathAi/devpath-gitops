@@ -21,6 +21,11 @@ spec:
     spec:
       enableServiceLinks: false
       terminationGracePeriodSeconds: 120
+      # immutable service image runs as app (100:101). Keep the runner client
+      # private key group-readable by that exact non-root identity only.
+      securityContext:
+        fsGroup: 101
+        fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: devpath-sandbox-svc
           # 이미지 태그는 ArgoCD Image Updater 또는 CI가 교체한다.
@@ -101,4 +106,4 @@ spec:
         - name: sandbox-runner-mtls
           secret:
             secretName: sandbox-runner-mtls
-            defaultMode: 256
+            defaultMode: 288

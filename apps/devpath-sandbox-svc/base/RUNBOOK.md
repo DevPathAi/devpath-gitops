@@ -42,6 +42,9 @@ This release binds `SANDBOX_RUNNER_TLS_VERIFY` into the Docker client and moves
 submitted source into a runner-owned labelled volume before starting the
 read-only runsc container. The prior `bf9ad1a…` image predates both remote-runner
 contracts and must not be restored as an operational rollback target.
+The immutable image runs as UID/GID `100:101`; the pod `fsGroup` must remain
+`101` and the projected mTLS Secret mode must remain `0440` so the non-root app
+can read the client key without making it world-readable.
 
 Required order:
 
