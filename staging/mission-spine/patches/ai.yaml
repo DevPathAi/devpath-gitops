@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devpath-ai-svc
+spec:
+  template:
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: devpath-ai-svc
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          env:
+            - name: KAFKA_BOOTSTRAP
+              value: devpath-staging-kafka-bootstrap.kafka.svc:9092
+            - name: SANDBOX_URI
+              value: http://devpath-sandbox-svc.devpath-staging.svc:8080
+            - name: LCS_URI
+              value: http://devpath-lcs-svc.devpath-staging.svc:8080
+            - name: LEARNING_URI
+              value: http://devpath-learning-svc.devpath-staging.svc:8080
+            - name: MISSION_RELEASE_CONTROL_ENABLED
+              value: "true"
+            - name: INTERNAL_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: mission-spine-release-control
+                  key: internal-token
+            - name: REVIEW_PROVIDER
+              value: mock
+            - name: MENTOR_PROVIDER
+              value: mock
+            - name: MENTOR_FALLBACK
+              value: ""
+            - name: COMMUNITY_SEED_PROVIDER
+              value: mock
+            - name: RETENTION_PROVIDER
+              value: mock

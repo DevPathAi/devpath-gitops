@@ -1,0 +1,45 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mission-spine-release-hosts
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: release-control.staging.leva.ai.kr
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: devpath-platform-svc
+                port:
+                  number: 80
+    - host: oauth.staging.leva.ai.kr
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: devpath-platform-svc
+                port:
+                  number: 80
+    - host: analytics-spy.staging.leva.ai.kr
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: devpath-platform-svc
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - release-control.staging.leva.ai.kr
+        - oauth.staging.leva.ai.kr
+        - analytics-spy.staging.leva.ai.kr
+      secretName: mission-spine-release-hosts-tls

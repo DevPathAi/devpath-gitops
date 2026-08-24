@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devpath-gateway
+spec:
+  template:
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: devpath-gateway
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          env:
+            - name: PLATFORM_URI
+              value: http://devpath-platform-svc.devpath-staging.svc:8080
+            - name: LEARNING_URI
+              value: http://devpath-learning-svc.devpath-staging.svc:8080
+            - name: SANDBOX_URI
+              value: http://devpath-sandbox-svc.devpath-staging.svc:8080
+            - name: AI_SVC_URI
+              value: http://devpath-ai-svc.devpath-staging.svc:8080
+            - name: LCS_SVC_URI
+              value: http://devpath-lcs-svc.devpath-staging.svc:8080
+            - name: CORS_ALLOWED_ORIGINS
+              value: https://app.leva.ai.kr

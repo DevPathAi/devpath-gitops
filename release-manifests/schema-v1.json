@@ -220,10 +220,11 @@
     },
     "journeyHarness": {
       "type": "object",
-      "required": ["landing_origin", "app_origin", "control_origin", "oauth_origin", "analytics_spy_origin", "dns_overrides"],
+      "required": ["landing_origin", "app_origin", "api_origin", "control_origin", "oauth_origin", "analytics_spy_origin", "dns_overrides"],
       "properties": {
         "landing_origin": {"type": "string", "format": "uri", "pattern": "^https://"},
         "app_origin": {"type": "string", "format": "uri", "pattern": "^https://"},
+        "api_origin": {"type": "string", "format": "uri", "pattern": "^https://"},
         "control_origin": {"type": "string", "format": "uri", "pattern": "^https://"},
         "oauth_origin": {"type": "string", "format": "uri", "pattern": "^https://"},
         "analytics_spy_origin": {"type": "string", "format": "uri", "pattern": "^https://"},
