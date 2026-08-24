@@ -1,0 +1,59 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: devpath-staging
+resources:
+  - ../devpath-web
+  - ../../apps/devpath-gateway/base/deployment.yaml
+  - ../../apps/devpath-gateway/base/service.yaml
+  - ../../apps/devpath-platform-svc/base/deployment.yaml
+  - ../../apps/devpath-platform-svc/base/service.yaml
+  - ../../apps/devpath-learning-svc/base/deployment.yaml
+  - ../../apps/devpath-learning-svc/base/service.yaml
+  - ../../apps/devpath-sandbox-svc/base/deployment.yaml
+  - ../../apps/devpath-sandbox-svc/base/service.yaml
+  - ../../apps/devpath-sandbox-svc/base/networkpolicy.yaml
+  - ../../apps/devpath-ai-svc/base/deployment.yaml
+  - ../../apps/devpath-ai-svc/base/service.yaml
+  - ../../apps/devpath-lcs-svc/base/deployment.yaml
+  - ../../apps/devpath-lcs-svc/base/service.yaml
+  - ../../apps/devpath-redis/base/deployment.yaml
+  - ../../apps/devpath-redis/base/pvc.yaml
+  - ../../apps/devpath-redis/base/service.yaml
+  - ../../apps/devpath-sandbox-runner/base/deployment.yaml
+  - ../../apps/devpath-sandbox-runner/base/service.yaml
+  - canonical-routes.yaml
+  - release-hosts-ingress.yaml
+  - networkpolicy.yaml
+  - migration-job.yaml
+patches:
+  - path: patches/gateway.yaml
+  - path: patches/platform.yaml
+  - path: patches/learning.yaml
+  - path: patches/sandbox.yaml
+  - path: patches/ai.yaml
+  - path: patches/lcs.yaml
+images:
+  - name: ghcr.io/devpathai/devpath-gateway
+    newName: ghcr.io/devpathai/devpath-gateway
+    newTag: f3a724f4ee1fcf90c1c255c6df414de8659279c4
+    digest: sha256:423e4ac4f74dd8dc8f159b6bba4233cd7c0dc6ded28ddc2f6abd77e11b3d4cb2
+  - name: ghcr.io/devpathai/devpath-platform-svc
+    newName: ghcr.io/devpathai/devpath-platform-svc
+    newTag: 2b1bc68914632e6532fa7d461a5bf976fd90c07e
+    digest: sha256:48f2a90a3d898d6f531f5f1a67d0d49137c08403b8be3ad2190273d86574c203
+  - name: ghcr.io/devpathai/devpath-learning-svc
+    newName: ghcr.io/devpathai/devpath-learning-svc
+    newTag: 1f1334eaf9ef5a3d9f634e2e5928e581427f6257
+    digest: sha256:7ecb62ebd7619529042e2643385e591c793cb00a3399c7fb538013c788795e69
+  - name: ghcr.io/devpathai/devpath-sandbox-svc
+    newName: ghcr.io/devpathai/devpath-sandbox-svc
+    newTag: 7ea721c72dd13d39637c4d48cd3569be28b26eef
+    digest: sha256:2ce9d4dbfac5b201ce3483bdd2d397b40185c7869de5b553dc00948a6d0b230b
+  - name: ghcr.io/devpathai/devpath-ai-svc
+    newName: ghcr.io/devpathai/devpath-ai-svc
+    newTag: 0169bf08024047f2fa08000a886c564321736e58
+    digest: sha256:b863edc864cf95d0c075c61146607b8d898f770cd9ab22738964914c3f9c3272
+  - name: ghcr.io/devpathai/devpath-lcs-svc
+    newName: ghcr.io/devpathai/devpath-lcs-svc
+    newTag: de767a0c397f18e2e4e3a118cc0dbd27c2669812
+    digest: sha256:dceb15ca75f086406d3b2fe63c5dbf0a8d6abd621e645a8a782bfe0857b31a60

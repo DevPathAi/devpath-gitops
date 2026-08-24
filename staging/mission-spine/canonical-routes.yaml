@@ -1,0 +1,33 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: mission-spine-candidate-app
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: 'Host(`app.leva.ai.kr`) && HeaderRegexp(`X-Candidate-Spec-Sha256`, `^[0-9a-f]{64}$`) && HeaderRegexp(`X-Release-Run-Key`, `^[A-Za-z0-9_-]+$`)'
+      priority: 1000
+      services:
+        - name: devpath-web-staging
+          port: 80
+  tls:
+    secretName: devpath-web-tls
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: mission-spine-candidate-api
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: 'Host(`api.leva.ai.kr`) && HeaderRegexp(`X-Candidate-Spec-Sha256`, `^[0-9a-f]{64}$`) && HeaderRegexp(`X-Release-Run-Key`, `^[A-Za-z0-9_-]+$`)'
+      priority: 1000
+      services:
+        - name: devpath-gateway
+          port: 80
+  tls:
+    secretName: devpath-gateway-tls

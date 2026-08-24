@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devpath-platform-svc
+spec:
+  template:
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: devpath-platform-svc
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          env:
+            - name: KAFKA_BOOTSTRAP
+              value: devpath-staging-kafka-bootstrap.kafka.svc:9092
+            - name: REDIS_HOST
+              value: redis.devpath-staging.svc
+            - name: MISSION_RELEASE_CONTROL_ENABLED
+              value: "true"
+            - name: MISSION_RELEASE_CONTROL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: mission-spine-release-control
+                  key: control-token
+            - name: MISSION_RELEASE_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: mission-spine-release-control
+                  key: internal-token
+            - name: MISSION_RELEASE_FIXTURE_REVISION
+              value: 2b1bc68914632e6532fa7d461a5bf976fd90c07e
+            - name: MISSION_RELEASE_OAUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: mission-spine-release-control
+                  key: oauth-client-id
+            - name: MISSION_RELEASE_OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: mission-spine-release-control
+                  key: oauth-client-secret
+            - name: MISSION_RELEASE_OAUTH_REDIRECT_URI
+              value: https://api.leva.ai.kr/login/oauth2/code/release
+            - name: MISSION_RELEASE_OAUTH_AUTHORIZATION_URI
+              value: https://oauth.staging.leva.ai.kr/v1/release/oauth/authorize
+            - name: MISSION_RELEASE_OAUTH_TOKEN_URI
+              value: http://localhost:8080/v1/release/oauth/token
+            - name: MISSION_RELEASE_OAUTH_USERINFO_URI
+              value: http://localhost:8080/v1/release/oauth/userinfo
+            - name: MISSION_RELEASE_ANALYTICS_ORIGIN
+              value: https://analytics-spy.staging.leva.ai.kr
+            - name: MISSION_RELEASE_SANDBOX_ORIGIN
+              value: http://devpath-sandbox-svc.devpath-staging.svc:8080
+            - name: MISSION_RELEASE_AI_ORIGIN
+              value: http://devpath-ai-svc.devpath-staging.svc:8080
+            - name: MISSION_RELEASE_LCS_ORIGIN
+              value: http://devpath-lcs-svc.devpath-staging.svc:8080
+            - name: MISSION_RELEASE_LEARNING_ORIGIN
+              value: http://devpath-learning-svc.devpath-staging.svc:8080
+            - name: MISSION_RELEASE_CAPABILITIES
+              value: production-artifact-probe,deterministic-oauth,required-consent-control,database-authoritative-claim,claim-replay,content-linked-completion-replay,contentless-completion-replay,analytics-spy,analytics-prepermission-zero,analytics-permission-control,real-sandbox-runtime,sandbox-owner-recovery,sandbox-disconnect-control,sandbox-timeout-control,sandbox-truncation-control,sandbox-reconciliation-control,kafka-outbox-review,deterministic-review,private-mentor-prompt,mock-mentor-provider-capture,partial-failure-control

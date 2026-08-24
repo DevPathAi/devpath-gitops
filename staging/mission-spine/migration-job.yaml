@@ -1,0 +1,41 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mission-spine-staging-migration-v202608221001
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      containers:
+        - name: flyway
+          image: ghcr.io/devpathai/devpath-migration@sha256:f1ac7dac56643c2adf3dc62ace83628758826d3ebae710a13c788bfeb73e0fc6
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: FLYWAY_URL
+              valueFrom:
+                secretKeyRef:
+                  name: platform-db
+                  key: db-url
+            - name: FLYWAY_USER
+              valueFrom:
+                secretKeyRef:
+                  name: platform-db
+                  key: db-user
+            - name: FLYWAY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: platform-db
+                  key: db-password
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              migration_locations="filesystem:/flyway/sql,classpath:db/migration"
+              flyway -locations="$migration_locations" -target="202608221001" migrate
+              flyway -locations="$migration_locations" -target="202608221001" validate
