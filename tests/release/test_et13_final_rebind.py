@@ -316,7 +316,7 @@ class Et13FinalRebindTest(unittest.TestCase):
                     collect(nested)
 
         collect(self.release)
-        self.assertEqual(len(references), 14)
+        self.assertEqual(len(references), 13)
         self.assertEqual(set(references), {candidate_sha})
 
 

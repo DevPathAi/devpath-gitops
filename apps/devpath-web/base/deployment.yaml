@@ -18,6 +18,16 @@ spec:
         - name: devpath-web
           # 이미지 태그는 ArgoCD Image Updater 또는 CI가 교체한다.
           image: ghcr.io/devpathai/devpath-web:main
+          envFrom:
+            - configMapRef:
+                name: devpath-web-release-identity
+          env:
+            - name: MISSION_SYNTHETIC_PROBE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: mission-spine-synthetic-probe
+                  key: token
+                  optional: true
           ports:
             - containerPort: 8080
           readinessProbe:

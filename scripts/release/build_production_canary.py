@@ -89,7 +89,9 @@ def build_canary(
     release_hash = hashlib.sha256(release_path.read_bytes()).hexdigest()
     chain_root = (gitops_root or root).resolve()
     trusted_root = (control_root or root).resolve()
-    state = inspect_chain(chain_root, candidate, release_hash, on_commit)
+    state = inspect_chain(
+        chain_root, candidate, candidate_hash, release_hash, on_commit
+    )
     if state["phase"] != "mission-on" or state["on_commit"] != on_commit:
         raise ValueError("production canary commit is not exact mission-ON")
     if (

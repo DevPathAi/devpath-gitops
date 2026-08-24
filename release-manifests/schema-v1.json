@@ -42,6 +42,7 @@
     "sha40": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "sha64": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "nonZeroDigest": {"type": "string", "pattern": "^sha256:(?!0{64}$)[0-9a-f]{64}$"},
     "repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
     "safeId": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]{1,127}$"},
     "component": {
@@ -120,12 +121,42 @@
     },
     "frontendRollback": {
       "type": "object",
-      "required": ["mission_off_digest", "prior_digest", "final_target"],
+      "required": ["mission_off_digest", "prior_digest", "prior_identity", "final_target"],
       "properties": {
         "mission_off_digest": {"$ref": "#/$defs/digest"},
         "prior_digest": {"$ref": "#/$defs/digest"},
+        "prior_identity": {"$ref": "#/$defs/priorIdentity"},
         "final_target": {"const": "prior"}
       },
+      "additionalProperties": false
+    },
+    "priorIdentity": {
+      "type": "object",
+      "required": ["ready", "release_id", "candidate_spec_sha256", "image_digest"],
+      "properties": {
+        "ready": {"type": "boolean"},
+        "release_id": {"type": "string"},
+        "candidate_spec_sha256": {"$ref": "#/$defs/sha64"},
+        "image_digest": {"$ref": "#/$defs/digest"}
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "ready": {"const": false},
+            "release_id": {"const": "unreleased"},
+            "candidate_spec_sha256": {"const": "0000000000000000000000000000000000000000000000000000000000000000"},
+            "image_digest": {"const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+          }
+        },
+        {
+          "properties": {
+            "ready": {"const": true},
+            "release_id": {"$ref": "#/$defs/releaseId"},
+            "candidate_spec_sha256": {"type": "string", "pattern": "^(?!0{64}$)[0-9a-f]{64}$"},
+            "image_digest": {"$ref": "#/$defs/nonZeroDigest"}
+          }
+        }
+      ],
       "additionalProperties": false
     },
     "frontend": {
@@ -200,11 +231,26 @@
       },
       "additionalProperties": false
     },
+    "stagingEnvironment": {
+      "allOf": [
+        {"$ref": "#/$defs/environment"},
+        {
+          "properties": {
+            "github_environment": {"const": "mission-spine-staging"},
+            "kubernetes_context": {"const": "devpath-staging"},
+            "namespace": {"const": "devpath-staging"},
+            "web_deployment": {"const": "devpath-web-staging"},
+            "web_container": {"const": "devpath-web"},
+            "web_origin": {"const": "https://staging-app.13-124-153-105.nip.io"}
+          }
+        }
+      ]
+    },
     "environments": {
       "type": "object",
       "required": ["staging", "production"],
       "properties": {
-        "staging": {"$ref": "#/$defs/environment"},
+        "staging": {"$ref": "#/$defs/stagingEnvironment"},
         "production": {"$ref": "#/$defs/environment"}
       },
       "additionalProperties": false
@@ -332,23 +378,22 @@
     },
     "qualityCatalogs": {
       "type": "object",
-      "required": ["frontend-visual", "home-visual", "frontend-automated-a11y", "home-axe-browser-a11y", "manual-nvda", "manual-voiceover", "manual-talkback"],
+      "required": ["frontend-visual", "home-visual", "frontend-automated-a11y", "home-axe-browser-a11y", "manual-nvda", "manual-talkback"],
       "properties": {
         "frontend-visual": {"$ref": "#/$defs/frontendVisualCatalog"},
         "home-visual": {"$ref": "#/$defs/homeQualityCatalog"},
         "frontend-automated-a11y": {"$ref": "#/$defs/frontendAutomatedA11yCatalog"},
         "home-axe-browser-a11y": {"$ref": "#/$defs/homeQualityCatalog"},
         "manual-nvda": {"allOf": [{"$ref": "#/$defs/qualityCatalog"}, {"properties": {"repository": {"const": "DevPathAi/devpath-frontend"}, "path": {"const": "tool/release-evidence/catalogs/manual-nvda.v1.json"}, "case_count": {"const": 2}}}]},
-        "manual-voiceover": {"allOf": [{"$ref": "#/$defs/qualityCatalog"}, {"properties": {"repository": {"const": "DevPathAi/devpath-frontend"}, "path": {"const": "tool/release-evidence/catalogs/manual-voiceover.v1.json"}, "case_count": {"const": 4}}}]},
         "manual-talkback": {"allOf": [{"$ref": "#/$defs/qualityCatalog"}, {"properties": {"repository": {"const": "DevPathAi/devpath-frontend"}, "path": {"const": "tool/release-evidence/catalogs/manual-talkback.v1.json"}, "case_count": {"const": 4}}}]}
       },
       "additionalProperties": false
     },
     "mobileTestArtifacts": {
       "type": "object",
-      "required": ["schema_version", "repository", "source_sha", "event", "workflow_path", "workflow_sha256", "workflow_run_id", "run_attempt", "artifact_id", "artifact_name", "artifact_archive_sha256", "build_provenance_file", "build_provenance_sha256", "signed_apk_file", "signed_apk_sha256", "signed_ipa_file", "signed_ipa_sha256"],
+      "required": ["schema_version", "repository", "source_sha", "event", "workflow_path", "workflow_sha256", "workflow_run_id", "run_attempt", "artifact_id", "artifact_name", "artifact_archive_sha256", "build_provenance_file", "build_provenance_sha256", "signed_apk_file", "signed_apk_sha256"],
       "properties": {
-        "schema_version": {"const": "leva.mission-spine.signed-mobile-build-binding.v1"},
+        "schema_version": {"const": "leva.mission-spine.signed-android-build-binding.v2"},
         "repository": {"const": "DevPathAi/devpath-frontend"},
         "source_sha": {"$ref": "#/$defs/sha40"},
         "event": {"const": "workflow_dispatch"},
@@ -359,12 +404,10 @@
         "artifact_id": {"type": "integer", "minimum": 1},
         "artifact_name": {"$ref": "#/$defs/safeId"},
         "artifact_archive_sha256": {"$ref": "#/$defs/sha64"},
-        "build_provenance_file": {"const": "build-provenance.v1.json"},
+        "build_provenance_file": {"const": "build-provenance.v2.json"},
         "build_provenance_sha256": {"$ref": "#/$defs/sha64"},
         "signed_apk_file": {"const": "mobile/android/leva-release.apk"},
-        "signed_apk_sha256": {"$ref": "#/$defs/sha64"},
-        "signed_ipa_file": {"const": "mobile/ios/leva-release.ipa"},
-        "signed_ipa_sha256": {"$ref": "#/$defs/sha64"}
+        "signed_apk_sha256": {"$ref": "#/$defs/sha64"}
       },
       "additionalProperties": false
     },
@@ -536,14 +579,13 @@
     },
     "qualityEvidence": {
       "type": "object",
-      "required": ["frontend_visual", "home_visual", "frontend_automated_a11y", "home_axe_browser_a11y", "manual_nvda", "manual_voiceover", "manual_talkback"],
+      "required": ["frontend_visual", "home_visual", "frontend_automated_a11y", "home_axe_browser_a11y", "manual_nvda", "manual_talkback"],
       "properties": {
         "frontend_visual": {"$ref": "#/$defs/artifact"},
         "home_visual": {"$ref": "#/$defs/homeVisualArtifact"},
         "frontend_automated_a11y": {"$ref": "#/$defs/artifact"},
         "home_axe_browser_a11y": {"$ref": "#/$defs/homeA11yArtifact"},
         "manual_nvda": {"$ref": "#/$defs/manualArtifact"},
-        "manual_voiceover": {"$ref": "#/$defs/manualArtifact"},
         "manual_talkback": {"$ref": "#/$defs/manualArtifact"}
       },
       "additionalProperties": false

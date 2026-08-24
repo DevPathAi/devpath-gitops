@@ -17,6 +17,7 @@ devpath-gitops/
 ├── argocd/                     # ArgoCD ApplicationSet + AppProject
 │   ├── applicationset.yaml     # apps/* 자동 발견
 │   └── project.yaml
+├── staging/devpath-web/        # Mission Spine 전용 격리 staging (수동 최초 부트스트랩)
 ├── infra/                      # 인프라 애드온 (추후: ingress, kafka, monitoring 등)
 └── local-k8s/                  # 로컬 클러스터(kind) 안내
 ```
@@ -47,11 +48,29 @@ kubectl apply -f argocd/applicationset.yaml
 
 이후 `main`에 푸시하면 ArgoCD가 자동 동기화(prune + selfHeal)합니다.
 
+### Mission Spine staging 부트스트랩
+
+`staging/devpath-web`은 production ApplicationSet의 `apps/*` 대상이 아니며 ArgoCD가 관리하지 않습니다. `mission-spine-staging` 환경의 `devpath-staging` context에 최초 한 번만 다음 선행조건을 확인하고 적용합니다.
+
+```bash
+# namespace만 먼저 만들고, secret 값은 저장소나 명령행에 넣지 않습니다.
+kubectl --context devpath-staging apply -f staging/devpath-web/namespace.yaml
+# 아래 secret은 이 사이에 별도 보안 절차로 생성되어 있어야 합니다.
+kubectl --context devpath-staging --namespace devpath-staging \
+  get secret mission-spine-synthetic-probe -o name
+kubectl --context devpath-staging apply -k staging/devpath-web
+kubectl --context devpath-staging --namespace devpath-staging \
+  rollout status deployment/devpath-web-staging --timeout=300s
+```
+
+최초 적용 뒤 Deployment image와 release identity의 소유자는 보호된 Mission Spine workflow입니다. 일반 운영 중 `kubectl apply -k staging/devpath-web`을 다시 실행하면 봉인된 staging 기준점을 초기값으로 되돌릴 수 있으므로 사용하지 않습니다. 후보 검증은 매 전환을 `resourceVersion` 선행조건으로 수행하고 원래 prior로 복원합니다. production mission-ON 성공 뒤에는 별도 staging job이 새 ON lineage로 기준점을 갱신하고, production reverse rollback 뒤에는 별도 staging job이 봉인된 prior lineage로 되돌립니다. 두 경로 모두 같은 `mission-spine-staging` 승인 환경과 concurrency lease를 사용합니다. 매니페스트 변경은 main 봉인 정책의 보호 대상입니다.
+
 ## 로컬 검증
 
 ```bash
 # Kustomize 렌더링 확인
 kubectl kustomize apps/devpath-gateway/base
+kubectl kustomize staging/devpath-web
 ```
 
 로컬 클러스터 기동은 [local-k8s/README.md](local-k8s/README.md) 참고.

@@ -139,7 +139,9 @@ def validate_promotion_payload(
     for key in ("base_commit", "migration_commit", "services_commit", "off_commit", "on_commit"):
         if SHA40.fullmatch(str(top[key])) is None:
             raise ValueError(f"production canary {key} is invalid")
-    state = inspect_chain(root, candidate, release_hash, top["on_commit"])
+    state = inspect_chain(
+        root, candidate, candidate_hash, release_hash, top["on_commit"]
+    )
     expected_state = {
         "base_commit": candidate["gitops"]["base_sha"],
         "migration_commit": state["migration_commit"],
@@ -371,7 +373,9 @@ def verify(
         current_main = _git(gitops_root, "rev-parse", "refs/remotes/origin/main")
         if os.environ.get("GITHUB_SHA") != current_main:
             raise ValueError("production canary verifier is not current protected main")
-        current_state = inspect_chain(gitops_root, candidate, release_hash, current_main)
+        current_state = inspect_chain(
+            gitops_root, candidate, candidate_hash, release_hash, current_main
+        )
         if current_state["phase"] != "mission-on":
             raise ValueError("GitOps main is not the exact mission-ON chain phase")
         eligible_heads = {current_state["off_commit"], current_state["on_commit"]}
@@ -475,7 +479,11 @@ def verify(
             workflow_hash,
         )
         historical_state = inspect_chain(
-            gitops_root, candidate, release_hash, validated["on_commit"]
+            gitops_root,
+            candidate,
+            candidate_hash,
+            release_hash,
+            validated["on_commit"],
         )
         if attempt_run.get("head_sha") not in {
             historical_state["off_commit"],

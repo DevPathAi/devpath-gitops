@@ -40,11 +40,13 @@ spec:
         - name: dockerd
           image: docker:27.5.1-dind
           # dockerd 를 직접 실행한다 — dind entrypoint 는 DOCKER_TLS_CERTDIR 가 비면
-          # 비암호 tcp://0.0.0.0:2375 리스너를 추가 주입한다(실측). 명시 -H 만 남겨
-          # mTLS 2376 단일 리스너를 보장한다. 신뢰는 sandbox-runner-server-tls 의
-          # 고정 mTLS 자산이 정본이다.
+          # 비암호 tcp://0.0.0.0:2375 리스너를 추가 주입한다(실측). 외부 TCP 는 mTLS
+          # 2376 만 열고, 파드 내부 preload/probe 전용 Unix socket 은 다른 파드에
+          # 마운트하지 않는다. 신뢰는 sandbox-runner-server-tls 의 고정 mTLS 자산이
+          # 정본이다.
           command: ["dockerd"]
           args:
+            - --host=unix:///var/run/docker.sock
             - --host=tcp://0.0.0.0:2376
             - --tlsverify
             - --tlscacert=/certs/ca.pem
@@ -71,16 +73,56 @@ spec:
               readOnly: true
             - name: docker-data
               mountPath: /var/lib/docker
+          # docker-data 는 emptyDir 이므로 러너 교체 때마다 런타임 이미지가 사라진다.
+          # sandbox-svc 의 고정 언어 매핑 3종을 모두 확보한 뒤에만 readiness marker 를
+          # 만든다. registry 장애나 일부 pull 실패 시 세션을 받지 않고 fail-closed 한다.
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - -ec
+                  - |
+                    rm -f /var/run/sandbox-runtimes-ready
+                    until docker info >/dev/null 2>&1; do
+                      sleep 1
+                    done
+                    for image in \
+                      eclipse-temurin:21-jdk \
+                      node:20-alpine \
+                      python:3.12-slim; do
+                      until docker image inspect "$image" >/dev/null 2>&1; do
+                        if ! docker pull "$image"; then
+                          sleep 5
+                        fi
+                      done
+                    done
+                    touch /var/run/sandbox-runtimes-ready
           readinessProbe:
-            tcpSocket:
-              port: 2376
-            initialDelaySeconds: 5
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - |
+                  test -f /var/run/sandbox-runtimes-ready
+                  docker info >/dev/null
+                  docker image inspect \
+                    eclipse-temurin:21-jdk \
+                    node:20-alpine \
+                    python:3.12-slim >/dev/null
             periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
           livenessProbe:
-            tcpSocket:
-              port: 2376
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - docker info >/dev/null
             initialDelaySeconds: 30
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           resources:
             requests:
               cpu: 250m

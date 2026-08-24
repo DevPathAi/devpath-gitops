@@ -85,12 +85,12 @@ def validate_main_pr_delta(
     argo_or_apps = sorted(
         path
         for path in set(changed_paths)
-        if path.startswith(("apps/", "argocd/"))
+        if path.startswith(("apps/", "argocd/", "staging/"))
         and path != MIGRATION_JOB_PATH
     )
     if argo_or_apps:
         raise ValueError(
-            "main PR may not change an Argo-managed production path: "
+            "main PR may not change an Argo-managed production or sealed staging path: "
             + ", ".join(argo_or_apps)
         )
     if MIGRATION_JOB_PATH in changed_paths:

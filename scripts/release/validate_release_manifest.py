@@ -20,6 +20,14 @@ from urllib.parse import urlsplit
 
 
 RELEASE_ID = re.compile(r"^ms-[0-9]{8}-[a-z0-9][a-z0-9-]{2,40}$")
+ZERO_SHA256 = "0" * 64
+DEDICATED_STAGING_IDENTITY = {
+    "kubernetes_context": "devpath-staging",
+    "namespace": "devpath-staging",
+    "web_deployment": "devpath-web-staging",
+    "web_container": "devpath-web",
+    "web_origin": "https://staging-app.13-124-153-105.nip.io",
+}
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 # web 신뢰 베이스 태그: 순수 SHA40(레거시) 또는 mission 접미 태그. 미션 스파인
 # 흐름의 산출 태그는 구조적으로 <sha40>-mission-(off|on) 이고, 신뢰의 실체는
@@ -48,7 +56,6 @@ PRODUCER_WORKFLOWS = {
     "frontend-automated-a11y": ".github/workflows/et13-evidence.yml",
     "home-axe-browser-a11y": ".github/workflows/mission-spine-validate.yml",
     "manual-nvda": ".github/workflows/mission-spine-manual-at-evidence.yml",
-    "manual-voiceover": ".github/workflows/mission-spine-manual-at-evidence.yml",
     "manual-talkback": ".github/workflows/mission-spine-manual-at-evidence.yml",
 }
 
@@ -58,7 +65,6 @@ QUALITY_EVIDENCE = {
     "frontend-automated-a11y": "frontend_automated_a11y",
     "home-axe-browser-a11y": "home_axe_browser_a11y",
     "manual-nvda": "manual_nvda",
-    "manual-voiceover": "manual_voiceover",
     "manual-talkback": "manual_talkback",
 }
 QUALITY_EVIDENCE_LABELS = tuple(QUALITY_EVIDENCE)
@@ -70,7 +76,6 @@ QUALITY_EVIDENCE_FILES = {
     "frontend-automated-a11y": "evidence.json",
     "home-axe-browser-a11y": "a11y-evidence.v2.json",
     "manual-nvda": "evidence.json",
-    "manual-voiceover": "evidence.json",
     "manual-talkback": "evidence.json",
 }
 
@@ -252,15 +257,12 @@ SIGNED_MOBILE_BINDING_KEYS = {
     "build_provenance_sha256",
     "signed_apk_file",
     "signed_apk_sha256",
-    "signed_ipa_file",
-    "signed_ipa_sha256",
 }
-SIGNED_MOBILE_BINDING_VERSION = "leva.mission-spine.signed-mobile-build-binding.v1"
+SIGNED_MOBILE_BINDING_VERSION = "leva.mission-spine.signed-android-build-binding.v2"
 SIGNED_MOBILE_WORKFLOW = ".github/workflows/mission-spine-signed-mobile-build.yml"
 SIGNED_MOBILE_FILES = {
-    "build_provenance_file": "build-provenance.v1.json",
+    "build_provenance_file": "build-provenance.v2.json",
     "signed_apk_file": "mobile/android/leva-release.apk",
-    "signed_ipa_file": "mobile/ios/leva-release.ipa",
 }
 
 MANUAL_CATALOG_CONTRACTS = {
@@ -277,22 +279,6 @@ MANUAL_CATALOG_CONTRACTS = {
         "required_platform": "windows_physical_host",
         "required_client": "chromium",
         "required_artifact": "exact_source_web_release_build",
-    },
-    "manual-voiceover": {
-        "path": "tool/release-evidence/catalogs/manual-voiceover.v1.json",
-        "provenance_path": "tool/release-evidence/provenance/manual-voiceover.v1.json",
-        "case_count": 4,
-        "assistive_technology": "VoiceOver+Safari+iOS",
-        "surface": "ios",
-        "case_ids": (
-            "voiceover-ios-today-mission-spine",
-            "voiceover-ios-next-action-navigation",
-            "voiceover-ios-content-reading",
-            "voiceover-ios-offline-status",
-        ),
-        "required_platform": "ios_physical_device",
-        "required_client": "native_flutter_ios",
-        "required_artifact": "candidate_signed_ipa",
     },
     "manual-talkback": {
         "path": "tool/release-evidence/catalogs/manual-talkback.v1.json",
@@ -700,6 +686,49 @@ def _validate_environment(value: Any, path: str) -> None:
     _https_url(obj["landing_origin"], f"{path}.landing_origin")
 
 
+def _validate_prior_identity(
+    value: Any,
+    path: str,
+    prior_digest: str,
+    current_release_id: str,
+) -> None:
+    obj = _object(value, path)
+    _exact_keys(
+        obj,
+        {"ready", "release_id", "candidate_spec_sha256", "image_digest"},
+        path,
+    )
+    ready = obj["ready"]
+    if not isinstance(ready, bool):
+        _fail(f"{path}.ready", "must be a boolean")
+    release_id = _string(obj["release_id"], f"{path}.release_id")
+    candidate_sha = _string(
+        obj["candidate_spec_sha256"], f"{path}.candidate_spec_sha256", SHA64
+    )
+    image_digest = _string(obj["image_digest"], f"{path}.image_digest", DIGEST)
+    if not ready:
+        disabled = {
+            "ready": False,
+            "release_id": "unreleased",
+            "candidate_spec_sha256": ZERO_SHA256,
+            "image_digest": f"sha256:{ZERO_SHA256}",
+        }
+        if obj != disabled:
+            _fail(path, "disabled prior_identity must be the exact unreleased sentinel")
+        return
+    if RELEASE_ID.fullmatch(release_id) is None or release_id == current_release_id:
+        _fail(
+            f"{path}.release_id",
+            "must bind a distinct exact prior release ID",
+        )
+    if candidate_sha == ZERO_SHA256:
+        _fail(f"{path}.candidate_spec_sha256", "must bind a non-zero prior candidate")
+    if image_digest == f"sha256:{ZERO_SHA256}":
+        _fail(f"{path}.image_digest", "must bind a non-zero prior image")
+    if image_digest != prior_digest:
+        _fail(f"{path}.image_digest", "must exactly equal rollback.prior_digest")
+
+
 def _validate_journey_harness(value: Any, path: str, environments: dict[str, Any]) -> None:
     obj = _object(value, path)
     _exact_keys(
@@ -979,7 +1008,7 @@ def _validate_quality_evidence_inputs(value: Any, candidate: dict[str, Any]) -> 
     mobile = _object(obj["mobile_test_artifacts"], mobile_path)
     _exact_keys(mobile, SIGNED_MOBILE_BINDING_KEYS, mobile_path)
     if mobile["schema_version"] != SIGNED_MOBILE_BINDING_VERSION:
-        _fail(f"{mobile_path}.schema_version", "signed-mobile binding schema is not approved")
+        _fail(f"{mobile_path}.schema_version", "signed-Android binding schema is not approved")
     if mobile["repository"] != candidate["frontend"]["repository"]:
         _fail(f"{mobile_path}.repository", "must be DevPathAi/devpath-frontend")
     if mobile["source_sha"] != candidate["frontend"]["source_sha"]:
@@ -996,7 +1025,7 @@ def _validate_quality_evidence_inputs(value: Any, candidate: dict[str, Any]) -> 
             "protected signing approval is sealable only on attempt 1; retry with a fresh dispatch",
         )
     expected_name = (
-        f"{candidate['release_id']}-signed-mobile-build-run-"
+        f"{candidate['release_id']}-signed-android-build-run-"
         f"{mobile['workflow_run_id']}-attempt-{mobile['run_attempt']}"
     )
     if mobile["artifact_name"] != expected_name:
@@ -1009,16 +1038,14 @@ def _validate_quality_evidence_inputs(value: Any, candidate: dict[str, Any]) -> 
         "artifact_archive_sha256",
         "build_provenance_sha256",
         "signed_apk_sha256",
-        "signed_ipa_sha256",
     ):
         _string(mobile[field], f"{mobile_path}.{field}", SHA64)
     mobile_hashes = {
         mobile["build_provenance_sha256"],
         mobile["signed_apk_sha256"],
-        mobile["signed_ipa_sha256"],
     }
-    if len(mobile_hashes) != 3:
-        _fail(mobile_path, "build provenance, signed APK, and signed IPA hashes must be distinct")
+    if len(mobile_hashes) != 2:
+        _fail(mobile_path, "build provenance and signed APK hashes must be distinct")
 
 
 def validate_candidate_spec(data: Any, source: Path | None = None) -> dict[str, Any]:
@@ -1131,7 +1158,11 @@ def validate_candidate_spec(data: Any, source: Path | None = None) -> dict[str, 
     if selected != variants["mission_on"]:
         _fail("$.frontend.selected_on_digest", "must exactly equal mission_on.image_digest")
     rollback = _object(frontend["rollback"], "$.frontend.rollback")
-    _exact_keys(rollback, {"mission_off_digest", "prior_digest", "final_target"}, "$.frontend.rollback")
+    _exact_keys(
+        rollback,
+        {"mission_off_digest", "prior_digest", "prior_identity", "final_target"},
+        "$.frontend.rollback",
+    )
     if rollback["mission_off_digest"] != variants["mission_off"]:
         _fail("$.frontend.rollback.mission_off_digest", "must exactly equal mission_off.image_digest")
     prior = _string(rollback["prior_digest"], "$.frontend.rollback.prior_digest", DIGEST)
@@ -1139,6 +1170,12 @@ def validate_candidate_spec(data: Any, source: Path | None = None) -> dict[str, 
         _fail("$.frontend.rollback.prior_digest", "must exactly equal gitops.base_web_digest")
     if prior in variants.values():
         _fail("$.frontend.rollback.prior_digest", "must be distinct from both candidate digests")
+    _validate_prior_identity(
+        rollback["prior_identity"],
+        "$.frontend.rollback.prior_identity",
+        prior,
+        release_id,
+    )
     if rollback["final_target"] != "prior":
         _fail("$.frontend.rollback.final_target", "must be prior")
 
@@ -1235,6 +1272,12 @@ def validate_candidate_spec(data: Any, source: Path | None = None) -> dict[str, 
     _validate_environment(environments["production"], "$.environments.production")
     if environments["staging"]["github_environment"] != "mission-spine-staging":
         _fail("$.environments.staging.github_environment", "must be mission-spine-staging")
+    for field, expected in DEDICATED_STAGING_IDENTITY.items():
+        if environments["staging"][field] != expected:
+            _fail(
+                f"$.environments.staging.{field}",
+                f"must be exactly {expected}",
+            )
     if environments["production"]["github_environment"] != "mission-spine-production":
         _fail("$.environments.production.github_environment", "must be mission-spine-production")
     for field in ("github_environment", "kubernetes_context", "web_origin", "landing_origin"):
@@ -1526,7 +1569,7 @@ def validate_release_manifest(
 
     logical_hashes = [artifact["sha256"] for artifact in artifacts.values()]
     if len(set(logical_hashes)) != len(logical_hashes):
-        _fail("$.quality_evidence", "all seven logical evidence manifest hashes must be distinct")
+        _fail("$.quality_evidence", "all six logical evidence manifest hashes must be distinct")
     physical_ids = {
         label: (artifact["repository"], artifact["artifact_id"])
         for label, artifact in artifacts.items()
