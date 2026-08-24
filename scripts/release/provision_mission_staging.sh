@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Keep generated credential material inside the private scratch directory.
 k() { sudo kubectl "$@"; }
 
 namespace=devpath-staging

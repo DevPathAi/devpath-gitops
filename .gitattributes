@@ -2,6 +2,7 @@ docs/mission-spine/supporting-artifacts/** -text -diff
 .github/workflows/*.yml text eol=lf
 .github/actions/** text eol=lf
 scripts/release/*.py text eol=lf
+scripts/release/*.sh text eol=lf
 tests/release/*.py text eol=lf
 staging/**/*.yaml text eol=lf
 release-manifests/**/*.json text eol=lf

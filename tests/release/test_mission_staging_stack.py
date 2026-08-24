@@ -200,6 +200,10 @@ class MissionStagingStackTest(unittest.TestCase):
             workflow,
         )
 
+    def test_release_shell_scripts_have_checkout_stable_lf_endings(self):
+        attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
+        self.assertIn("scripts/release/*.sh text eol=lf", attributes)
+
 
 if __name__ == "__main__":
     unittest.main()
