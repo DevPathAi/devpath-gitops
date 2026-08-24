@@ -66,6 +66,8 @@ class MainPrPolicyTest(unittest.TestCase):
             "apps/devpath-admin/base/deployment.yaml",
             "apps/new-service/base/kustomization.yaml",
             "argocd/applicationset.yaml",
+            "staging/devpath-web/deployment.yaml",
+            "staging/devpath-web/ingress.yaml",
         ):
             with self.subTest(path=path), self.assertRaisesRegex(
                 ValueError, "Argo-managed"

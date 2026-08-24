@@ -42,6 +42,7 @@
     "sha40": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "sha64": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "nonZeroDigest": {"type": "string", "pattern": "^sha256:(?!0{64}$)[0-9a-f]{64}$"},
     "repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
     "safeId": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]{1,127}$"},
     "component": {
@@ -120,12 +121,42 @@
     },
     "frontendRollback": {
       "type": "object",
-      "required": ["mission_off_digest", "prior_digest", "final_target"],
+      "required": ["mission_off_digest", "prior_digest", "prior_identity", "final_target"],
       "properties": {
         "mission_off_digest": {"$ref": "#/$defs/digest"},
         "prior_digest": {"$ref": "#/$defs/digest"},
+        "prior_identity": {"$ref": "#/$defs/priorIdentity"},
         "final_target": {"const": "prior"}
       },
+      "additionalProperties": false
+    },
+    "priorIdentity": {
+      "type": "object",
+      "required": ["ready", "release_id", "candidate_spec_sha256", "image_digest"],
+      "properties": {
+        "ready": {"type": "boolean"},
+        "release_id": {"type": "string"},
+        "candidate_spec_sha256": {"$ref": "#/$defs/sha64"},
+        "image_digest": {"$ref": "#/$defs/digest"}
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "ready": {"const": false},
+            "release_id": {"const": "unreleased"},
+            "candidate_spec_sha256": {"const": "0000000000000000000000000000000000000000000000000000000000000000"},
+            "image_digest": {"const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+          }
+        },
+        {
+          "properties": {
+            "ready": {"const": true},
+            "release_id": {"$ref": "#/$defs/releaseId"},
+            "candidate_spec_sha256": {"type": "string", "pattern": "^(?!0{64}$)[0-9a-f]{64}$"},
+            "image_digest": {"$ref": "#/$defs/nonZeroDigest"}
+          }
+        }
+      ],
       "additionalProperties": false
     },
     "frontend": {
@@ -200,11 +231,26 @@
       },
       "additionalProperties": false
     },
+    "stagingEnvironment": {
+      "allOf": [
+        {"$ref": "#/$defs/environment"},
+        {
+          "properties": {
+            "github_environment": {"const": "mission-spine-staging"},
+            "kubernetes_context": {"const": "devpath-staging"},
+            "namespace": {"const": "devpath-staging"},
+            "web_deployment": {"const": "devpath-web-staging"},
+            "web_container": {"const": "devpath-web"},
+            "web_origin": {"const": "https://staging-app.13-124-153-105.nip.io"}
+          }
+        }
+      ]
+    },
     "environments": {
       "type": "object",
       "required": ["staging", "production"],
       "properties": {
-        "staging": {"$ref": "#/$defs/environment"},
+        "staging": {"$ref": "#/$defs/stagingEnvironment"},
         "production": {"$ref": "#/$defs/environment"}
       },
       "additionalProperties": false

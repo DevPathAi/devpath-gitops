@@ -134,7 +134,7 @@ class LandingEvidenceTest(unittest.TestCase):
             "services_commit": SERVICES,
             "migration_commit": MIGRATION,
         }
-        with mock.patch.object(module, "inspect_chain", return_value=chain):
+        with mock.patch.object(module, "inspect_chain", return_value=chain) as inspect:
             module.validate_landing_payload(
                 payload,
                 raw,
@@ -146,6 +146,13 @@ class LandingEvidenceTest(unittest.TestCase):
                 eligible_run(),
                 payload["producer_workflow_sha256"],
             )
+        inspect.assert_called_once_with(
+            ROOT,
+            {},
+            payload["candidate_spec_sha256"],
+            payload["release_manifest_sha256"],
+            payload["on_commit"],
+        )
         for key, value in (
             ("deployment_id", "not-a-deployment"),
             ("canary_run_id", False),

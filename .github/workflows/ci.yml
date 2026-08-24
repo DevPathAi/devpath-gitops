@@ -29,8 +29,10 @@ jobs:
       - name: Lint GitHub Actions workflows
         run: |
           set -euo pipefail
-          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
-          "$(go env GOPATH)/bin/actionlint" -color
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          # actionlint #657 remains open for GitHub's supported concurrency.queue key.
+          "$(go env GOPATH)/bin/actionlint" -color \
+            -ignore 'unexpected key "queue" for "concurrency" section'
       - name: Dry render digest-capable web base
         run: kubectl kustomize apps/devpath-web/base >/dev/null
 
@@ -43,7 +45,8 @@ jobs:
         run: |
           set -e
           shopt -s nullglob
-          for dir in apps/*/base; do
+          test -f staging/devpath-web/kustomization.yaml
+          for dir in apps/*/base staging/*/; do
             echo "== $dir =="
             kubectl kustomize "$dir" > /dev/null
           done

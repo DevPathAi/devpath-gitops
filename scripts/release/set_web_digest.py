@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import re
 import sys
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -16,6 +17,16 @@ from validate_release_manifest import resolve_release_bundle, validate_candidate
 
 
 WEB_IMAGE = "ghcr.io/devpathai/devpath-web"
+SHA256 = re.compile(r"[0-9a-f]{64}")
+IDENTITY_BLOCK = re.compile(
+    r"configMapGenerator:\n"
+    r"- name: devpath-web-release-identity\n"
+    r"  literals:\n"
+    r"  - MISSION_RELEASE_READY=([^\n]+)\n"
+    r"  - MISSION_RELEASE_ID=([^\n]+)\n"
+    r"  - MISSION_CANDIDATE_SPEC_SHA256=([^\n]+)\n"
+    r"  - MISSION_IMAGE_DIGEST=([^\n]+)\n"
+)
 TARGET_FIELDS = {
     "mission-off": ("frontend", "mission_off", "image_digest"),
     "mission-on": ("frontend", "selected_on_digest"),
@@ -36,11 +47,98 @@ def _lookup(data: dict, fields: tuple[str, ...]) -> str:
     return value
 
 
+def _identity_values(
+    manifest: dict,
+    candidate_spec_sha256: str,
+    phase: str,
+) -> tuple[str, str, str, str]:
+    if SHA256.fullmatch(candidate_spec_sha256) is None:
+        raise ValueError("candidate-spec SHA-256 is invalid")
+    if phase in {"base", "prior"}:
+        prior = manifest["frontend"]["rollback"]["prior_identity"]
+        return (
+            "true" if prior["ready"] else "false",
+            prior["release_id"],
+            prior["candidate_spec_sha256"],
+            prior["image_digest"],
+        )
+    if phase not in EXPECTED_FIELDS:
+        raise ValueError(f"unknown release identity phase: {phase}")
+    return (
+        "true",
+        manifest["release_id"],
+        candidate_spec_sha256,
+        _lookup(manifest, EXPECTED_FIELDS[phase]),
+    )
+
+
+def _identity_block(values: tuple[str, str, str, str]) -> str:
+    ready, release_id, candidate_sha, image_digest = values
+    return (
+        "configMapGenerator:\n"
+        "- name: devpath-web-release-identity\n"
+        "  literals:\n"
+        f"  - MISSION_RELEASE_READY={ready}\n"
+        f"  - MISSION_RELEASE_ID={release_id}\n"
+        f"  - MISSION_CANDIDATE_SPEC_SHA256={candidate_sha}\n"
+        f"  - MISSION_IMAGE_DIGEST={image_digest}\n"
+    )
+
+
+def _parse_identity(source: str) -> tuple[str, tuple[str, str, str, str]]:
+    matches = list(IDENTITY_BLOCK.finditer(source))
+    if source.count("configMapGenerator:\n") != 1 or len(matches) != 1:
+        raise ValueError("current web release identity block is not exact")
+    for key in (
+        "MISSION_RELEASE_READY",
+        "MISSION_RELEASE_ID",
+        "MISSION_CANDIDATE_SPEC_SHA256",
+        "MISSION_IMAGE_DIGEST",
+    ):
+        if source.count(f"  - {key}=") != 1:
+            raise ValueError(f"web release identity field {key} is not unique")
+    match = matches[0]
+    return match.group(0), tuple(match.groups())
+
+
+def validate_release_identity(
+    source: str,
+    manifest: dict,
+    candidate_spec_sha256: str,
+    phase: str,
+) -> None:
+    block, actual = _parse_identity(source)
+    expected = _identity_values(manifest, candidate_spec_sha256, phase)
+    if actual != expected:
+        raise ValueError(f"web {phase} release identity is not exact")
+    if block != _identity_block(actual):
+        raise ValueError("web release identity serialization is not canonical")
+
+
+def _render_identity(
+    source: str,
+    manifest: dict,
+    candidate_spec_sha256: str,
+    target: str,
+    expected_current: str,
+) -> str:
+    validate_release_identity(
+        source, manifest, candidate_spec_sha256, expected_current
+    )
+    current, _ = _parse_identity(source)
+    replacement = _identity_block(
+        _identity_values(manifest, candidate_spec_sha256, target)
+    )
+    return source.replace(current, replacement, 1)
+
+
 def render_kustomization(
     source: str,
     manifest: dict,
     target: str,
     expected_current: str = "base",
+    *,
+    candidate_spec_sha256: str,
 ) -> str:
     validate_candidate_spec(manifest)
     if target not in TARGET_FIELDS:
@@ -54,8 +152,27 @@ def render_kustomization(
     matches = [index for index, line in enumerate(lines) if line.strip() == f"- name: {WEB_IMAGE}"]
     if len(matches) != 1:
         raise ValueError("web kustomization must contain exactly one devpath-web image entry")
-    if sum(1 for line in lines if line.lstrip().startswith("- name:")) != 1:
-        raise ValueError("web kustomization image transformer must contain exactly one image")
+    image_headers = [
+        index for index, line in enumerate(lines) if line == "images:\n"
+    ]
+    if len(image_headers) != 1:
+        raise ValueError("web kustomization must contain one top-level images section")
+    section_start = image_headers[0] + 1
+    section_end = len(lines)
+    for index in range(section_start, len(lines)):
+        line = lines[index]
+        if line and not line.startswith((" ", "\t", "-", "#", "\n")):
+            section_end = index
+            break
+    image_entries = [
+        index
+        for index in range(section_start, section_end)
+        if lines[index].lstrip().startswith("- name:")
+    ]
+    if len(image_entries) != 1 or matches[0] != image_entries[0]:
+        raise ValueError(
+            "web kustomization images section must contain exactly one image entry"
+        )
 
     start = matches[0]
     indent = len(lines[start]) - len(lines[start].lstrip(" "))
@@ -105,6 +222,13 @@ def render_kustomization(
         f"{child_indent}digest: {target_digest}\n",
     ]
     rendered = "".join(lines[:start] + replacement + lines[end:])
+    rendered = _render_identity(
+        rendered,
+        manifest,
+        candidate_spec_sha256,
+        target,
+        expected_current,
+    )
     if rendered.count(f"digest: {target_digest}") != 1 or "newTag:" in rendered:
         raise ValueError("failed to create one immutable digest selector")
     return rendered
@@ -121,13 +245,21 @@ def main(argv: list[str] | None = None) -> int:
     try:
         root = args.root.resolve()
         manifest_root = (args.manifest_root or root).resolve()
-        _, _, _, manifest, _ = resolve_release_bundle(manifest_root, args.release_id)
+        _, _, _, manifest, candidate_spec_sha256 = resolve_release_bundle(
+            manifest_root, args.release_id
+        )
         relative_target = manifest["gitops"]["web_kustomization"]
         target_path = (root / relative_target).resolve()
         if target_path != (root / "apps" / "devpath-web" / "base" / "kustomization.yaml").resolve():
             raise ValueError("manifest attempted to mutate a non-web path")
         source = target_path.read_text(encoding="utf-8")
-        rendered = render_kustomization(source, manifest, args.target, args.expected_current)
+        rendered = render_kustomization(
+            source,
+            manifest,
+            args.target,
+            args.expected_current,
+            candidate_spec_sha256=candidate_spec_sha256,
+        )
         target_path.write_text(rendered, encoding="utf-8", newline="\n")
         print(f"selected {args.target} immutable digest for {args.release_id}")
         return 0

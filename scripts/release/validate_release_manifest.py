@@ -20,6 +20,14 @@ from urllib.parse import urlsplit
 
 
 RELEASE_ID = re.compile(r"^ms-[0-9]{8}-[a-z0-9][a-z0-9-]{2,40}$")
+ZERO_SHA256 = "0" * 64
+DEDICATED_STAGING_IDENTITY = {
+    "kubernetes_context": "devpath-staging",
+    "namespace": "devpath-staging",
+    "web_deployment": "devpath-web-staging",
+    "web_container": "devpath-web",
+    "web_origin": "https://staging-app.13-124-153-105.nip.io",
+}
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 # web 신뢰 베이스 태그: 순수 SHA40(레거시) 또는 mission 접미 태그. 미션 스파인
 # 흐름의 산출 태그는 구조적으로 <sha40>-mission-(off|on) 이고, 신뢰의 실체는
@@ -678,6 +686,49 @@ def _validate_environment(value: Any, path: str) -> None:
     _https_url(obj["landing_origin"], f"{path}.landing_origin")
 
 
+def _validate_prior_identity(
+    value: Any,
+    path: str,
+    prior_digest: str,
+    current_release_id: str,
+) -> None:
+    obj = _object(value, path)
+    _exact_keys(
+        obj,
+        {"ready", "release_id", "candidate_spec_sha256", "image_digest"},
+        path,
+    )
+    ready = obj["ready"]
+    if not isinstance(ready, bool):
+        _fail(f"{path}.ready", "must be a boolean")
+    release_id = _string(obj["release_id"], f"{path}.release_id")
+    candidate_sha = _string(
+        obj["candidate_spec_sha256"], f"{path}.candidate_spec_sha256", SHA64
+    )
+    image_digest = _string(obj["image_digest"], f"{path}.image_digest", DIGEST)
+    if not ready:
+        disabled = {
+            "ready": False,
+            "release_id": "unreleased",
+            "candidate_spec_sha256": ZERO_SHA256,
+            "image_digest": f"sha256:{ZERO_SHA256}",
+        }
+        if obj != disabled:
+            _fail(path, "disabled prior_identity must be the exact unreleased sentinel")
+        return
+    if RELEASE_ID.fullmatch(release_id) is None or release_id == current_release_id:
+        _fail(
+            f"{path}.release_id",
+            "must bind a distinct exact prior release ID",
+        )
+    if candidate_sha == ZERO_SHA256:
+        _fail(f"{path}.candidate_spec_sha256", "must bind a non-zero prior candidate")
+    if image_digest == f"sha256:{ZERO_SHA256}":
+        _fail(f"{path}.image_digest", "must bind a non-zero prior image")
+    if image_digest != prior_digest:
+        _fail(f"{path}.image_digest", "must exactly equal rollback.prior_digest")
+
+
 def _validate_journey_harness(value: Any, path: str, environments: dict[str, Any]) -> None:
     obj = _object(value, path)
     _exact_keys(
@@ -1107,7 +1158,11 @@ def validate_candidate_spec(data: Any, source: Path | None = None) -> dict[str, 
     if selected != variants["mission_on"]:
         _fail("$.frontend.selected_on_digest", "must exactly equal mission_on.image_digest")
     rollback = _object(frontend["rollback"], "$.frontend.rollback")
-    _exact_keys(rollback, {"mission_off_digest", "prior_digest", "final_target"}, "$.frontend.rollback")
+    _exact_keys(
+        rollback,
+        {"mission_off_digest", "prior_digest", "prior_identity", "final_target"},
+        "$.frontend.rollback",
+    )
     if rollback["mission_off_digest"] != variants["mission_off"]:
         _fail("$.frontend.rollback.mission_off_digest", "must exactly equal mission_off.image_digest")
     prior = _string(rollback["prior_digest"], "$.frontend.rollback.prior_digest", DIGEST)
@@ -1115,6 +1170,12 @@ def validate_candidate_spec(data: Any, source: Path | None = None) -> dict[str, 
         _fail("$.frontend.rollback.prior_digest", "must exactly equal gitops.base_web_digest")
     if prior in variants.values():
         _fail("$.frontend.rollback.prior_digest", "must be distinct from both candidate digests")
+    _validate_prior_identity(
+        rollback["prior_identity"],
+        "$.frontend.rollback.prior_identity",
+        prior,
+        release_id,
+    )
     if rollback["final_target"] != "prior":
         _fail("$.frontend.rollback.final_target", "must be prior")
 
@@ -1211,6 +1272,12 @@ def validate_candidate_spec(data: Any, source: Path | None = None) -> dict[str, 
     _validate_environment(environments["production"], "$.environments.production")
     if environments["staging"]["github_environment"] != "mission-spine-staging":
         _fail("$.environments.staging.github_environment", "must be mission-spine-staging")
+    for field, expected in DEDICATED_STAGING_IDENTITY.items():
+        if environments["staging"][field] != expected:
+            _fail(
+                f"$.environments.staging.{field}",
+                f"must be exactly {expected}",
+            )
     if environments["production"]["github_environment"] != "mission-spine-production":
         _fail("$.environments.production.github_environment", "must be mission-spine-production")
     for field in ("github_environment", "kubernetes_context", "web_origin", "landing_origin"):
