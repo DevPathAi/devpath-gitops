@@ -192,6 +192,14 @@ class MissionStagingStackTest(unittest.TestCase):
                 script,
             )
 
+    def test_ci_explicitly_allows_the_cross_tree_staging_composition(self):
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        self.assertIn('if [ "$dir" = "staging/mission-spine/" ]; then', workflow)
+        self.assertIn(
+            'kubectl kustomize "$dir" --load-restrictor=LoadRestrictionsNone > /dev/null',
+            workflow,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
