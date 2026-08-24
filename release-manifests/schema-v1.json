@@ -120,12 +120,42 @@
     },
     "frontendRollback": {
       "type": "object",
-      "required": ["mission_off_digest", "prior_digest", "final_target"],
+      "required": ["mission_off_digest", "prior_digest", "prior_identity", "final_target"],
       "properties": {
         "mission_off_digest": {"$ref": "#/$defs/digest"},
         "prior_digest": {"$ref": "#/$defs/digest"},
+        "prior_identity": {"$ref": "#/$defs/priorIdentity"},
         "final_target": {"const": "prior"}
       },
+      "additionalProperties": false
+    },
+    "priorIdentity": {
+      "type": "object",
+      "required": ["ready", "release_id", "candidate_spec_sha256", "image_digest"],
+      "properties": {
+        "ready": {"type": "boolean"},
+        "release_id": {"type": "string"},
+        "candidate_spec_sha256": {"$ref": "#/$defs/sha64"},
+        "image_digest": {"$ref": "#/$defs/digest"}
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "ready": {"const": false},
+            "release_id": {"const": "unreleased"},
+            "candidate_spec_sha256": {"const": "0000000000000000000000000000000000000000000000000000000000000000"},
+            "image_digest": {"const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+          }
+        },
+        {
+          "properties": {
+            "ready": {"const": true},
+            "release_id": {"$ref": "#/$defs/releaseId"},
+            "candidate_spec_sha256": {"type": "string", "pattern": "^(?!0{64}$)[0-9a-f]{64}$"},
+            "image_digest": {"$ref": "#/$defs/digest"}
+          }
+        }
+      ],
       "additionalProperties": false
     },
     "frontend": {

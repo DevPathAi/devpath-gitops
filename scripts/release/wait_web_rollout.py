@@ -112,6 +112,9 @@ def validate_rollout_snapshot(
     expected_runtime_image: str,
     restart_baseline: dict[tuple[str, str], int],
     expected_revision: str | None,
+    *,
+    expected_deployment: str | None = None,
+    expected_namespace: str = "devpath",
 ) -> None:
     """Require a fully available Deployment and stable exact-digest Pods.
 
@@ -128,9 +131,10 @@ def validate_rollout_snapshot(
     deployment_name = metadata.get("name")
     deployment_uid = metadata.get("uid")
     namespace = metadata.get("namespace")
+    expected_deployment = expected_deployment or container
     if (
-        deployment_name != container
-        or namespace != "devpath"
+        deployment_name != expected_deployment
+        or namespace != expected_namespace
         or not isinstance(deployment_uid, str)
         or not deployment_uid
     ):
@@ -328,6 +332,21 @@ def validate_synthetic_identity(
         raise ValueError("synthetic identity does not bind this exact release digest")
 
 
+def _synthetic_identity(
+    candidate: dict[str, Any], candidate_hash: str, phase: str
+) -> tuple[str, str, str] | None:
+    if phase == "prior":
+        prior = candidate["frontend"]["rollback"]["prior_identity"]
+        if not prior["ready"]:
+            return None
+        return (
+            prior["release_id"],
+            prior["candidate_spec_sha256"],
+            prior["image_digest"],
+        )
+    return (candidate["release_id"], candidate_hash, _expected_digest(candidate, phase))
+
+
 def _probe_synthetic(
     origin: str,
     path: str,
@@ -412,6 +431,8 @@ def wait_rollout(
                 expected_image,
                 restart_baseline,
                 expected_revision,
+                expected_deployment=deployment_name,
+                expected_namespace=namespace,
             )
             break
         except ValueError as exc:
@@ -424,7 +445,8 @@ def wait_rollout(
         raise ValueError("rollout detection exceeded 300 seconds")
 
     token = os.environ.get("MISSION_SYNTHETIC_PROBE_TOKEN", "")
-    if phase != "prior" and not token:
+    synthetic_identity = _synthetic_identity(candidate, candidate_hash, phase)
+    if synthetic_identity is not None and not token:
         raise ValueError("MISSION_SYNTHETIC_PROBE_TOKEN is required")
     probe_path = candidate["rollout"]["synthetic_probe_path"]
     canary_started = time.monotonic()
@@ -442,18 +464,17 @@ def wait_rollout(
             expected_image,
             restart_baseline,
             expected_revision,
+            expected_deployment=deployment_name,
+            expected_namespace=namespace,
         )
-        # The sealed legacy prior image predates release-aware identity support;
-        # its exact runtime imageID is the CAS gate. Candidate OFF/ON images must
-        # additionally prove a release-specific synthetic identity every poll.
-        if phase != "prior":
+        # Only the one sealed legacy prior predates release-aware identity.
+        # Every candidate and released prior otherwise proves its exact lineage.
+        if synthetic_identity is not None:
             _probe_synthetic(
                 identity["web_origin"],
                 probe_path,
                 token,
-                release_id,
-                candidate_hash,
-                expected_digest,
+                *synthetic_identity,
             )
         elapsed = time.monotonic() - canary_started
         if elapsed >= canary_seconds:

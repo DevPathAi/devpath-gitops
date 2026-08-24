@@ -359,27 +359,29 @@ jobs:
           test -n "${STAGING_KUBECONFIG_B64:-}"
           python control/scripts/release/manage_production_kubeconfig.py create \
             --scope staging --runner-temp "$RUNNER_TEMP" --github-env "$GITHUB_ENV"
-      - name: Verify live prior CAS, then stage exact OFF and ON digests
+      - name: Verify live prior CAS
+        id: prior_cas
         env:
           MISSION_SYNTHETIC_PROBE_TOKEN: ${{ secrets.MISSION_SYNTHETIC_PROBE_TOKEN }}
-          CONTEXT: ${{ steps.release.outputs.staging_context }}
-          NAMESPACE: ${{ steps.release.outputs.staging_namespace }}
-          DEPLOYMENT: ${{ steps.release.outputs.staging_deployment }}
-          CONTAINER: ${{ steps.release.outputs.staging_container }}
-          OFF_DIGEST: ${{ steps.release.outputs.web_off_digest }}
-          ON_DIGEST: ${{ steps.release.outputs.web_on_digest }}
         run: |
           set -euo pipefail
           python control/scripts/release/wait_web_rollout.py \
             --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
             --environment staging --phase prior --canary-seconds 0
-          kubectl --context "$CONTEXT" -n "$NAMESPACE" set image \
-            "deployment/$DEPLOYMENT" "$CONTAINER=ghcr.io/devpathai/devpath-web@$OFF_DIGEST"
+      - name: stage exact OFF and ON digests
+        env:
+          MISSION_SYNTHETIC_PROBE_TOKEN: ${{ secrets.MISSION_SYNTHETIC_PROBE_TOKEN }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/stage_web_release.py \
+            --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
+            --phase mission-off --expected-current prior
           python control/scripts/release/wait_web_rollout.py \
             --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
             --environment staging --phase mission-off --canary-seconds 0
-          kubectl --context "$CONTEXT" -n "$NAMESPACE" set image \
-            "deployment/$DEPLOYMENT" "$CONTAINER=ghcr.io/devpathai/devpath-web@$ON_DIGEST"
+          python control/scripts/release/stage_web_release.py \
+            --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
+            --phase mission-on --expected-current mission-off
           python control/scripts/release/wait_web_rollout.py \
             --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
             --environment staging --phase mission-on --canary-seconds 0
@@ -387,22 +389,18 @@ jobs:
         id: reverse
         env:
           MISSION_SYNTHETIC_PROBE_TOKEN: ${{ secrets.MISSION_SYNTHETIC_PROBE_TOKEN }}
-          CONTEXT: ${{ steps.release.outputs.staging_context }}
-          NAMESPACE: ${{ steps.release.outputs.staging_namespace }}
-          DEPLOYMENT: ${{ steps.release.outputs.staging_deployment }}
-          CONTAINER: ${{ steps.release.outputs.staging_container }}
-          OFF_DIGEST: ${{ steps.release.outputs.web_off_digest }}
-          PRIOR_DIGEST: ${{ steps.release.outputs.web_prior_digest }}
         run: |
           set -euo pipefail
           started="$(date +%s)"
-          kubectl --context "$CONTEXT" -n "$NAMESPACE" set image \
-            "deployment/$DEPLOYMENT" "$CONTAINER=ghcr.io/devpathai/devpath-web@$OFF_DIGEST"
+          python control/scripts/release/stage_web_release.py \
+            --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
+            --phase mission-off --expected-current mission-on
           python control/scripts/release/wait_web_rollout.py \
             --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
             --environment staging --phase mission-off --canary-seconds 0
-          kubectl --context "$CONTEXT" -n "$NAMESPACE" set image \
-            "deployment/$DEPLOYMENT" "$CONTAINER=ghcr.io/devpathai/devpath-web@$PRIOR_DIGEST"
+          python control/scripts/release/stage_web_release.py \
+            --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
+            --phase prior --expected-current mission-off
           python control/scripts/release/wait_web_rollout.py \
             --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
             --environment staging --phase prior --canary-seconds 0
@@ -432,17 +430,14 @@ jobs:
           overwrite: false
           include-hidden-files: false
       - name: Fail-safe restore recorded staging prior digest
-        if: always() && steps.kube.outcome == 'success'
+        if: always() && steps.kube.outcome == 'success' && steps.prior_cas.outcome == 'success'
         env:
-          CONTEXT: ${{ steps.release.outputs.staging_context }}
-          NAMESPACE: ${{ steps.release.outputs.staging_namespace }}
-          DEPLOYMENT: ${{ steps.release.outputs.staging_deployment }}
-          CONTAINER: ${{ steps.release.outputs.staging_container }}
-          PRIOR_DIGEST: ${{ steps.release.outputs.web_prior_digest }}
+          MISSION_SYNTHETIC_PROBE_TOKEN: ${{ secrets.MISSION_SYNTHETIC_PROBE_TOKEN }}
         run: |
           set -euo pipefail
-          kubectl --context "$CONTEXT" -n "$NAMESPACE" set image \
-            "deployment/$DEPLOYMENT" "$CONTAINER=ghcr.io/devpathai/devpath-web@$PRIOR_DIGEST"
+          python control/scripts/release/stage_web_release.py \
+            --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
+            --phase prior --expected-current candidate
           python control/scripts/release/wait_web_rollout.py \
             --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
             --environment staging --phase prior --canary-seconds 0

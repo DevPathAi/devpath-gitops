@@ -240,6 +240,64 @@ class ReleaseHardeningTest(unittest.TestCase):
                     app, dep, rss, pod_set, "devpath-web", {image}, image, {}, commit
                 )
 
+    def test_rollout_accepts_candidate_bound_staging_deployment_identity(self):
+        application, deployment, replicasets, pods, image, _ = self.healthy_snapshot()
+        deployment["metadata"]["name"] = "devpath-web-staging"
+        deployment["metadata"]["namespace"] = "devpath-staging"
+        replicasets["items"][0]["metadata"]["ownerReferences"][0]["name"] = (
+            "devpath-web-staging"
+        )
+
+        self.rollout.validate_rollout_snapshot(
+            application,
+            deployment,
+            replicasets,
+            pods,
+            "devpath-web",
+            {image},
+            image,
+            {},
+            None,
+            expected_deployment="devpath-web-staging",
+            expected_namespace="devpath-staging",
+        )
+
+    def test_wait_rollout_passes_candidate_bound_staging_identity_on_every_poll(self):
+        candidate = copy.deepcopy(self.candidate)
+        candidate["environments"]["staging"].update(
+            {
+                "kubernetes_context": "devpath-staging",
+                "namespace": "devpath-staging",
+                "web_deployment": "devpath-web-staging",
+                "web_container": "devpath-web",
+                "web_origin": "https://staging-app.13-124-153-105.nip.io",
+            }
+        )
+        snapshot = ({}, {}, {}, {})
+        with mock.patch.dict("os.environ", {"KUBECONFIG": "test"}, clear=True), mock.patch.object(
+            self.rollout,
+            "resolve_release_bundle",
+            return_value=(None, None, None, candidate, self.candidate_hash),
+        ), mock.patch.object(
+            self.rollout, "_snapshot", return_value=snapshot
+        ), mock.patch.object(
+            self.rollout, "validate_rollout_snapshot"
+        ) as validate, mock.patch.object(
+            self.rollout.time, "monotonic", side_effect=(0, 1, 1, 1)
+        ):
+            self.rollout.wait_rollout(
+                ROOT, candidate["release_id"], "staging", "prior", 0
+            )
+        self.assertEqual(validate.call_count, 2)
+        for call in validate.call_args_list:
+            self.assertEqual(
+                call.kwargs,
+                {
+                    "expected_deployment": "devpath-web-staging",
+                    "expected_namespace": "devpath-staging",
+                },
+            )
+
     def test_synthetic_probe_identity_is_exact_and_release_specific(self):
         digest = self.candidate["frontend"]["selected_on_digest"]
         valid = {
@@ -262,6 +320,29 @@ class ReleaseHardeningTest(unittest.TestCase):
                 self.rollout.validate_synthetic_identity(
                     invalid, self.candidate["release_id"], self.candidate_hash, digest
                 )
+
+    def test_prior_probe_uses_the_exact_sealed_prior_lineage(self):
+        legacy = copy.deepcopy(self.candidate)
+        self.assertIsNone(
+            self.rollout._synthetic_identity(legacy, self.candidate_hash, "prior")
+        )
+        prior = legacy["frontend"]["rollback"]["prior_identity"]
+        prior.update(
+            {
+                "ready": True,
+                "release_id": "ms-20981231-prior-release",
+                "candidate_spec_sha256": "d" * 64,
+                "image_digest": legacy["frontend"]["rollback"]["prior_digest"],
+            }
+        )
+        self.assertEqual(
+            self.rollout._synthetic_identity(legacy, self.candidate_hash, "prior"),
+            (
+                "ms-20981231-prior-release",
+                "d" * 64,
+                legacy["frontend"]["rollback"]["prior_digest"],
+            ),
+        )
 
     def test_release_http_probes_never_follow_redirects(self):
         request = Request(
@@ -435,6 +516,66 @@ images:
         ]
         positions = [promote.index(needle) for needle in ordered]
         self.assertEqual(positions, sorted(positions))
+
+    def test_base_and_rollback_require_the_exact_sealed_prior_identity(self):
+        manifest = copy.deepcopy(self.candidate)
+        prior_digest = manifest["frontend"]["rollback"]["prior_digest"]
+        prior = {
+            "ready": True,
+            "release_id": "ms-20981231-prior-release",
+            "candidate_spec_sha256": "d" * 64,
+            "image_digest": prior_digest,
+        }
+        manifest["frontend"]["rollback"]["prior_identity"] = prior
+        source = f"""configMapGenerator:
+- name: devpath-web-release-identity
+  literals:
+  - MISSION_RELEASE_READY=true
+  - MISSION_RELEASE_ID={prior['release_id']}
+  - MISSION_CANDIDATE_SPEC_SHA256={prior['candidate_spec_sha256']}
+  - MISSION_IMAGE_DIGEST={prior['image_digest']}
+images:
+- name: ghcr.io/devpathai/devpath-web
+  newName: ghcr.io/devpathai/devpath-web
+  digest: {prior_digest}
+"""
+        rendered = self.promoter.render_kustomization(
+            source,
+            manifest,
+            "mission-off",
+            "base",
+            candidate_spec_sha256=self.candidate_hash,
+        )
+        self.assertIn(
+            "MISSION_RELEASE_ID=" + manifest["release_id"], rendered
+        )
+        forged = source.replace(prior["release_id"], "ms-20981230-forged-prior")
+        with self.assertRaisesRegex(ValueError, "base release identity is not exact"):
+            self.promoter.render_kustomization(
+                forged,
+                manifest,
+                "mission-off",
+                "base",
+                candidate_spec_sha256=self.candidate_hash,
+            )
+
+        off = self.promoter.render_kustomization(
+            source,
+            manifest,
+            "mission-off",
+            "base",
+            candidate_spec_sha256=self.candidate_hash,
+        )
+        restored = self.promoter.render_kustomization(
+            off,
+            manifest,
+            "prior",
+            "mission-off",
+            candidate_spec_sha256=self.candidate_hash,
+        )
+        for value in prior.values():
+            expected = "true" if value is True else str(value)
+            self.assertIn(expected, restored)
 
     def test_each_evidence_kind_has_exact_schema_and_journey_allowlists(self):
         producer = {"producer_run_id": 501, "producer_run_attempt": 3}

@@ -6,10 +6,10 @@
   "created_at": "2099-01-02T00:00:00Z",
   "candidate_spec": {
     "path": "tests/release/fixtures/valid-candidate-spec.json",
-    "sha256": "7b6ec22080a2b19a4d8ac23b54dd50b887b654bfd401cbd93828473d21b0b712"
+    "sha256": "0542d05b0d471dfe20fec9ac8f6dcf3a9008116a1491f2e9a97e6cd06ae0986e"
   },
   "home_dist_artifact": {
-      "candidate_spec_sha256": "7b6ec22080a2b19a4d8ac23b54dd50b887b654bfd401cbd93828473d21b0b712",
+      "candidate_spec_sha256": "0542d05b0d471dfe20fec9ac8f6dcf3a9008116a1491f2e9a97e6cd06ae0986e",
     "repository": "DevPathAi/devpath-home-page",
     "event": "workflow_dispatch",
     "head_sha": "dc5f37cb495f99cdfd43c6957db9958ddad7def7",
@@ -27,7 +27,7 @@
   "analytics_privacy_approval": {
     "approved_at": "2098-12-31T00:00:00Z",
     "evidence": {
-      "candidate_spec_sha256": "7b6ec22080a2b19a4d8ac23b54dd50b887b654bfd401cbd93828473d21b0b712",
+      "candidate_spec_sha256": "0542d05b0d471dfe20fec9ac8f6dcf3a9008116a1491f2e9a97e6cd06ae0986e",
       "repository": "DevPathAi/documents",
       "event": "workflow_dispatch",
       "head_sha": "9dc2abb0cd0a1d3ba09c18884f3c5798bdf30de1",
@@ -46,7 +46,7 @@
     "usefulness_percent": 95,
     "baseline_delta_points": 0,
     "evidence": {
-      "candidate_spec_sha256": "7b6ec22080a2b19a4d8ac23b54dd50b887b654bfd401cbd93828473d21b0b712",
+      "candidate_spec_sha256": "0542d05b0d471dfe20fec9ac8f6dcf3a9008116a1491f2e9a97e6cd06ae0986e",
       "repository": "DevPathAi/devpath-ai-svc",
       "event": "workflow_dispatch",
       "head_sha": "b7203bcb000edfc0030f77a4c05dd8e1a83f7ce6",
@@ -62,7 +62,7 @@
   },
   "journeys": {
     "activation": {
-      "candidate_spec_sha256": "7b6ec22080a2b19a4d8ac23b54dd50b887b654bfd401cbd93828473d21b0b712",
+      "candidate_spec_sha256": "0542d05b0d471dfe20fec9ac8f6dcf3a9008116a1491f2e9a97e6cd06ae0986e",
       "repository": "DevPathAi/devpath-gitops",
       "event": "workflow_dispatch",
       "head_sha": "ffffffffffffffffffffffffffffffffffffffff",
@@ -76,7 +76,7 @@
       "sha256": "6666666666666666666666666666666666666666666666666666666666666666"
     },
     "contextual_practice": {
-      "candidate_spec_sha256": "7b6ec22080a2b19a4d8ac23b54dd50b887b654bfd401cbd93828473d21b0b712",
+      "candidate_spec_sha256": "0542d05b0d471dfe20fec9ac8f6dcf3a9008116a1491f2e9a97e6cd06ae0986e",
       "repository": "DevPathAi/devpath-gitops",
       "event": "workflow_dispatch",
       "head_sha": "ffffffffffffffffffffffffffffffffffffffff",
@@ -92,7 +92,7 @@
   },
   "quality_evidence": {
     "frontend_visual": {
-      "candidate_spec_sha256": "7b6ec22080a2b19a4d8ac23b54dd50b887b654bfd401cbd93828473d21b0b712",
+      "candidate_spec_sha256": "0542d05b0d471dfe20fec9ac8f6dcf3a9008116a1491f2e9a97e6cd06ae0986e",
       "repository": "DevPathAi/devpath-frontend",
       "event": "workflow_dispatch",
       "head_sha": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
@@ -106,7 +106,7 @@
       "sha256": "8888888888888888888888888888888888888888888888888888888888888888"
     },
     "home_visual": {
-      "candidate_spec_sha256": "7b6ec22080a2b19a4d8ac23b54dd50b887b654bfd401cbd93828473d21b0b712",
+      "candidate_spec_sha256": "0542d05b0d471dfe20fec9ac8f6dcf3a9008116a1491f2e9a97e6cd06ae0986e",
       "repository": "DevPathAi/devpath-gitops",
       "event": "workflow_dispatch",
       "head_sha": "ffffffffffffffffffffffffffffffffffffffff",
@@ -120,7 +120,7 @@
       "sha256": "9999999999999999999999999999999999999999999999999999999999999999"
     },
     "frontend_automated_a11y": {
-      "candidate_spec_sha256": "7b6ec22080a2b19a4d8ac23b54dd50b887b654bfd401cbd93828473d21b0b712",
+      "candidate_spec_sha256": "0542d05b0d471dfe20fec9ac8f6dcf3a9008116a1491f2e9a97e6cd06ae0986e",
       "repository": "DevPathAi/devpath-frontend",
       "event": "workflow_dispatch",
       "head_sha": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
@@ -134,7 +134,7 @@
       "sha256": "abababababababababababababababababababababababababababababababab"
     },
     "home_axe_browser_a11y": {
-      "candidate_spec_sha256": "7b6ec22080a2b19a4d8ac23b54dd50b887b654bfd401cbd93828473d21b0b712",
+      "candidate_spec_sha256": "0542d05b0d471dfe20fec9ac8f6dcf3a9008116a1491f2e9a97e6cd06ae0986e",
       "repository": "DevPathAi/devpath-gitops",
       "event": "workflow_dispatch",
       "head_sha": "ffffffffffffffffffffffffffffffffffffffff",
@@ -148,7 +148,7 @@
       "sha256": "bcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc"
     },
     "manual_nvda": {
-      "candidate_spec_sha256": "7b6ec22080a2b19a4d8ac23b54dd50b887b654bfd401cbd93828473d21b0b712",
+      "candidate_spec_sha256": "0542d05b0d471dfe20fec9ac8f6dcf3a9008116a1491f2e9a97e6cd06ae0986e",
       "repository": "DevPathAi/devpath-frontend",
       "event": "workflow_dispatch",
       "head_sha": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
@@ -162,7 +162,7 @@
       "sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
     },
     "manual_talkback": {
-      "candidate_spec_sha256": "7b6ec22080a2b19a4d8ac23b54dd50b887b654bfd401cbd93828473d21b0b712",
+      "candidate_spec_sha256": "0542d05b0d471dfe20fec9ac8f6dcf3a9008116a1491f2e9a97e6cd06ae0986e",
       "repository": "DevPathAi/devpath-frontend",
       "event": "workflow_dispatch",
       "head_sha": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
@@ -185,7 +185,7 @@
     "validator_workflow_path": ".github/workflows/mission-spine-validate.yml",
     "validator_workflow_sha256": "0404040404040404040404040404040404040404040404040404040404040404",
     "home_source_sha": "dc5f37cb495f99cdfd43c6957db9958ddad7def7",
-      "candidate_spec_sha256": "7b6ec22080a2b19a4d8ac23b54dd50b887b654bfd401cbd93828473d21b0b712",
+      "candidate_spec_sha256": "0542d05b0d471dfe20fec9ac8f6dcf3a9008116a1491f2e9a97e6cd06ae0986e",
     "activation_sha256": "6666666666666666666666666666666666666666666666666666666666666666",
     "contextual_practice_sha256": "7777777777777777777777777777777777777777777777777777777777777777"
   }

@@ -27,6 +27,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: mission-spine-production-rollback
+    outputs:
+      prior_commit: ${{ steps.rollback_prior.outputs.prior_commit }}
     steps:
       - name: Checkout exact protected-main control bytes
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -384,6 +386,119 @@ jobs:
           overwrite: false
           include-hidden-files: false
       - name: Remove the exact production kubeconfig
+        if: always()
+        run: |
+          set -euo pipefail
+          python control/scripts/release/manage_production_kubeconfig.py cleanup \
+            --runner-temp "$RUNNER_TEMP" --path "${KUBECONFIG:-}"
+
+  rebaseline_staging:
+    name: Rebaseline staging to rolled-back exact prior
+    needs: [reverse-rollback]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: mission-spine-staging
+    concurrency:
+      group: mission-spine-staging
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      contents: read
+      deployments: read
+    steps:
+      - name: Checkout original protected-main workflow bytes
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: control
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+      - name: Checkout sealed release branch as data only
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: release/candidate-${{ inputs.release_id }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: sealed-release
+      - name: Checkout the rolled-back current main as data only
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+          path: gitops-main
+      - name: Authenticate exact post-rollback context before staging approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/verify_post_promotion_staging_context.py \
+            --control-root "$GITHUB_WORKSPACE/control" \
+            --gitops-root "$GITHUB_WORKSPACE/gitops-main" \
+            --data-root "$GITHUB_WORKSPACE/sealed-release" \
+            --workflow-path .github/workflows/mission-spine-rollback.yml \
+            --release-id "$RELEASE_ID" \
+            --expected-commit "${{ needs['reverse-rollback'].outputs.prior_commit }}" \
+            --expected-phase prior
+      - name: Authenticate this attempt-one protected staging approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/verify_current_protected_approval.py \
+            --environment mission-spine-staging \
+            --job-name 'Rebaseline staging to rolled-back exact prior' \
+            --workflow-path .github/workflows/mission-spine-rollback.yml
+      - uses: azure/setup-kubectl@829323503d1be3d00ca8346e5391ca0b07a9ab0d # v5.1.0
+        with:
+          version: v1.36.2
+      - name: Configure approved staging cluster
+        id: kube
+        env:
+          STAGING_KUBECONFIG_B64: ${{ secrets.STAGING_KUBECONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/verify_post_promotion_staging_context.py \
+            --control-root "$GITHUB_WORKSPACE/control" \
+            --gitops-root "$GITHUB_WORKSPACE/gitops-main" \
+            --data-root "$GITHUB_WORKSPACE/sealed-release" \
+            --workflow-path .github/workflows/mission-spine-rollback.yml \
+            --release-id "$RELEASE_ID" \
+            --expected-commit "${{ needs['reverse-rollback'].outputs.prior_commit }}" \
+            --expected-phase prior
+          test -n "${STAGING_KUBECONFIG_B64:-}"
+          python control/scripts/release/manage_production_kubeconfig.py create \
+            --scope staging --runner-temp "$RUNNER_TEMP" --github-env "$GITHUB_ENV"
+      - name: Rebaseline staging to the exact rolled-back prior lineage
+        id: rebaseline
+        env:
+          MISSION_SYNTHETIC_PROBE_TOKEN: ${{ secrets.MISSION_SYNTHETIC_PROBE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${MISSION_SYNTHETIC_PROBE_TOKEN:-}"
+          python control/scripts/release/stage_web_release.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID" \
+            --phase prior --expected-current candidate
+          python control/scripts/release/wait_web_rollout.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID" \
+            --environment staging --phase prior --canary-seconds 0
+      - name: Fail-safe retain staging prior after an incomplete rebaseline
+        if: failure() && steps.kube.outcome == 'success'
+        env:
+          MISSION_SYNTHETIC_PROBE_TOKEN: ${{ secrets.MISSION_SYNTHETIC_PROBE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${MISSION_SYNTHETIC_PROBE_TOKEN:-}"
+          python control/scripts/release/stage_web_release.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID" \
+            --phase prior --expected-current candidate
+          python control/scripts/release/wait_web_rollout.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID" \
+            --environment staging --phase prior --canary-seconds 0
+      - name: Remove the exact staging kubeconfig
         if: always()
         run: |
           set -euo pipefail

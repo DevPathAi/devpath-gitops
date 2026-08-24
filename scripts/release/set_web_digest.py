@@ -13,15 +13,10 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from validate_release_manifest import (
-    RELEASE_ID,
-    resolve_release_bundle,
-    validate_candidate_spec,
-)
+from validate_release_manifest import resolve_release_bundle, validate_candidate_spec
 
 
 WEB_IMAGE = "ghcr.io/devpathai/devpath-web"
-ZERO_SHA256 = "0" * 64
 SHA256 = re.compile(r"[0-9a-f]{64}")
 IDENTITY_BLOCK = re.compile(
     r"configMapGenerator:\n"
@@ -60,7 +55,13 @@ def _identity_values(
     if SHA256.fullmatch(candidate_spec_sha256) is None:
         raise ValueError("candidate-spec SHA-256 is invalid")
     if phase in {"base", "prior"}:
-        return ("false", "unreleased", ZERO_SHA256, f"sha256:{ZERO_SHA256}")
+        prior = manifest["frontend"]["rollback"]["prior_identity"]
+        return (
+            "true" if prior["ready"] else "false",
+            prior["release_id"],
+            prior["candidate_spec_sha256"],
+            prior["image_digest"],
+        )
     if phase not in EXPECTED_FIELDS:
         raise ValueError(f"unknown release identity phase: {phase}")
     return (
@@ -107,22 +108,9 @@ def validate_release_identity(
     phase: str,
 ) -> None:
     block, actual = _parse_identity(source)
-    if phase == "base":
-        disabled = _identity_values(manifest, candidate_spec_sha256, "base")
-        ready, release_id, prior_candidate_sha, image_digest = actual
-        valid_prior = (
-            ready == "true"
-            and RELEASE_ID.fullmatch(release_id) is not None
-            and SHA256.fullmatch(prior_candidate_sha) is not None
-            and prior_candidate_sha != ZERO_SHA256
-            and image_digest == manifest["gitops"]["base_web_digest"]
-        )
-        if actual != disabled and not valid_prior:
-            raise ValueError("web base release identity is neither disabled nor exact prior")
-    else:
-        expected = _identity_values(manifest, candidate_spec_sha256, phase)
-        if actual != expected:
-            raise ValueError(f"web {phase} release identity is not exact")
+    expected = _identity_values(manifest, candidate_spec_sha256, phase)
+    if actual != expected:
+        raise ValueError(f"web {phase} release identity is not exact")
     if block != _identity_block(actual):
         raise ValueError("web release identity serialization is not canonical")
 

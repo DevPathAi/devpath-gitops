@@ -43,7 +43,8 @@ jobs:
         run: |
           set -e
           shopt -s nullglob
-          for dir in apps/*/base; do
+          test -f staging/devpath-web/kustomization.yaml
+          for dir in apps/*/base staging/*/; do
             echo "== $dir =="
             kubectl kustomize "$dir" > /dev/null
           done

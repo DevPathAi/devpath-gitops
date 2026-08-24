@@ -96,6 +96,12 @@
     "rollback": {
       "mission_off_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "prior_digest": "sha256:6484ed322027ae23e0b722705347b52b2e882e8133af7df91c421e246de542c7",
+      "prior_identity": {
+        "ready": false,
+        "release_id": "unreleased",
+        "candidate_spec_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "image_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      },
       "final_target": "prior"
     }
   },
@@ -130,10 +136,10 @@
     "staging": {
       "github_environment": "mission-spine-staging",
       "kubernetes_context": "devpath-staging",
-      "namespace": "devpath",
-      "web_deployment": "devpath-web",
+      "namespace": "devpath-staging",
+      "web_deployment": "devpath-web-staging",
       "web_container": "devpath-web",
-      "web_origin": "https://staging-app.example.test",
+      "web_origin": "https://staging-app.13-124-153-105.nip.io",
       "landing_origin": "https://staging.example.test"
     },
     "production": {

@@ -10,6 +10,8 @@ import sys
 import tempfile
 import unittest
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / "tests" / "release" / "fixtures" / "valid-release.json"
@@ -19,6 +21,7 @@ PROMOTER = ROOT / "scripts" / "release" / "set_web_digest.py"
 ARTIFACT_VERIFIER = ROOT / "scripts" / "release" / "verify_release_artifacts.py"
 JOURNEY_PREPARER = ROOT / "scripts" / "release" / "prepare_journey_evidence.py"
 SEALER = ROOT / "scripts" / "release" / "seal_release_manifest.py"
+CANDIDATE_WEB_BASE = ROOT / "scripts" / "release" / "verify_candidate_web_base.py"
 
 
 def load_module(path: Path, name: str):
@@ -37,6 +40,9 @@ class ReleaseManifestContractTest(unittest.TestCase):
         cls.artifacts = load_module(ARTIFACT_VERIFIER, "release_artifact_verifier")
         cls.preparer = load_module(JOURNEY_PREPARER, "journey_evidence_preparer")
         cls.sealer = load_module(SEALER, "release_manifest_sealer")
+        cls.candidate_web_base = load_module(
+            CANDIDATE_WEB_BASE, "candidate_web_base_verifier"
+        )
         cls.release = json.loads(FIXTURE.read_text(encoding="utf-8"))
         cls.candidate = json.loads(CANDIDATE_FIXTURE.read_text(encoding="utf-8"))
         cls.candidate_sha = hashlib.sha256(CANDIDATE_FIXTURE.read_bytes()).hexdigest()
@@ -69,6 +75,37 @@ class ReleaseManifestContractTest(unittest.TestCase):
         invalid["frontend"]["selected_on_digest"] = invalid["frontend"]["rollback"]["prior_digest"]
         with self.assertRaisesRegex(ValueError, "selected_on_digest"):
             self.validator.validate_candidate_spec(invalid, CANDIDATE_FIXTURE)
+
+    def test_prior_lineage_and_dedicated_staging_identity_are_exact(self):
+        self.validator.validate_candidate_spec(
+            copy.deepcopy(self.candidate), CANDIDATE_FIXTURE
+        )
+        for field, value in (
+            ("ready", True),
+            ("release_id", "ms-20981231-forged-prior"),
+            ("candidate_spec_sha256", "f" * 64),
+            ("image_digest", "sha256:" + "f" * 64),
+        ):
+            invalid = copy.deepcopy(self.candidate)
+            invalid["frontend"]["rollback"]["prior_identity"][field] = value
+            with self.subTest(prior_field=field), self.assertRaisesRegex(
+                ValueError, "prior_identity"
+            ):
+                self.validator.validate_candidate_spec(invalid, CANDIDATE_FIXTURE)
+
+        for field, value in (
+            ("kubernetes_context", "other-staging"),
+            ("namespace", "other-staging"),
+            ("web_deployment", "other-web"),
+            ("web_container", "other-web"),
+            ("web_origin", "https://other.example.test"),
+        ):
+            invalid = copy.deepcopy(self.candidate)
+            invalid["environments"]["staging"][field] = value
+            with self.subTest(staging_field=field), self.assertRaisesRegex(
+                ValueError, "environments.staging"
+            ):
+                self.validator.validate_candidate_spec(invalid, CANDIDATE_FIXTURE)
 
     def test_all_application_services_and_v1011_are_bound(self):
         invalid = copy.deepcopy(self.candidate)
@@ -320,6 +357,13 @@ images:
         self.assertIn("  digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", rendered)
         self.assertNotIn("newTag:", rendered)
         self.assertEqual(rendered.count("digest:"), 1)
+        for literal in (
+            "MISSION_RELEASE_READY=true",
+            f"MISSION_RELEASE_ID={self.candidate['release_id']}",
+            f"MISSION_CANDIDATE_SPEC_SHA256={self.candidate_sha}",
+            "MISSION_IMAGE_DIGEST=sha256:" + "b" * 64,
+        ):
+            self.assertEqual(rendered.count(literal), 1)
         with self.assertRaisesRegex(ValueError, "current digest"):
             self.promoter.render_kustomization(
                 rendered,
@@ -327,6 +371,78 @@ images:
                 "mission-off",
                 candidate_spec_sha256=self.candidate_sha,
             )
+
+    def test_production_kustomize_wires_exact_release_identity_and_probe_secret(self):
+        binary = shutil.which("kubectl")
+        if binary is None:
+            self.skipTest("kubectl is unavailable")
+        rendered = subprocess.run(
+            [binary, "kustomize", str(ROOT / "apps/devpath-web/base")],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        documents = list(yaml.safe_load_all(rendered))
+        config_map = next(item for item in documents if item["kind"] == "ConfigMap")
+        deployment = next(item for item in documents if item["kind"] == "Deployment")
+        self.assertEqual(
+            config_map["data"],
+            {
+                "MISSION_RELEASE_READY": "false",
+                "MISSION_RELEASE_ID": "unreleased",
+                "MISSION_CANDIDATE_SPEC_SHA256": "0" * 64,
+                "MISSION_IMAGE_DIGEST": "sha256:" + "0" * 64,
+            },
+        )
+        containers = deployment["spec"]["template"]["spec"]["containers"]
+        self.assertEqual(len(containers), 1)
+        container = containers[0]
+        self.assertEqual(
+            container["envFrom"],
+            [{"configMapRef": {"name": config_map["metadata"]["name"]}}],
+        )
+        self.assertEqual(
+            container["env"],
+            [
+                {
+                    "name": "MISSION_SYNTHETIC_PROBE_TOKEN",
+                    "valueFrom": {
+                        "secretKeyRef": {
+                            "name": "mission-spine-synthetic-probe",
+                            "key": "token",
+                            "optional": True,
+                        }
+                    },
+                }
+            ],
+        )
+
+    def test_candidate_authentication_binds_the_exact_base_web_lineage(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copytree(ROOT / "apps", root / "apps")
+            candidate_dir = root / "release-manifests" / "candidates"
+            candidate_dir.mkdir(parents=True)
+            candidate_path = candidate_dir / f"{self.candidate['release_id']}.candidate-spec.json"
+            candidate_path.write_text(json.dumps(self.candidate), encoding="utf-8")
+            self.candidate_web_base.verify_candidate_web_base(
+                root, self.candidate["release_id"]
+            )
+
+            forged = copy.deepcopy(self.candidate)
+            forged["frontend"]["rollback"]["prior_identity"] = {
+                "ready": True,
+                "release_id": "ms-20981231-forged-prior",
+                "candidate_spec_sha256": "f" * 64,
+                "image_digest": forged["frontend"]["rollback"]["prior_digest"],
+            }
+            (candidate_dir / f"{forged['release_id']}.candidate-spec.json").write_text(
+                json.dumps(forged), encoding="utf-8"
+            )
+            with self.assertRaisesRegex(ValueError, "base release identity is not exact"):
+                self.candidate_web_base.verify_candidate_web_base(
+                    root, forged["release_id"]
+                )
 
     def test_kustomize_accepts_and_renders_exact_digest_syntax(self):
         if shutil.which("kubectl") is None:

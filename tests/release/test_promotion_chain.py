@@ -109,11 +109,31 @@ class PromotionChainTest(unittest.TestCase):
             commit,
         )
 
-    def set_next_release_candidate(self, base: str, base_web_digest: str):
-        candidate = copy.deepcopy(self.fixture)
+    def current_web_identity(self):
+        source = (
+            self.root / "apps/devpath-web/base/kustomization.yaml"
+        ).read_text(encoding="utf-8")
+        _, values = self.web._parse_identity(source)
+        return {
+            "ready": values[0] == "true",
+            "release_id": values[1],
+            "candidate_spec_sha256": values[2],
+            "image_digest": values[3],
+        }
+
+    def set_next_release_candidate(
+        self, base: str, base_web_digest: str, prior_identity: dict
+    ):
+        next_release_id = "ms-20990102-contract-fixture"
+        candidate = json.loads(
+            json.dumps(self.fixture).replace(
+                self.fixture["release_id"], next_release_id
+            )
+        )
         candidate["gitops"]["base_sha"] = base
         candidate["gitops"]["base_web_digest"] = base_web_digest
         candidate["frontend"]["rollback"]["prior_digest"] = base_web_digest
+        candidate["frontend"]["rollback"]["prior_identity"] = prior_identity
         candidate["frontend"]["mission_off"]["image_digest"] = "sha256:" + "d" * 64
         candidate["frontend"]["rollback"]["mission_off_digest"] = "sha256:" + "d" * 64
         candidate["frontend"]["selected_on_digest"] = "sha256:" + "e" * 64
@@ -197,8 +217,18 @@ class PromotionChainTest(unittest.TestCase):
             f"release(web): promote {self.candidate['release_id']} mission-on"
         )
         prior_on_digest = self.candidate["frontend"]["selected_on_digest"]
+        prior_identity = self.current_web_identity()
 
-        self.set_next_release_candidate(prior_on, prior_on_digest)
+        self.set_next_release_candidate(prior_on, prior_on_digest, prior_identity)
+        self.assertEqual(
+            self.candidate["frontend"]["rollback"]["prior_identity"],
+            {
+                "ready": True,
+                "release_id": "ms-20990101-contract-fixture",
+                "candidate_spec_sha256": "c" * 64,
+                "image_digest": prior_on_digest,
+            },
+        )
         self.assertEqual(self.inspect(prior_on)["phase"], "base")
         self.set_migration()
         migration = self.commit(
@@ -232,8 +262,10 @@ class PromotionChainTest(unittest.TestCase):
             self.chain.migration_job_name(digest, first_release_hash), first_source
         )
 
-        self.candidate["gitops"]["base_sha"] = first
-        self.release_hash = "b" * 64
+        prior_identity = self.current_web_identity()
+        base_web_digest = self.candidate["gitops"]["base_web_digest"]
+        self.set_next_release_candidate(first, base_web_digest, prior_identity)
+        self.candidate["shared_migration"]["image_digest"] = digest
         self.assertEqual(self.inspect(first)["phase"], "base")
         self.set_migration()
         second_source = (
@@ -264,8 +296,9 @@ class PromotionChainTest(unittest.TestCase):
             f"rollback(web): {self.candidate['release_id']} frontend-prior"
         )
         prior_digest = self.candidate["frontend"]["rollback"]["prior_digest"]
+        prior_identity = self.current_web_identity()
 
-        self.set_next_release_candidate(prior, prior_digest)
+        self.set_next_release_candidate(prior, prior_digest, prior_identity)
         self.assertEqual(self.inspect(prior)["phase"], "base")
         self.set_migration()
         migration = self.commit(
