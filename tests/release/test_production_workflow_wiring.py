@@ -196,6 +196,7 @@ class ProductionWorkflowWiringTest(unittest.TestCase):
         )
         self.assertIn("environment: mission-spine-staging", section)
         self.assertIn("group: mission-spine-staging", section)
+        self.assertIn("queue: max", section)
         self.assertIn("cancel-in-progress: false", section)
         self.assertIn("STAGING_KUBECONFIG_B64", section)
         self.assertIn("ref: ${{ github.sha }}", section)
@@ -231,6 +232,7 @@ class ProductionWorkflowWiringTest(unittest.TestCase):
         self.assertIn("needs: [reverse-rollback]", section)
         self.assertIn("environment: mission-spine-staging", section)
         self.assertIn("group: mission-spine-staging", section)
+        self.assertIn("queue: max", section)
         self.assertIn("cancel-in-progress: false", section)
         self.assertIn("STAGING_KUBECONFIG_B64", section)
         self.assertEqual(

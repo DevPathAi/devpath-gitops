@@ -82,6 +82,7 @@ def build_patch(
                         {
                             "name": container,
                             "image": f"{WEB_IMAGE}@{digest}",
+                            "imagePullPolicy": "IfNotPresent",
                             "env": [
                                 {"name": "MISSION_RELEASE_READY", "value": ready},
                                 {"name": "MISSION_RELEASE_ID", "value": release_id},
@@ -103,8 +104,40 @@ def build_patch(
                                     },
                                 },
                             ],
+                            "ports": [{"containerPort": 8080, "protocol": "TCP"}],
+                            "readinessProbe": {
+                                "httpGet": {
+                                    "path": "/",
+                                    "port": 8080,
+                                    "scheme": "HTTP",
+                                },
+                                "initialDelaySeconds": 5,
+                                "periodSeconds": 10,
+                                "timeoutSeconds": 1,
+                                "successThreshold": 1,
+                                "failureThreshold": 3,
+                            },
+                            "livenessProbe": {
+                                "httpGet": {
+                                    "path": "/",
+                                    "port": 8080,
+                                    "scheme": "HTTP",
+                                },
+                                "initialDelaySeconds": 10,
+                                "periodSeconds": 10,
+                                "timeoutSeconds": 1,
+                                "successThreshold": 1,
+                                "failureThreshold": 3,
+                            },
+                            "resources": {
+                                "requests": {"cpu": "50m", "memory": "64Mi"},
+                                "limits": {"memory": "128Mi"},
+                            },
+                            "terminationMessagePath": "/dev/termination-log",
+                            "terminationMessagePolicy": "File",
                         }
-                    ]
+                    ],
+                    "automountServiceAccountToken": False,
                 }
             }
         }
@@ -135,9 +168,13 @@ def _current_phase(
         or any(ord(character) < 0x21 for character in resource_version)
     ):
         raise ValueError("current staging resourceVersion is invalid")
-    containers = (
-        ((deployment.get("spec") or {}).get("template") or {}).get("spec") or {}
-    ).get("containers")
+    pod_spec = ((deployment.get("spec") or {}).get("template") or {}).get("spec")
+    if (
+        not isinstance(pod_spec, dict)
+        or pod_spec.get("automountServiceAccountToken") is not False
+    ):
+        raise ValueError("current staging Pod shape is not exact")
+    containers = pod_spec.get("containers")
     if not isinstance(containers, list) or len(containers) != 1:
         raise ValueError("current staging Deployment must have one exact container")
     container = containers[0]
@@ -147,12 +184,9 @@ def _current_phase(
     for current_phase in phases:
         expected = build_patch(candidate, candidate_spec_sha256, current_phase)
         expected_container = expected["spec"]["template"]["spec"]["containers"][0]
-        if (
-            container.get("image") == expected_container["image"]
-            and container.get("env") == expected_container["env"]
-        ):
+        if container == expected_container:
             return current_phase
-    raise ValueError("current staging phase is not exact")
+    raise ValueError("current staging phase or container shape is not exact")
 
 
 def build_cas_patch(

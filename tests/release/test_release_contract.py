@@ -93,6 +93,31 @@ class ReleaseManifestContractTest(unittest.TestCase):
             ):
                 self.validator.validate_candidate_spec(invalid, CANDIDATE_FIXTURE)
 
+        zero_prior = copy.deepcopy(self.candidate)
+        zero_digest = "sha256:" + "0" * 64
+        zero_prior["gitops"]["base_web_digest"] = zero_digest
+        zero_prior["frontend"]["rollback"]["prior_digest"] = zero_digest
+        zero_prior["frontend"]["rollback"]["prior_identity"] = {
+            "ready": True,
+            "release_id": "ms-20981231-prior-release",
+            "candidate_spec_sha256": "f" * 64,
+            "image_digest": zero_digest,
+        }
+        with self.assertRaisesRegex(ValueError, "non-zero prior image"):
+            self.validator.validate_candidate_spec(zero_prior, CANDIDATE_FIXTURE)
+
+        schema = json.loads(
+            (ROOT / "release-manifests" / "schema-v1.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        schema_validator = jsonschema.Draft202012Validator(
+            schema,
+            format_checker=jsonschema.FormatChecker(),
+        )
+        with self.assertRaises(jsonschema.ValidationError):
+            schema_validator.validate(zero_prior)
+
         for field, value in (
             ("kubernetes_context", "other-staging"),
             ("namespace", "other-staging"),
@@ -106,6 +131,10 @@ class ReleaseManifestContractTest(unittest.TestCase):
                 ValueError, "environments.staging"
             ):
                 self.validator.validate_candidate_spec(invalid, CANDIDATE_FIXTURE)
+            with self.subTest(schema_staging_field=field), self.assertRaises(
+                jsonschema.ValidationError
+            ):
+                schema_validator.validate(invalid)
 
     def test_all_application_services_and_v1011_are_bound(self):
         invalid = copy.deepcopy(self.candidate)
@@ -369,6 +398,13 @@ images:
                 rendered,
                 self.candidate,
                 "mission-off",
+                candidate_spec_sha256=self.candidate_sha,
+            )
+        with self.assertRaisesRegex(ValueError, "images section"):
+            self.promoter.render_kustomization(
+                source.replace("images:\n", "notImages:\n", 1),
+                self.candidate,
+                "mission-on",
                 candidate_spec_sha256=self.candidate_sha,
             )
 

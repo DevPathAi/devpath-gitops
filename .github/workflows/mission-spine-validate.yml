@@ -19,6 +19,7 @@ env:
 
 concurrency:
   group: mission-spine-staging
+  queue: max
   cancel-in-progress: false
 
 jobs:

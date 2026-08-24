@@ -143,6 +143,46 @@ class StageWebReleaseTest(unittest.TestCase):
                 "prior",
             )
 
+    def test_atomic_transition_rejects_container_execution_drift(self):
+        candidate = self.isolated_candidate()
+        for field, value in (
+            ("command", ["/bin/sh", "-c", "id"]),
+            ("securityContext", {"privileged": True}),
+        ):
+            current = self.module.build_patch(candidate, self.candidate_hash, "prior")
+            current["metadata"] = {
+                "name": "devpath-web-staging",
+                "namespace": "devpath-staging",
+                "resourceVersion": "314159",
+            }
+            current["spec"]["template"]["spec"]["containers"][0][field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(
+                ValueError, "container shape"
+            ):
+                self.module.build_cas_patch(
+                    current,
+                    candidate,
+                    self.candidate_hash,
+                    "mission-off",
+                    "prior",
+                )
+
+        current = self.module.build_patch(candidate, self.candidate_hash, "prior")
+        current["metadata"] = {
+            "name": "devpath-web-staging",
+            "namespace": "devpath-staging",
+            "resourceVersion": "314159",
+        }
+        current["spec"]["template"]["spec"]["automountServiceAccountToken"] = True
+        with self.assertRaisesRegex(ValueError, "Pod shape"):
+            self.module.build_cas_patch(
+                current,
+                candidate,
+                self.candidate_hash,
+                "mission-off",
+                "prior",
+            )
+
     def test_stage_gets_then_patches_with_the_same_resource_version(self):
         candidate = self.isolated_candidate()
         current = self.module.build_patch(candidate, self.candidate_hash, "prior")
@@ -287,7 +327,11 @@ class StageWebReleaseTest(unittest.TestCase):
         self.assertEqual(ingress["metadata"]["namespace"], "devpath-staging")
         containers = deployment["spec"]["template"]["spec"]["containers"]
         self.assertEqual(len(containers), 1)
-        self.assertEqual(containers[0]["name"], "devpath-web")
+        self.assertEqual(containers[0], self.container("prior"))
+        self.assertIs(
+            deployment["spec"]["template"]["spec"]["automountServiceAccountToken"],
+            False,
+        )
         self.assertEqual(
             ingress["spec"]["rules"][0]["host"],
             "staging-app.13-124-153-105.nip.io",
@@ -295,6 +339,44 @@ class StageWebReleaseTest(unittest.TestCase):
         self.assertEqual(
             service["spec"]["selector"],
             deployment["spec"]["selector"]["matchLabels"],
+        )
+
+        default_deny = documents[
+            ("NetworkPolicy", "devpath-web-staging-default-deny")
+        ]
+        self.assertEqual(
+            default_deny["spec"]["podSelector"],
+            {"matchLabels": {"app": "devpath-web-staging"}},
+        )
+        self.assertEqual(default_deny["spec"]["policyTypes"], ["Ingress", "Egress"])
+        self.assertNotIn("ingress", default_deny["spec"])
+        self.assertNotIn("egress", default_deny["spec"])
+
+        allow_ingress = documents[("NetworkPolicy", "devpath-web-staging-ingress")]
+        self.assertEqual(
+            allow_ingress["spec"]["podSelector"],
+            {"matchLabels": {"app": "devpath-web-staging"}},
+        )
+        self.assertEqual(allow_ingress["spec"]["policyTypes"], ["Ingress"])
+        self.assertEqual(
+            allow_ingress["spec"]["ingress"],
+            [
+                {
+                    "from": [
+                        {
+                            "namespaceSelector": {
+                                "matchLabels": {
+                                    "kubernetes.io/metadata.name": "kube-system"
+                                }
+                            },
+                            "podSelector": {
+                                "matchLabels": {"app.kubernetes.io/name": "traefik"}
+                            },
+                        }
+                    ],
+                    "ports": [{"protocol": "TCP", "port": 8080}],
+                }
+            ],
         )
 
     def test_invalid_phase_or_candidate_hash_fails_before_mutation(self):

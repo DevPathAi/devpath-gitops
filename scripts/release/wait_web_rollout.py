@@ -14,6 +14,7 @@ from typing import Any
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from validate_release_manifest import resolve_release_bundle
+from stage_web_release import build_patch as build_staging_patch
 from verify_kubernetes_release_runtime import validate_application
 
 
@@ -92,6 +93,11 @@ def _no_auxiliary_containers(spec: Any, status: Any, label: str) -> None:
             raise ValueError(f"{label} may not contain {key}")
 
 
+def _validate_staging_pod_shape(spec: dict[str, Any], label: str) -> None:
+    if spec.get("automountServiceAccountToken") is not False:
+        raise ValueError(f"{label} service-account token automount is not disabled")
+
+
 def _runtime_image(image_id: Any) -> str:
     if not isinstance(image_id, str) or not image_id:
         raise ValueError("Pod imageID is missing")
@@ -115,6 +121,8 @@ def validate_rollout_snapshot(
     *,
     expected_deployment: str | None = None,
     expected_namespace: str = "devpath",
+    expected_container_spec: dict[str, Any] | None = None,
+    require_automount_disabled: bool = False,
 ) -> None:
     """Require a fully available Deployment and stable exact-digest Pods.
 
@@ -154,6 +162,8 @@ def validate_rollout_snapshot(
     template = spec.get("template") or {}
     deployment_pod_spec = template.get("spec") or {}
     _no_auxiliary_containers(deployment_pod_spec, {}, "Deployment template")
+    if require_automount_disabled:
+        _validate_staging_pod_shape(deployment_pod_spec, "Deployment template")
     spec_container = _single_container(
         deployment_pod_spec.get("containers"),
         container,
@@ -161,6 +171,8 @@ def validate_rollout_snapshot(
     )
     if spec_container.get("image") not in allowed_spec_images:
         raise ValueError("Deployment image is not an allowed sealed reference")
+    if expected_container_spec is not None and spec_container != expected_container_spec:
+        raise ValueError("Deployment staging container shape is not exact")
     if status.get("observedGeneration") != generation:
         raise ValueError("Deployment controller has not observed the desired generation")
     for field, label in (
@@ -203,10 +215,15 @@ def validate_rollout_snapshot(
         raise ValueError("web ReplicaSet is not fully available")
     rs_pod_spec = ((rs_spec.get("template") or {}).get("spec") or {})
     _no_auxiliary_containers(rs_pod_spec, {}, "ReplicaSet template")
-    if _single_container(
+    if require_automount_disabled:
+        _validate_staging_pod_shape(rs_pod_spec, "ReplicaSet template")
+    rs_container = _single_container(
         rs_pod_spec.get("containers"), container, "ReplicaSet containers"
-    ).get("image") not in allowed_spec_images:
+    )
+    if rs_container.get("image") not in allowed_spec_images:
         raise ValueError("ReplicaSet image is not an allowed sealed reference")
+    if expected_container_spec is not None and rs_container != expected_container_spec:
+        raise ValueError("ReplicaSet staging container shape is not exact")
 
     items = pods.get("items")
     if not isinstance(items, list) or len(items) != desired:
@@ -225,10 +242,15 @@ def validate_rollout_snapshot(
         pod_spec = pod.get("spec") or {}
         pod_status = pod.get("status") or {}
         _no_auxiliary_containers(pod_spec, pod_status, "Pod")
-        if _single_container(
+        if require_automount_disabled:
+            _validate_staging_pod_shape(pod_spec, "Pod")
+        pod_container = _single_container(
             pod_spec.get("containers"), container, "Pod containers"
-        ).get("image") not in allowed_spec_images:
+        )
+        if pod_container.get("image") not in allowed_spec_images:
             raise ValueError("Pod image is not an allowed sealed reference")
+        if expected_container_spec is not None and pod_container != expected_container_spec:
+            raise ValueError("Pod staging container shape is not exact")
         if pod_status.get("phase") != "Running":
             raise ValueError("Pod must be Running")
         ready_conditions = [
@@ -411,6 +433,12 @@ def wait_rollout(
     expected_digest = _expected_digest(candidate, phase)
     expected_image = f"{WEB_IMAGE}@{expected_digest}"
     allowed_images = _allowed_spec_images(candidate, phase, expected_image)
+    expected_container_spec = None
+    require_automount_disabled = environment == "staging"
+    if require_automount_disabled:
+        expected_container_spec = build_staging_patch(
+            candidate, candidate_hash, phase
+        )["spec"]["template"]["spec"]["containers"][0]
     restart_baseline: dict[tuple[str, str], int] = {}
 
     started = time.monotonic()
@@ -433,6 +461,8 @@ def wait_rollout(
                 expected_revision,
                 expected_deployment=deployment_name,
                 expected_namespace=namespace,
+                expected_container_spec=expected_container_spec,
+                require_automount_disabled=require_automount_disabled,
             )
             break
         except ValueError as exc:
@@ -466,6 +496,8 @@ def wait_rollout(
             expected_revision,
             expected_deployment=deployment_name,
             expected_namespace=namespace,
+            expected_container_spec=expected_container_spec,
+            require_automount_disabled=require_automount_disabled,
         )
         # Only the one sealed legacy prior predates release-aware identity.
         # Every candidate and released prior otherwise proves its exact lineage.

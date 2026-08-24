@@ -421,6 +421,7 @@ jobs:
     environment: mission-spine-staging
     concurrency:
       group: mission-spine-staging
+      queue: max
       cancel-in-progress: false
     permissions:
       actions: read

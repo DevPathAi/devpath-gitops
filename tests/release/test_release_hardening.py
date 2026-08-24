@@ -45,6 +45,7 @@ class ReleaseHardeningTest(unittest.TestCase):
             (FIXTURES / "valid-candidate-spec.json").read_bytes()
         ).hexdigest()
         cls.rollout = load_module("wait_web_rollout.py", "hardened_rollout")
+        cls.stager = load_module("stage_web_release.py", "hardened_stager")
         cls.artifacts = load_module("verify_release_artifacts.py", "hardened_artifacts")
         cls.promoter = load_module("set_web_digest.py", "hardened_promoter")
         cls.cloudflare = load_module("cloudflare_pages.py", "hardened_cloudflare")
@@ -242,11 +243,21 @@ class ReleaseHardeningTest(unittest.TestCase):
 
     def test_rollout_accepts_candidate_bound_staging_deployment_identity(self):
         application, deployment, replicasets, pods, image, _ = self.healthy_snapshot()
+        expected_container = self.stager.build_patch(
+            copy.deepcopy(self.candidate), self.candidate_hash, "mission-on"
+        )["spec"]["template"]["spec"]["containers"][0]
         deployment["metadata"]["name"] = "devpath-web-staging"
         deployment["metadata"]["namespace"] = "devpath-staging"
         replicasets["items"][0]["metadata"]["ownerReferences"][0]["name"] = (
             "devpath-web-staging"
         )
+        for pod_spec in (
+            deployment["spec"]["template"]["spec"],
+            replicasets["items"][0]["spec"]["template"]["spec"],
+            pods["items"][0]["spec"],
+        ):
+            pod_spec["automountServiceAccountToken"] = False
+            pod_spec["containers"] = [copy.deepcopy(expected_container)]
 
         self.rollout.validate_rollout_snapshot(
             application,
@@ -260,7 +271,31 @@ class ReleaseHardeningTest(unittest.TestCase):
             None,
             expected_deployment="devpath-web-staging",
             expected_namespace="devpath-staging",
+            expected_container_spec=expected_container,
+            require_automount_disabled=True,
         )
+
+        deployment["spec"]["template"]["spec"]["containers"][0]["command"] = [
+            "/bin/sh",
+            "-c",
+            "id",
+        ]
+        with self.assertRaisesRegex(ValueError, "container shape"):
+            self.rollout.validate_rollout_snapshot(
+                application,
+                deployment,
+                replicasets,
+                pods,
+                "devpath-web",
+                {image},
+                image,
+                {},
+                None,
+                expected_deployment="devpath-web-staging",
+                expected_namespace="devpath-staging",
+                expected_container_spec=expected_container,
+                require_automount_disabled=True,
+            )
 
     def test_wait_rollout_passes_candidate_bound_staging_identity_on_every_poll(self):
         candidate = copy.deepcopy(self.candidate)
@@ -289,12 +324,17 @@ class ReleaseHardeningTest(unittest.TestCase):
                 ROOT, candidate["release_id"], "staging", "prior", 0
             )
         self.assertEqual(validate.call_count, 2)
+        expected_container = self.stager.build_patch(
+            candidate, self.candidate_hash, "prior"
+        )["spec"]["template"]["spec"]["containers"][0]
         for call in validate.call_args_list:
             self.assertEqual(
                 call.kwargs,
                 {
                     "expected_deployment": "devpath-web-staging",
                     "expected_namespace": "devpath-staging",
+                    "expected_container_spec": expected_container,
+                    "require_automount_disabled": True,
                 },
             )
 
@@ -471,6 +511,24 @@ class ReleaseHardeningTest(unittest.TestCase):
             self.assertIn("cancel-in-progress: false", text)
             self.assertNotIn("cancel-in-progress: true", text)
         self.assertIn("--action verify-prior", texts["mission-spine-rollback.yml"])
+
+    def test_staging_lease_queues_every_pending_transition(self):
+        workflow_dir = ROOT / ".github" / "workflows"
+        validate = (workflow_dir / "mission-spine-validate.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "group: mission-spine-staging\n  queue: max\n  cancel-in-progress: false",
+            validate,
+        )
+        for name in ("mission-spine-promote.yml", "mission-spine-rollback.yml"):
+            text = (workflow_dir / name).read_text(encoding="utf-8")
+            section = text[text.index("  rebaseline_staging:") :]
+            self.assertIn(
+                "group: mission-spine-staging\n      queue: max\n"
+                "      cancel-in-progress: false",
+                section,
+            )
 
     def test_legacy_tag_must_equal_sealed_base_tag_before_digest_mutation(self):
         manifest = copy.deepcopy(self.candidate)

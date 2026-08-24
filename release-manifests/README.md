@@ -66,7 +66,7 @@ Configure required reviewers and `prevent_self_review=true` for every environmen
 3. `mission-spine-landing-last.yml` runs from protected current `main`, materializes the sealed candidate/release as data only, and requires the completed trusted promotion/canary artifact and exact migration/service/OFF/ON chain. Wrangler 4.123.0 is installed from the committed npm integrity lock only after the production environment approval. The job verifies Cloudflare prior or exact same-release retry state, adds a content-addressed public dist marker, deploys without rebuilding, re-authenticates unchanged main/release/canary state, and emits run-scoped Landing evidence.
 4. `mission-spine-rollback.yml` shares the non-preemptible production lease with promotion and Landing. It authenticates the exact Landing artifact and referenced canary before the first Cloudflare mutation, safely resumes from durable migration/service/OFF/ON/rollback phases, restores Landing prior first, changes web through OFF when necessary and then prior, re-observes retained services, and finally rechecks that Landing prior is still current. After reverse rollback succeeds, a required separately approved `mission-spine-staging` job authenticates the exact prior commit and sealed release branch, then CAS-rebaselines staging to the sealed prior lineage under the global staging lease. Additive service APIs and V1011 remain in place.
 
-Normal non-force pushes provide the final branch CAS: any `main` drift makes the release commit non-fast-forward and fails. The scripts additionally compare `origin/main` to the authenticated durable phase before every mutation and verify the exact promotion chain before Landing or rollback. Staging has one global concurrency lock. Promotion, Landing-last, and rollback share one production lock across release IDs with `cancel-in-progress: false`; a new dispatch cannot cancel an approved in-flight production mutation.
+Normal non-force pushes provide the final branch CAS: any `main` drift makes the release commit non-fast-forward and fails. The scripts additionally compare `origin/main` to the authenticated durable phase before every mutation and verify the exact promotion chain before Landing or rollback. Staging has one global `queue: max` concurrency lock so pending validation and required rebaseline transitions are preserved. Promotion, Landing-last, and rollback share one production lock across release IDs with `cancel-in-progress: false`; a new dispatch cannot cancel an approved in-flight production mutation.
 
 ## Local validation
 
@@ -74,7 +74,7 @@ Normal non-force pushes provide the final branch CAS: any `main` drift makes the
 python -m pip install jsonschema==4.25.1
 python -m unittest discover -s tests/release -p 'test_*.py' -v
 python -m json.tool release-manifests/schema-v1.json >/dev/null
-actionlint -color
+actionlint -color -ignore 'unexpected key "queue" for "concurrency" section' # actionlint #657
 kubectl kustomize apps/devpath-web/base >/dev/null
 kubectl kustomize staging/devpath-web >/dev/null
 ```

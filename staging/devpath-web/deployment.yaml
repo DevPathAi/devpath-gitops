@@ -14,9 +14,11 @@ spec:
       labels:
         app: devpath-web-staging
     spec:
+      automountServiceAccountToken: false
       containers:
       - name: devpath-web
         image: ghcr.io/devpathai/devpath-web@sha256:6484ed322027ae23e0b722705347b52b2e882e8133af7df91c421e246de542c7
+        imagePullPolicy: IfNotPresent
         env:
         - name: MISSION_RELEASE_READY
           value: "false"
@@ -33,19 +35,32 @@ spec:
               key: token
         ports:
         - containerPort: 8080
+          protocol: TCP
         readinessProbe:
           httpGet:
             path: /
             port: 8080
+            scheme: HTTP
           initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 1
+          successThreshold: 1
+          failureThreshold: 3
         livenessProbe:
           httpGet:
             path: /
             port: 8080
+            scheme: HTTP
           initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 1
+          successThreshold: 1
+          failureThreshold: 3
         resources:
           requests:
             cpu: 50m
             memory: 64Mi
           limits:
             memory: 128Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File

@@ -723,6 +723,8 @@ def _validate_prior_identity(
         )
     if candidate_sha == ZERO_SHA256:
         _fail(f"{path}.candidate_spec_sha256", "must bind a non-zero prior candidate")
+    if image_digest == f"sha256:{ZERO_SHA256}":
+        _fail(f"{path}.image_digest", "must bind a non-zero prior image")
     if image_digest != prior_digest:
         _fail(f"{path}.image_digest", "must exactly equal rollback.prior_digest")
 

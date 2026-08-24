@@ -152,8 +152,27 @@ def render_kustomization(
     matches = [index for index, line in enumerate(lines) if line.strip() == f"- name: {WEB_IMAGE}"]
     if len(matches) != 1:
         raise ValueError("web kustomization must contain exactly one devpath-web image entry")
-    if sum(1 for line in lines if line.strip().startswith("newName:")) != 1:
-        raise ValueError("web kustomization image transformer must contain exactly one image")
+    image_headers = [
+        index for index, line in enumerate(lines) if line == "images:\n"
+    ]
+    if len(image_headers) != 1:
+        raise ValueError("web kustomization must contain one top-level images section")
+    section_start = image_headers[0] + 1
+    section_end = len(lines)
+    for index in range(section_start, len(lines)):
+        line = lines[index]
+        if line and not line.startswith((" ", "\t", "-", "#", "\n")):
+            section_end = index
+            break
+    image_entries = [
+        index
+        for index in range(section_start, section_end)
+        if lines[index].lstrip().startswith("- name:")
+    ]
+    if len(image_entries) != 1 or matches[0] != image_entries[0]:
+        raise ValueError(
+            "web kustomization images section must contain exactly one image entry"
+        )
 
     start = matches[0]
     indent = len(lines[start]) - len(lines[start].lstrip(" "))

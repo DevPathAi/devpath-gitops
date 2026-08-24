@@ -42,6 +42,7 @@
     "sha40": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "sha64": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "nonZeroDigest": {"type": "string", "pattern": "^sha256:(?!0{64}$)[0-9a-f]{64}$"},
     "repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
     "safeId": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]{1,127}$"},
     "component": {
@@ -152,7 +153,7 @@
             "ready": {"const": true},
             "release_id": {"$ref": "#/$defs/releaseId"},
             "candidate_spec_sha256": {"type": "string", "pattern": "^(?!0{64}$)[0-9a-f]{64}$"},
-            "image_digest": {"$ref": "#/$defs/digest"}
+            "image_digest": {"$ref": "#/$defs/nonZeroDigest"}
           }
         }
       ],
@@ -230,11 +231,26 @@
       },
       "additionalProperties": false
     },
+    "stagingEnvironment": {
+      "allOf": [
+        {"$ref": "#/$defs/environment"},
+        {
+          "properties": {
+            "github_environment": {"const": "mission-spine-staging"},
+            "kubernetes_context": {"const": "devpath-staging"},
+            "namespace": {"const": "devpath-staging"},
+            "web_deployment": {"const": "devpath-web-staging"},
+            "web_container": {"const": "devpath-web"},
+            "web_origin": {"const": "https://staging-app.13-124-153-105.nip.io"}
+          }
+        }
+      ]
+    },
     "environments": {
       "type": "object",
       "required": ["staging", "production"],
       "properties": {
-        "staging": {"$ref": "#/$defs/environment"},
+        "staging": {"$ref": "#/$defs/stagingEnvironment"},
         "production": {"$ref": "#/$defs/environment"}
       },
       "additionalProperties": false
