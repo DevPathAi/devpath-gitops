@@ -155,6 +155,7 @@
   "journey_harness": {
     "landing_origin": "https://www.example.test",
     "app_origin": "https://app.example.test",
+    "api_origin": "https://api.example.test",
     "control_origin": "https://control.release.test",
     "oauth_origin": "https://oauth.release.test",
     "analytics_spy_origin": "https://analytics-spy.release.test",

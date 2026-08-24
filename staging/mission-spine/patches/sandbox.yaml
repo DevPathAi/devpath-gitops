@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devpath-sandbox-svc
+spec:
+  template:
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: devpath-sandbox-svc
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          env:
+            - name: KAFKA_BOOTSTRAP
+              value: devpath-staging-kafka-bootstrap.kafka.svc:9092
+            - name: DOCKER_HOST
+              value: tcp://devpath-sandbox-runner.devpath-staging.svc:2376
+            - name: MISSION_RELEASE_CONTROL_ENABLED
+              value: "true"
+            - name: INTERNAL_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: mission-spine-release-control
+                  key: internal-token

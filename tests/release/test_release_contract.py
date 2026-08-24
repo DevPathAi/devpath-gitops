@@ -321,6 +321,22 @@ class ReleaseManifestContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "canonical production app origin"):
             self.validator.validate_candidate_spec(invalid, CANDIDATE_FIXTURE)
         invalid = copy.deepcopy(self.candidate)
+        del invalid["journey_harness"]["api_origin"]
+        with self.assertRaisesRegex(ValueError, "missing fields: api_origin"):
+            self.validator.validate_candidate_spec(invalid, CANDIDATE_FIXTURE)
+        invalid = copy.deepcopy(self.candidate)
+        invalid["journey_harness"]["api_origin"] = "https://api.attacker.test"
+        with self.assertRaisesRegex(ValueError, "canonical production API origin"):
+            self.validator.validate_candidate_spec(invalid, CANDIDATE_FIXTURE)
+        invalid = copy.deepcopy(self.candidate)
+        invalid["journey_harness"]["api_origin"] = "https://api.example.test:8443"
+        with self.assertRaisesRegex(ValueError, "canonical production API origin"):
+            self.validator.validate_candidate_spec(invalid, CANDIDATE_FIXTURE)
+        invalid = copy.deepcopy(self.candidate)
+        invalid["journey_harness"]["api_origin"] = invalid["journey_harness"]["app_origin"]
+        with self.assertRaisesRegex(ValueError, "canonical production API origin|origins must be distinct"):
+            self.validator.validate_candidate_spec(invalid, CANDIDATE_FIXTURE)
+        invalid = copy.deepcopy(self.candidate)
         invalid["journey_harness"]["dns_overrides"][0]["hostname"] = "unbound.example.test"
         with self.assertRaisesRegex(ValueError, "cover exactly"):
             self.validator.validate_candidate_spec(invalid, CANDIDATE_FIXTURE)
