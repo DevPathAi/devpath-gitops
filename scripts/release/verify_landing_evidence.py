@@ -121,7 +121,13 @@ def validate_landing_payload(
             raise ValueError(f"landing-last {key} is invalid")
     _positive(payload["approval_environment_id"], "approval environment id")
     _positive(payload["approved_by_id"], "approved reviewer id")
-    state = inspect_chain(gitops_root, candidate, release_hash, payload["on_commit"])
+    state = inspect_chain(
+        gitops_root,
+        candidate,
+        candidate_hash,
+        release_hash,
+        payload["on_commit"],
+    )
     if (
         state["phase"] != "mission-on"
         or state["on_commit"] != payload["on_commit"]
@@ -345,7 +351,9 @@ def verify(
     current_main = _git(gitops_root, "rev-parse", "refs/remotes/origin/main")
     if os.environ.get("GITHUB_SHA") != current_main:
         raise ValueError("landing-last consumer is not the current main commit")
-    current_state = inspect_chain(gitops_root, candidate, release_hash, current_main)
+    current_state = inspect_chain(
+        gitops_root, candidate, candidate_hash, release_hash, current_main
+    )
     if current_state["phase"] not in {"mission-on", "rollback-off", "rollback-prior"}:
         raise ValueError("landing-last consumer requires an exact ON or rollback chain")
     landing_head = current_state["on_commit"]

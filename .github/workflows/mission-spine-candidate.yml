@@ -67,6 +67,8 @@ jobs:
           test "${branch_status[0]}" = $'A\t'"$candidate_path"
           test ! -e "release-manifests/releases/$RELEASE_ID.json"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          python scripts/release/verify_candidate_web_base.py \
+            --root "$PWD" --release-id "$RELEASE_ID"
 
           reported_sha="$(sed -n 's/^candidate_spec_sha256=//p' "$GITHUB_OUTPUT")"
           test "$reported_sha" = "$candidate_sha"

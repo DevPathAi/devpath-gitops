@@ -45,6 +45,7 @@ class ReleaseHardeningTest(unittest.TestCase):
             (FIXTURES / "valid-candidate-spec.json").read_bytes()
         ).hexdigest()
         cls.rollout = load_module("wait_web_rollout.py", "hardened_rollout")
+        cls.stager = load_module("stage_web_release.py", "hardened_stager")
         cls.artifacts = load_module("verify_release_artifacts.py", "hardened_artifacts")
         cls.promoter = load_module("set_web_digest.py", "hardened_promoter")
         cls.cloudflare = load_module("cloudflare_pages.py", "hardened_cloudflare")
@@ -240,6 +241,103 @@ class ReleaseHardeningTest(unittest.TestCase):
                     app, dep, rss, pod_set, "devpath-web", {image}, image, {}, commit
                 )
 
+    def test_rollout_accepts_candidate_bound_staging_deployment_identity(self):
+        application, deployment, replicasets, pods, image, _ = self.healthy_snapshot()
+        expected_container = self.stager.build_patch(
+            copy.deepcopy(self.candidate), self.candidate_hash, "mission-on"
+        )["spec"]["template"]["spec"]["containers"][0]
+        deployment["metadata"]["name"] = "devpath-web-staging"
+        deployment["metadata"]["namespace"] = "devpath-staging"
+        replicasets["items"][0]["metadata"]["ownerReferences"][0]["name"] = (
+            "devpath-web-staging"
+        )
+        for pod_spec in (
+            deployment["spec"]["template"]["spec"],
+            replicasets["items"][0]["spec"]["template"]["spec"],
+            pods["items"][0]["spec"],
+        ):
+            pod_spec["automountServiceAccountToken"] = False
+            pod_spec["containers"] = [copy.deepcopy(expected_container)]
+
+        self.rollout.validate_rollout_snapshot(
+            application,
+            deployment,
+            replicasets,
+            pods,
+            "devpath-web",
+            {image},
+            image,
+            {},
+            None,
+            expected_deployment="devpath-web-staging",
+            expected_namespace="devpath-staging",
+            expected_container_spec=expected_container,
+            require_automount_disabled=True,
+        )
+
+        deployment["spec"]["template"]["spec"]["containers"][0]["command"] = [
+            "/bin/sh",
+            "-c",
+            "id",
+        ]
+        with self.assertRaisesRegex(ValueError, "container shape"):
+            self.rollout.validate_rollout_snapshot(
+                application,
+                deployment,
+                replicasets,
+                pods,
+                "devpath-web",
+                {image},
+                image,
+                {},
+                None,
+                expected_deployment="devpath-web-staging",
+                expected_namespace="devpath-staging",
+                expected_container_spec=expected_container,
+                require_automount_disabled=True,
+            )
+
+    def test_wait_rollout_passes_candidate_bound_staging_identity_on_every_poll(self):
+        candidate = copy.deepcopy(self.candidate)
+        candidate["environments"]["staging"].update(
+            {
+                "kubernetes_context": "devpath-staging",
+                "namespace": "devpath-staging",
+                "web_deployment": "devpath-web-staging",
+                "web_container": "devpath-web",
+                "web_origin": "https://staging-app.13-124-153-105.nip.io",
+            }
+        )
+        snapshot = ({}, {}, {}, {})
+        with mock.patch.dict("os.environ", {"KUBECONFIG": "test"}, clear=True), mock.patch.object(
+            self.rollout,
+            "resolve_release_bundle",
+            return_value=(None, None, None, candidate, self.candidate_hash),
+        ), mock.patch.object(
+            self.rollout, "_snapshot", return_value=snapshot
+        ), mock.patch.object(
+            self.rollout, "validate_rollout_snapshot"
+        ) as validate, mock.patch.object(
+            self.rollout.time, "monotonic", side_effect=(0, 1, 1, 1)
+        ):
+            self.rollout.wait_rollout(
+                ROOT, candidate["release_id"], "staging", "prior", 0
+            )
+        self.assertEqual(validate.call_count, 2)
+        expected_container = self.stager.build_patch(
+            candidate, self.candidate_hash, "prior"
+        )["spec"]["template"]["spec"]["containers"][0]
+        for call in validate.call_args_list:
+            self.assertEqual(
+                call.kwargs,
+                {
+                    "expected_deployment": "devpath-web-staging",
+                    "expected_namespace": "devpath-staging",
+                    "expected_container_spec": expected_container,
+                    "require_automount_disabled": True,
+                },
+            )
+
     def test_synthetic_probe_identity_is_exact_and_release_specific(self):
         digest = self.candidate["frontend"]["selected_on_digest"]
         valid = {
@@ -262,6 +360,29 @@ class ReleaseHardeningTest(unittest.TestCase):
                 self.rollout.validate_synthetic_identity(
                     invalid, self.candidate["release_id"], self.candidate_hash, digest
                 )
+
+    def test_prior_probe_uses_the_exact_sealed_prior_lineage(self):
+        legacy = copy.deepcopy(self.candidate)
+        self.assertIsNone(
+            self.rollout._synthetic_identity(legacy, self.candidate_hash, "prior")
+        )
+        prior = legacy["frontend"]["rollback"]["prior_identity"]
+        prior.update(
+            {
+                "ready": True,
+                "release_id": "ms-20981231-prior-release",
+                "candidate_spec_sha256": "d" * 64,
+                "image_digest": legacy["frontend"]["rollback"]["prior_digest"],
+            }
+        )
+        self.assertEqual(
+            self.rollout._synthetic_identity(legacy, self.candidate_hash, "prior"),
+            (
+                "ms-20981231-prior-release",
+                "d" * 64,
+                legacy["frontend"]["rollback"]["prior_digest"],
+            ),
+        )
 
     def test_release_http_probes_never_follow_redirects(self):
         request = Request(
@@ -391,16 +512,57 @@ class ReleaseHardeningTest(unittest.TestCase):
             self.assertNotIn("cancel-in-progress: true", text)
         self.assertIn("--action verify-prior", texts["mission-spine-rollback.yml"])
 
+    def test_staging_lease_queues_every_pending_transition(self):
+        workflow_dir = ROOT / ".github" / "workflows"
+        validate = (workflow_dir / "mission-spine-validate.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "group: mission-spine-staging\n  queue: max\n  cancel-in-progress: false",
+            validate,
+        )
+        for name in ("mission-spine-promote.yml", "mission-spine-rollback.yml"):
+            text = (workflow_dir / name).read_text(encoding="utf-8")
+            section = text[text.index("  rebaseline_staging:") :]
+            self.assertIn(
+                "group: mission-spine-staging\n      queue: max\n"
+                "      cancel-in-progress: false",
+                section,
+            )
+
     def test_legacy_tag_must_equal_sealed_base_tag_before_digest_mutation(self):
         manifest = copy.deepcopy(self.candidate)
-        source = """images:\n- name: ghcr.io/devpathai/devpath-web\n  newName: ghcr.io/devpathai/devpath-web\n  newTag: 5c5f3a90f8d3da2523bb1dd13c057655f7b82897-mission-on\n"""
-        rendered = self.promoter.render_kustomization(source, manifest, "mission-off", "base")
+        source = """configMapGenerator:
+- name: devpath-web-release-identity
+  literals:
+  - MISSION_RELEASE_READY=false
+  - MISSION_RELEASE_ID=unreleased
+  - MISSION_CANDIDATE_SPEC_SHA256=0000000000000000000000000000000000000000000000000000000000000000
+  - MISSION_IMAGE_DIGEST=sha256:0000000000000000000000000000000000000000000000000000000000000000
+images:
+- name: ghcr.io/devpathai/devpath-web
+  newName: ghcr.io/devpathai/devpath-web
+  newTag: 5c5f3a90f8d3da2523bb1dd13c057655f7b82897-mission-on
+"""
+        rendered = self.promoter.render_kustomization(
+            source,
+            manifest,
+            "mission-off",
+            "base",
+            candidate_spec_sha256=self.candidate_hash,
+        )
         self.assertIn("digest: " + manifest["frontend"]["mission_off"]["image_digest"], rendered)
         arbitrary = source.replace(
             "5c5f3a90f8d3da2523bb1dd13c057655f7b82897-mission-on", "f" * 40
         )
         with self.assertRaisesRegex(ValueError, "trusted base tag"):
-            self.promoter.render_kustomization(arbitrary, manifest, "mission-off", "base")
+            self.promoter.render_kustomization(
+                arbitrary,
+                manifest,
+                "mission-off",
+                "base",
+                candidate_spec_sha256=self.candidate_hash,
+            )
         promote = (ROOT / ".github/workflows/mission-spine-promote.yml").read_text(encoding="utf-8")
         ordered = [
             "--phase migration",
@@ -412,6 +574,66 @@ class ReleaseHardeningTest(unittest.TestCase):
         ]
         positions = [promote.index(needle) for needle in ordered]
         self.assertEqual(positions, sorted(positions))
+
+    def test_base_and_rollback_require_the_exact_sealed_prior_identity(self):
+        manifest = copy.deepcopy(self.candidate)
+        prior_digest = manifest["frontend"]["rollback"]["prior_digest"]
+        prior = {
+            "ready": True,
+            "release_id": "ms-20981231-prior-release",
+            "candidate_spec_sha256": "d" * 64,
+            "image_digest": prior_digest,
+        }
+        manifest["frontend"]["rollback"]["prior_identity"] = prior
+        source = f"""configMapGenerator:
+- name: devpath-web-release-identity
+  literals:
+  - MISSION_RELEASE_READY=true
+  - MISSION_RELEASE_ID={prior['release_id']}
+  - MISSION_CANDIDATE_SPEC_SHA256={prior['candidate_spec_sha256']}
+  - MISSION_IMAGE_DIGEST={prior['image_digest']}
+images:
+- name: ghcr.io/devpathai/devpath-web
+  newName: ghcr.io/devpathai/devpath-web
+  digest: {prior_digest}
+"""
+        rendered = self.promoter.render_kustomization(
+            source,
+            manifest,
+            "mission-off",
+            "base",
+            candidate_spec_sha256=self.candidate_hash,
+        )
+        self.assertIn(
+            "MISSION_RELEASE_ID=" + manifest["release_id"], rendered
+        )
+        forged = source.replace(prior["release_id"], "ms-20981230-forged-prior")
+        with self.assertRaisesRegex(ValueError, "base release identity is not exact"):
+            self.promoter.render_kustomization(
+                forged,
+                manifest,
+                "mission-off",
+                "base",
+                candidate_spec_sha256=self.candidate_hash,
+            )
+
+        off = self.promoter.render_kustomization(
+            source,
+            manifest,
+            "mission-off",
+            "base",
+            candidate_spec_sha256=self.candidate_hash,
+        )
+        restored = self.promoter.render_kustomization(
+            off,
+            manifest,
+            "prior",
+            "mission-off",
+            candidate_spec_sha256=self.candidate_hash,
+        )
+        for value in prior.values():
+            expected = "true" if value is True else str(value)
+            self.assertIn(expected, restored)
 
     def test_each_evidence_kind_has_exact_schema_and_journey_allowlists(self):
         producer = {"producer_run_id": 501, "producer_run_attempt": 3}

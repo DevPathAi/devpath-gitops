@@ -152,6 +152,7 @@ def _write(path: Path, document: dict[str, Any]) -> None:
 def wait_migration(
     root: Path,
     candidate: dict[str, Any],
+    candidate_spec_sha256: str,
     release_manifest_sha256: str,
     migration_commit: str,
     observed_commit: str,
@@ -159,7 +160,13 @@ def wait_migration(
     timeout_seconds: int,
     evidence_out: Path,
 ) -> None:
-    state = inspect_chain(root, candidate, release_manifest_sha256, observed_commit)
+    state = inspect_chain(
+        root,
+        candidate,
+        candidate_spec_sha256,
+        release_manifest_sha256,
+        observed_commit,
+    )
     if state.get("migration_commit") != migration_commit:
         raise ValueError("observed chain does not retain the exact migration commit")
     if _last_path_change(root, observed_commit, MIGRATION_PATH) != migration_commit:
@@ -217,6 +224,7 @@ def wait_migration(
 def wait_services(
     root: Path,
     candidate: dict[str, Any],
+    candidate_spec_sha256: str,
     release_manifest_sha256: str,
     services_commit: str,
     observed_commit: str,
@@ -224,7 +232,13 @@ def wait_services(
     timeout_seconds: int,
     evidence_out: Path,
 ) -> None:
-    state = inspect_chain(root, candidate, release_manifest_sha256, observed_commit)
+    state = inspect_chain(
+        root,
+        candidate,
+        candidate_spec_sha256,
+        release_manifest_sha256,
+        observed_commit,
+    )
     if state.get("services_commit") != services_commit:
         raise ValueError("observed chain does not retain the exact services commit")
     applied_revisions = {
@@ -293,7 +307,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         root = args.root.resolve()
         gitops_root = (args.gitops_root or root).resolve()
-        release_path, _, _, candidate, _ = resolve_release_bundle(root, args.release_id)
+        release_path, _, _, candidate, candidate_spec_sha256 = resolve_release_bundle(
+            root, args.release_id
+        )
         release_manifest_sha256 = hashlib.sha256(release_path.read_bytes()).hexdigest()
         if not os.environ.get("KUBECONFIG"):
             raise ValueError("KUBECONFIG is required")
@@ -303,6 +319,7 @@ def main(argv: list[str] | None = None) -> int:
             wait_migration(
                 gitops_root,
                 candidate,
+                candidate_spec_sha256,
                 release_manifest_sha256,
                 args.introduced_commit,
                 args.observed_commit,
@@ -314,6 +331,7 @@ def main(argv: list[str] | None = None) -> int:
             wait_services(
                 gitops_root,
                 candidate,
+                candidate_spec_sha256,
                 release_manifest_sha256,
                 args.introduced_commit,
                 args.observed_commit,

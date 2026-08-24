@@ -62,12 +62,14 @@ class ProductionWorkflowWiringTest(unittest.TestCase):
             "mission-spine-promote.yml": [
                 ("production_off", "Authenticate this attempt-one protected OFF approval"),
                 ("production_on", "Authenticate this attempt-one protected ON approval"),
+                ("rebaseline_staging", "Authenticate this attempt-one protected staging approval"),
             ],
             "mission-spine-landing-last.yml": [
                 ("landing-last", "Authenticate this attempt-one protected Landing approval")
             ],
             "mission-spine-rollback.yml": [
-                ("reverse-rollback", "Authenticate this attempt-one protected rollback approval")
+                ("reverse-rollback", "Authenticate this attempt-one protected rollback approval"),
+                ("rebaseline_staging", "Authenticate this attempt-one protected staging approval"),
             ],
         }
         for filename, jobs in cases.items():
@@ -90,6 +92,7 @@ class ProductionWorkflowWiringTest(unittest.TestCase):
                             "secrets.GITOPS_RELEASE_APP_PRIVATE_KEY",
                             "secrets.PRODUCTION_KUBECONFIG_B64",
                             "secrets.CLOUDFLARE_API_TOKEN",
+                            "secrets.STAGING_KUBECONFIG_B64",
                         )
                         if value in section
                     ]
@@ -118,12 +121,12 @@ class ProductionWorkflowWiringTest(unittest.TestCase):
         landing = (WORKFLOWS / "mission-spine-landing-last.yml").read_text(encoding="utf-8")
         self.assertEqual(promote.count("name: Remove the exact production kubeconfig"), 2)
         self.assertEqual(rollback.count("name: Remove the exact production kubeconfig"), 1)
-        self.assertEqual(promote.count("if: always()"), 2)
-        self.assertEqual(rollback.count("if: always()"), 1)
-        self.assertEqual(promote.count("manage_production_kubeconfig.py create"), 2)
-        self.assertEqual(promote.count("manage_production_kubeconfig.py cleanup"), 2)
-        self.assertEqual(rollback.count("manage_production_kubeconfig.py create"), 1)
-        self.assertEqual(rollback.count("manage_production_kubeconfig.py cleanup"), 1)
+        self.assertEqual(promote.count("if: always()"), 3)
+        self.assertEqual(rollback.count("if: always()"), 2)
+        self.assertEqual(promote.count("manage_production_kubeconfig.py create"), 3)
+        self.assertEqual(promote.count("manage_production_kubeconfig.py cleanup"), 3)
+        self.assertEqual(rollback.count("manage_production_kubeconfig.py create"), 2)
+        self.assertEqual(rollback.count("manage_production_kubeconfig.py cleanup"), 2)
         self.assertNotIn('> "$RUNNER_TEMP/production-kubeconfig"', promote + rollback)
         self.assertIn("-reverse-rollback-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}", rollback)
         self.assertIn("-landing-last-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}", landing)
@@ -181,6 +184,99 @@ class ProductionWorkflowWiringTest(unittest.TestCase):
                     self.assertTrue(
                         line.endswith("main:refs/remotes/origin/main"), line
                     )
+
+    def test_successful_on_rebaselines_staging_under_the_staging_lease(self):
+        text = (WORKFLOWS / "mission-spine-promote.yml").read_text(encoding="utf-8")
+        start = text.index("  rebaseline_staging:")
+        section = text[start:]
+        self.assertIn("needs: [resolve, production_on]", section)
+        production_on = text[text.index("  production_on:") :]
+        self.assertIn(
+            "on_commit: ${{ steps.commit.outputs.on_commit }}", production_on
+        )
+        self.assertIn("environment: mission-spine-staging", section)
+        self.assertIn("group: mission-spine-staging", section)
+        self.assertIn("queue: max", section)
+        self.assertIn("cancel-in-progress: false", section)
+        self.assertIn("STAGING_KUBECONFIG_B64", section)
+        self.assertIn("ref: ${{ github.sha }}", section)
+        self.assertIn("path: gitops-main", section)
+        self.assertEqual(
+            section.count("verify_post_promotion_staging_context.py"), 2
+        )
+        self.assertIn(
+            '--expected-commit "${{ needs.production_on.outputs.on_commit }}"',
+            section,
+        )
+        self.assertIn("--expected-phase mission-on", section)
+        self.assertLess(
+            section.index("verify_post_promotion_staging_context.py"),
+            section.index("secrets.STAGING_KUBECONFIG_B64"),
+        )
+        self.assertIn(
+            "--phase mission-on --expected-current prior", section
+        )
+        self.assertIn("--environment staging --phase mission-on", section)
+        self.assertIn("--scope staging", section)
+        self.assertIn("manage_production_kubeconfig.py cleanup", section)
+        self.assertIn("failure() && steps.kube.outcome == 'success'", section)
+        self.assertEqual(section.count("stage_web_release.py"), 2)
+
+    def test_successful_rollback_rebaselines_staging_to_the_exact_prior(self):
+        text = (WORKFLOWS / "mission-spine-rollback.yml").read_text(encoding="utf-8")
+        reverse = text[text.index("  reverse-rollback:") : text.index("  rebaseline_staging:")]
+        section = text[text.index("  rebaseline_staging:") :]
+        self.assertIn(
+            "prior_commit: ${{ steps.rollback_prior.outputs.prior_commit }}", reverse
+        )
+        self.assertIn("needs: [reverse-rollback]", section)
+        self.assertIn("environment: mission-spine-staging", section)
+        self.assertIn("group: mission-spine-staging", section)
+        self.assertIn("queue: max", section)
+        self.assertIn("cancel-in-progress: false", section)
+        self.assertIn("STAGING_KUBECONFIG_B64", section)
+        self.assertEqual(
+            section.count("verify_post_promotion_staging_context.py"), 2
+        )
+        self.assertIn("--expected-phase prior", section)
+        self.assertIn(
+            "--expected-commit \"${{ needs['reverse-rollback'].outputs.prior_commit }}\"",
+            section,
+        )
+        self.assertLess(
+            section.index("verify_post_promotion_staging_context.py"),
+            section.index("secrets.STAGING_KUBECONFIG_B64"),
+        )
+        self.assertIn("--phase prior --expected-current candidate", section)
+        self.assertIn("--environment staging --phase prior", section)
+        self.assertIn("--scope staging", section)
+        self.assertIn("manage_production_kubeconfig.py cleanup", section)
+
+    def test_staging_rebaseline_fail_safes_are_exact_and_self_contained(self):
+        cases = (
+            (
+                "mission-spine-promote.yml",
+                "Fail-safe restore staging prior after an incomplete rebaseline",
+                "if: failure() && steps.kube.outcome == 'success' && steps.prior_cas.outcome == 'success'",
+            ),
+            (
+                "mission-spine-rollback.yml",
+                "Fail-safe retain staging prior after an incomplete rebaseline",
+                "if: failure() && steps.kube.outcome == 'success'",
+            ),
+        )
+        for filename, step_name, guard in cases:
+            text = (WORKFLOWS / filename).read_text(encoding="utf-8")
+            start = text.index(f"      - name: {step_name}")
+            end = text.find("\n      - name:", start + 1)
+            block = text[start : len(text) if end < 0 else end]
+            with self.subTest(filename=filename):
+                self.assertIn(guard, block)
+                self.assertEqual(block.count("stage_web_release.py"), 1)
+                self.assertEqual(block.count("wait_web_rollout.py"), 1)
+                self.assertIn("--phase prior --expected-current candidate", block)
+                self.assertIn("--environment staging --phase prior", block)
+                self.assertIn('test -n "${MISSION_SYNTHETIC_PROBE_TOKEN:-}"', block)
 
 
 if __name__ == "__main__":

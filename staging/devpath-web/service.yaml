@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: devpath-web-staging
+spec:
+  selector:
+    app: devpath-web-staging
+  ports:
+  - port: 80
+    targetPort: 8080
