@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: devpath-web-staging
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  ingressClassName: traefik
+  rules:
+  - host: staging-app.13-124-153-105.nip.io
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: devpath-web-staging
+            port:
+              number: 80
+  tls:
+  - hosts:
+    - staging-app.13-124-153-105.nip.io
+    secretName: devpath-web-staging-tls

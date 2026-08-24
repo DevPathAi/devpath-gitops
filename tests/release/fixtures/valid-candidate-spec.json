@@ -96,6 +96,12 @@
     "rollback": {
       "mission_off_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "prior_digest": "sha256:6484ed322027ae23e0b722705347b52b2e882e8133af7df91c421e246de542c7",
+      "prior_identity": {
+        "ready": false,
+        "release_id": "unreleased",
+        "candidate_spec_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "image_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      },
       "final_target": "prior"
     }
   },
@@ -130,10 +136,10 @@
     "staging": {
       "github_environment": "mission-spine-staging",
       "kubernetes_context": "devpath-staging",
-      "namespace": "devpath",
-      "web_deployment": "devpath-web",
+      "namespace": "devpath-staging",
+      "web_deployment": "devpath-web-staging",
       "web_container": "devpath-web",
-      "web_origin": "https://staging-app.example.test",
+      "web_origin": "https://staging-app.13-124-153-105.nip.io",
       "landing_origin": "https://staging.example.test"
     },
     "production": {
@@ -259,14 +265,6 @@
         "case_count": 2,
         "provenance_sha256": "954f95400dfba2122844367cd3eacaa5062a7767957181260ca4f219a5e106bb"
       },
-      "manual-voiceover": {
-        "repository": "DevPathAi/devpath-frontend",
-        "source_sha": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
-        "path": "tool/release-evidence/catalogs/manual-voiceover.v1.json",
-        "sha256": "c988e9ffda573b303e973b763861dacce166977064bc583e541029b4a557cd2e",
-        "case_count": 4,
-        "provenance_sha256": "7930d9745f6be745949f53fd49d0a7a57942005a8ed552c167a51e82eb4ce5f3"
-      },
       "manual-talkback": {
         "repository": "DevPathAi/devpath-frontend",
         "source_sha": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
@@ -383,7 +381,7 @@
       ]
     },
     "mobile_test_artifacts": {
-      "schema_version": "leva.mission-spine.signed-mobile-build-binding.v1",
+      "schema_version": "leva.mission-spine.signed-android-build-binding.v2",
       "repository": "DevPathAi/devpath-frontend",
       "source_sha": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
       "event": "workflow_dispatch",
@@ -392,14 +390,12 @@
       "workflow_run_id": 110,
       "run_attempt": 1,
       "artifact_id": 212,
-      "artifact_name": "ms-20990101-contract-fixture-signed-mobile-build-run-110-attempt-1",
+      "artifact_name": "ms-20990101-contract-fixture-signed-android-build-run-110-attempt-1",
       "artifact_archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "build_provenance_file": "build-provenance.v1.json",
+      "build_provenance_file": "build-provenance.v2.json",
       "build_provenance_sha256": "6666666666666666666666666666666666666666666666666666666666666666",
       "signed_apk_file": "mobile/android/leva-release.apk",
-      "signed_apk_sha256": "7777777777777777777777777777777777777777777777777777777777777777",
-      "signed_ipa_file": "mobile/ios/leva-release.ipa",
-      "signed_ipa_sha256": "8888888888888888888888888888888888888888888888888888888888888888"
+      "signed_apk_sha256": "7777777777777777777777777777777777777777777777777777777777777777"
     }
   },
   "rollout": {

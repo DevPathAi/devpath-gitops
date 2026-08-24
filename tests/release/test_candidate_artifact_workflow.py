@@ -60,6 +60,10 @@ class CandidateArtifactWorkflowTest(unittest.TestCase):
         self.assertIn("fetch-depth: 0", text)
         self.assertIn("persist-credentials: false", text)
         self.assertNotRegex(text, r"(?m)^\s*git fetch (?:origin main|--all)\s*$")
+        self.assertIn("verify_candidate_web_base.py", text)
+        self.assertLess(
+            text.index("verify_candidate_web_base.py"), text.index("artifact_dir=")
+        )
 
     def test_upload_is_exact_one_file_byte_copy_with_run_scoped_name(self):
         text = self.text

@@ -4,6 +4,13 @@ resources:
 - deployment.yaml
 - service.yaml
 - ingress.yaml
+configMapGenerator:
+- name: devpath-web-release-identity
+  literals:
+  - MISSION_RELEASE_READY=false
+  - MISSION_RELEASE_ID=unreleased
+  - MISSION_CANDIDATE_SPEC_SHA256=0000000000000000000000000000000000000000000000000000000000000000
+  - MISSION_IMAGE_DIGEST=sha256:0000000000000000000000000000000000000000000000000000000000000000
 images:
 - name: ghcr.io/devpathai/devpath-web
   newName: ghcr.io/devpathai/devpath-web

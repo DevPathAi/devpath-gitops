@@ -97,6 +97,33 @@ class ServicePromotionTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.promoter.render_kustomization(mutated, self.candidate, name)
 
+    def test_image_entry_count_is_scoped_to_the_images_section(self):
+        name = "devpath-admin"
+        source = (ROOT / self.promoter.SERVICE_PATHS[name]).read_text(encoding="utf-8")
+        with_generator = (
+            "configMapGenerator:\n"
+            "- name: unrelated-runtime-config\n"
+            "  literals:\n"
+            "  - MODE=exact\n"
+            + source
+        )
+        rendered = self.promoter.render_kustomization(
+            with_generator, self.candidate, name
+        )
+        self.assertIn("- name: unrelated-runtime-config", rendered)
+        duplicate_image = source.replace(
+            "images:\n",
+            "images:\n"
+            "- name: ghcr.io/devpathai/extra\n"
+            "  newName: ghcr.io/devpathai/extra\n"
+            "  newTag: main\n",
+            1,
+        )
+        with self.assertRaisesRegex(ValueError, "exactly one image entry"):
+            self.promoter.render_kustomization(
+                duplicate_image, self.candidate, name
+            )
+
     def test_rendered_output_requires_one_exact_target_image_and_no_tag_form(self):
         name = "devpath-ai-svc"
         service = self.candidate["services"][name]

@@ -317,6 +317,7 @@ def _git(root: Path, args: list[str]) -> str:
 def validate_git_coordinates(
     root: Path,
     candidate: dict[str, Any],
+    candidate_hash: str,
     release: dict[str, Any],
     release_hash: str,
     payload: dict[str, Any],
@@ -354,7 +355,9 @@ def validate_git_coordinates(
     ).splitlines()
     if changed != [gitops["sole_changed_path"]]:
         raise ValueError("migration result commit changed paths are not exact")
-    state = inspect_chain(chain_root, candidate, release_hash, migration_commit)
+    state = inspect_chain(
+        chain_root, candidate, candidate_hash, release_hash, migration_commit
+    )
     if state["phase"] != "migration" or state["migration_commit"] != migration_commit:
         raise ValueError("migration result commit is not the exact migration chain phase")
     return {
@@ -552,9 +555,17 @@ def discover_migration_result(
     if _git(chain_root, ["rev-parse", "refs/remotes/origin/main"]) != current_main:
         raise ValueError("shared-migration-result: fetched GitOps main drifted")
     coordinates = validate_git_coordinates(
-        root, candidate, release, release_hash, payload, gitops_root=chain_root
+        root,
+        candidate,
+        candidate_hash,
+        release,
+        release_hash,
+        payload,
+        gitops_root=chain_root,
     )
-    current_state = inspect_chain(chain_root, candidate, release_hash, current_main)
+    current_state = inspect_chain(
+        chain_root, candidate, candidate_hash, release_hash, current_main
+    )
     if current_state.get("migration_commit") != migration_commit:
         raise ValueError("shared-migration-result: current main does not retain exact migration")
     outputs: dict[str, Any] = {
