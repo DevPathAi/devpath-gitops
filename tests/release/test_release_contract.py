@@ -136,7 +136,7 @@ class ReleaseManifestContractTest(unittest.TestCase):
             ):
                 schema_validator.validate(invalid)
 
-    def test_all_application_services_and_v1011_are_bound(self):
+    def test_all_application_services_and_et11_migration_are_bound(self):
         invalid = copy.deepcopy(self.candidate)
         del invalid["services"]["devpath-lcs-svc"]
         with self.assertRaisesRegex(ValueError, "services"):
@@ -147,8 +147,29 @@ class ReleaseManifestContractTest(unittest.TestCase):
             self.validator.validate_candidate_spec(invalid, CANDIDATE_FIXTURE)
         invalid = copy.deepcopy(self.candidate)
         invalid["shared_migration"]["flyway_target"] = "202608161010"
-        with self.assertRaisesRegex(ValueError, "202608201002"):
+        with self.assertRaisesRegex(ValueError, "202608221001"):
             self.validator.validate_candidate_spec(invalid, CANDIDATE_FIXTURE)
+
+    def test_candidate_accepts_exact_et11_shared_release_contract(self):
+        candidate = copy.deepcopy(self.candidate)
+        candidate["shared_migration"].update(
+            {
+                "source_sha": "c4d468a70e8870e8f60f25539e91599def75f0f2",
+                "shared_version": "0.0.1-et11.20260822",
+                "shared_jar_sha256": (
+                    "eaab3aa3ad891f7dfeafb084e63d89645978d7716eb0c90a0dda42e0c40dac2e"
+                ),
+                "image_digest": (
+                    "sha256:f1ac7dac56643c2adf3dc62ace83628758826d3ebae710a13c788bfeb73e0fc6"
+                ),
+                "flyway_target": "202608221001",
+                "required_migration": (
+                    "V202608221001__correct_question_bank_accuracy.sql"
+                ),
+            }
+        )
+
+        self.validator.validate_candidate_spec(candidate, CANDIDATE_FIXTURE)
 
     def test_evidence_and_ai_release_gate_fail_closed(self):
         invalid = copy.deepcopy(self.release)

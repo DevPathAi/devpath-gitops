@@ -100,12 +100,12 @@
       "properties": {
         "repository": {"const": "DevPathAi/devpath-shared"},
         "source_sha": {"$ref": "#/$defs/sha40"},
-        "shared_version": {"const": "0.0.1-et10.20260820"},
+        "shared_version": {"const": "0.0.1-et11.20260822"},
         "shared_jar_sha256": {"$ref": "#/$defs/sha64"},
         "image_repository": {"const": "ghcr.io/devpathai/devpath-migration"},
         "image_digest": {"$ref": "#/$defs/digest"},
-        "flyway_target": {"const": "202608201002"},
-        "required_migration": {"const": "V202608201002__validate_community_content_soft_delete.sql"},
+        "flyway_target": {"const": "202608221001"},
+        "required_migration": {"const": "V202608221001__correct_question_bank_accuracy.sql"},
         "rollback_policy": {"const": "additive-retained"}
       },
       "additionalProperties": false

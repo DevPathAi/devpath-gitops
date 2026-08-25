@@ -69,13 +69,13 @@
   },
   "shared_migration": {
     "repository": "DevPathAi/devpath-shared",
-    "source_sha": "58c78bfe35e99e618863b53f689c216b40295826",
-    "shared_version": "0.0.1-et10.20260820",
-    "shared_jar_sha256": "0f74ac34ae08fdf6ffeb7903dc1a17775ddca7c0fa67171a2f217d71887bf544",
+    "source_sha": "c4d468a70e8870e8f60f25539e91599def75f0f2",
+    "shared_version": "0.0.1-et11.20260822",
+    "shared_jar_sha256": "eaab3aa3ad891f7dfeafb084e63d89645978d7716eb0c90a0dda42e0c40dac2e",
     "image_repository": "ghcr.io/devpathai/devpath-migration",
-    "image_digest": "sha256:abababababababababababababababababababababababababababababababab",
-    "flyway_target": "202608201002",
-    "required_migration": "V202608201002__validate_community_content_soft_delete.sql",
+    "image_digest": "sha256:f1ac7dac56643c2adf3dc62ace83628758826d3ebae710a13c788bfeb73e0fc6",
+    "flyway_target": "202608221001",
+    "required_migration": "V202608221001__correct_question_bank_accuracy.sql",
     "rollback_policy": "additive-retained"
   },
   "frontend": {
