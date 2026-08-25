@@ -174,6 +174,38 @@ class MissionStagingStackTest(unittest.TestCase):
         tls_hosts = set(ingress["spec"]["tls"][0]["hosts"])
         self.assertEqual(tls_hosts, hosts)
 
+    def test_traefik_can_reach_cert_manager_http01_solvers(self):
+        policies = {
+            document["metadata"]["name"]: document
+            for document in load_all(STACK / "networkpolicy.yaml")
+        }
+        policy = policies["mission-spine-acme-http01"]
+        self.assertEqual(
+            policy["spec"]["podSelector"]["matchLabels"],
+            {"acme.cert-manager.io/http01-solver": "true"},
+        )
+        ingress = policy["spec"]["ingress"]
+        self.assertEqual(len(ingress), 1)
+        self.assertEqual(
+            ingress[0]["from"],
+            [
+                {
+                    "namespaceSelector": {
+                        "matchLabels": {
+                            "kubernetes.io/metadata.name": "kube-system"
+                        }
+                    },
+                    "podSelector": {
+                        "matchLabels": {"app.kubernetes.io/name": "traefik"}
+                    },
+                }
+            ],
+        )
+        self.assertEqual(
+            ingress[0]["ports"],
+            [{"protocol": "TCP", "port": 8089}],
+        )
+
     def test_provisioning_preinstalls_privileged_database_extensions(self):
         script = (ROOT / "scripts" / "release" / "provision_mission_staging.sh").read_text(
             encoding="utf-8"
