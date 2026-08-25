@@ -1216,15 +1216,15 @@ images:
         )
         self.assertEqual(
             self.candidate["shared_migration"]["source_sha"],
-            "58c78bfe35e99e618863b53f689c216b40295826",
+            "c4d468a70e8870e8f60f25539e91599def75f0f2",
         )
         self.assertEqual(
             self.candidate["shared_migration"]["shared_version"],
-            "0.0.1-et10.20260820",
+            "0.0.1-et11.20260822",
         )
         self.assertEqual(
             self.candidate["shared_migration"]["shared_jar_sha256"],
-            "0f74ac34ae08fdf6ffeb7903dc1a17775ddca7c0fa67171a2f217d71887bf544",
+            "eaab3aa3ad891f7dfeafb084e63d89645978d7716eb0c90a0dda42e0c40dac2e",
         )
         self.assertEqual(
             self.candidate["frontend"]["source_sha"],

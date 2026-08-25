@@ -19,7 +19,7 @@ The candidate-spec binds:
 
 - GitOps repository and exact `base_sha`, the one trusted legacy web tag plus its prior digest, and the one mutable path `apps/devpath-web/base/kustomization.yaml`;
 - source SHA plus immutable OCI digest for every application service;
-- Shared source, immutable version/JAR SHA-256, migration image, Flyway target `202608201002`, required V1011 validation, and the additive-retained rollback policy;
+- Shared source, immutable version/JAR SHA-256, migration image, Flyway target `202608221001`, required question-bank accuracy correction, and the additive-retained rollback policy;
 - frontend source, compiled app/config contract versions, distinct mission-OFF and mission-ON tag/digest pairs, selected ON digest, OFF rollback digest, prior digest, and the exact prior runtime lineage (`ready`, release ID, candidate-spec SHA-256, and identity digest); the only disabled lineage is the canonical unreleased zero sentinel used by the one legacy bootstrap;
 - Home source, deterministic canonical `dist.tar.gz` SHA-256, Cloudflare preview candidate ID, and current prior production ID;
 - analytics privacy mode/region/retention/access/deletion inputs and the exact protected Documents source;
