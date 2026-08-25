@@ -765,11 +765,11 @@ class Et13EvidenceContractTest(unittest.TestCase):
         positions = [workflow.index(needle) for needle in ordered]
         self.assertEqual(positions, sorted(positions))
 
-    def test_home_journey_install_repairs_container_created_dependency_mount(self):
+    def test_home_journey_install_repairs_container_created_outputs(self):
         workflow = VALIDATION_WORKFLOW.read_text(encoding="utf-8")
         capture = workflow.index("npm run visual:evidence:docker")
         ownership = workflow.index(
-            "- name: Normalize Docker-created Home dependency mount ownership"
+            "- name: Normalize Docker-created Home output ownership"
         )
         install = workflow.index("- name: Install deterministic Home journey harness")
         self.assertLess(capture, ownership)
@@ -780,6 +780,12 @@ class Et13EvidenceContractTest(unittest.TestCase):
             "test ! -L node_modules",
             'sudo chown "$(id -u):$(id -g)" node_modules',
             "test -w node_modules",
+            "test -d test-results",
+            "test ! -L test-results",
+            'test -z "$(find test-results -type l -print -quit)"',
+            'test -z "$(find test-results -mindepth 1 ! -type f ! -type d -print -quit)"',
+            'sudo chown -R -- "$(id -u):$(id -g)" test-results',
+            "test -w test-results",
         ):
             with self.subTest(needle=needle):
                 self.assertIn(needle, ownership_step)
