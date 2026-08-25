@@ -325,7 +325,11 @@ def _write_outputs(path: Path, outputs: dict[str, str]) -> None:
         raise ValueError("GITHUB_OUTPUT must be an existing regular file")
     with path.open("a", encoding="utf-8", newline="\n") as output:
         for key, value in outputs.items():
-            if re.fullmatch(r"[a-z_]+", key) is None or "\n" in value or "\r" in value:
+            if (
+                re.fullmatch(r"[a-z][a-z0-9_]*", key) is None
+                or "\n" in value
+                or "\r" in value
+            ):
                 raise ValueError("main release context output is unsafe")
             output.write(f"{key}={value}\n")
 
