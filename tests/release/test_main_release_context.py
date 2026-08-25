@@ -374,6 +374,33 @@ class MainReleaseContextTest(unittest.TestCase):
                     release_id, "attacker", None
                 )
 
+    def test_github_outputs_allow_safe_hash_keys_and_reject_unsafe_content(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "github-output"
+            output.write_bytes(b"")
+
+            module._write_outputs(
+                output,
+                {
+                    "candidate_spec_sha256": "c" * 64,
+                    "validator_run_attempt": "1",
+                },
+            )
+            self.assertEqual(
+                output.read_text(encoding="utf-8"),
+                "candidate_spec_sha256=" + "c" * 64 + "\nvalidator_run_attempt=1\n",
+            )
+
+            for key, value in (
+                ("9invalid", "safe"),
+                ("invalid-key", "safe"),
+                ("valid_key", "unsafe\nvalue"),
+            ):
+                with self.subTest(key=key, value=value), self.assertRaisesRegex(
+                    ValueError, "unsafe"
+                ):
+                    module._write_outputs(output, {key: value})
+
 
 if __name__ == "__main__":
     unittest.main()
