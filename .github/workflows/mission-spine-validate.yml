@@ -143,7 +143,7 @@ jobs:
           retention-days: 30
           overwrite: false
           include-hidden-files: false
-      - name: Normalize Docker-created Home dependency mount ownership
+      - name: Normalize Docker-created Home output ownership
         working-directory: home
         run: |
           set -euo pipefail
@@ -151,6 +151,12 @@ jobs:
           test ! -L node_modules
           sudo chown "$(id -u):$(id -g)" node_modules
           test -w node_modules
+          test -d test-results
+          test ! -L test-results
+          test -z "$(find test-results -type l -print -quit)"
+          test -z "$(find test-results -mindepth 1 ! -type f ! -type d -print -quit)"
+          sudo chown -R -- "$(id -u):$(id -g)" test-results
+          test -w test-results
       - name: Install deterministic Home journey harness
         working-directory: home
         run: |
