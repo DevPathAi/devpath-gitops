@@ -736,6 +736,7 @@ def _validate_journey_harness(value: Any, path: str, environments: dict[str, Any
         {
             "landing_origin",
             "app_origin",
+            "api_origin",
             "control_origin",
             "oauth_origin",
             "analytics_spy_origin",
@@ -745,12 +746,28 @@ def _validate_journey_harness(value: Any, path: str, environments: dict[str, Any
     )
     origins = {
         field: _https_url(obj[field], f"{path}.{field}")
-        for field in ("landing_origin", "app_origin", "control_origin", "oauth_origin", "analytics_spy_origin")
+        for field in (
+            "landing_origin",
+            "app_origin",
+            "api_origin",
+            "control_origin",
+            "oauth_origin",
+            "analytics_spy_origin",
+        )
     }
     if origins["landing_origin"] != environments["production"]["landing_origin"]:
         _fail(f"{path}.landing_origin", "must exactly match the canonical production Landing origin")
     if origins["app_origin"] != environments["production"]["web_origin"]:
         _fail(f"{path}.app_origin", "must exactly match the canonical production app origin")
+    app_hostname = urlsplit(origins["app_origin"]).hostname
+    if not app_hostname or not app_hostname.startswith("app."):
+        _fail(f"{path}.app_origin", "canonical production app hostname must start with app.")
+    expected_api_origin = f"https://api.{app_hostname.removeprefix('app.')}"
+    if origins["api_origin"] != expected_api_origin:
+        _fail(
+            f"{path}.api_origin",
+            f"must exactly match the canonical production API origin {expected_api_origin}",
+        )
     if len(set(origins.values())) != len(origins):
         _fail(path, "journey harness origins must be distinct")
 

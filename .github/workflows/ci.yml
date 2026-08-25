@@ -48,6 +48,10 @@ jobs:
           test -f staging/devpath-web/kustomization.yaml
           for dir in apps/*/base staging/*/; do
             echo "== $dir =="
-            kubectl kustomize "$dir" > /dev/null
+            if [ "$dir" = "staging/mission-spine/" ]; then
+              kubectl kustomize "$dir" --load-restrictor=LoadRestrictionsNone > /dev/null
+            else
+              kubectl kustomize "$dir" > /dev/null
+            fi
           done
           echo "all kustomize bases rendered OK"
