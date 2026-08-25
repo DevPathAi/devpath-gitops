@@ -16,7 +16,7 @@ spec:
               service:
                 name: devpath-platform-svc
                 port:
-                  number: 80
+                  number: 8080
     - host: oauth.staging.leva.ai.kr
       http:
         paths:
@@ -26,7 +26,7 @@ spec:
               service:
                 name: devpath-platform-svc
                 port:
-                  number: 80
+                  number: 8080
     - host: analytics-spy.staging.leva.ai.kr
       http:
         paths:
@@ -36,7 +36,7 @@ spec:
               service:
                 name: devpath-platform-svc
                 port:
-                  number: 80
+                  number: 8080
   tls:
     - hosts:
         - release-control.staging.leva.ai.kr

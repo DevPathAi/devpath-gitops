@@ -173,6 +173,10 @@ class MissionStagingStackTest(unittest.TestCase):
         )
         tls_hosts = set(ingress["spec"]["tls"][0]["hosts"])
         self.assertEqual(tls_hosts, hosts)
+        for rule in ingress["spec"]["rules"]:
+            backend = rule["http"]["paths"][0]["backend"]["service"]
+            self.assertEqual(backend["name"], "devpath-platform-svc")
+            self.assertEqual(backend["port"], {"number": 8080})
 
     def test_traefik_can_reach_cert_manager_http01_solvers(self):
         policies = {
