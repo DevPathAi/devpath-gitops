@@ -28,6 +28,6 @@ spec:
       priority: 1000
       services:
         - name: devpath-gateway
-          port: 80
+          port: 8080
   tls:
     secretName: devpath-gateway-tls
