@@ -375,6 +375,13 @@ jobs:
           test -n "${STAGING_KUBECONFIG_B64:-}"
           python control/scripts/release/manage_production_kubeconfig.py create \
             --scope staging --runner-temp "$RUNNER_TEMP" --github-env "$GITHUB_ENV"
+      - name: Pin exact staging synthetic hostname
+        run: |
+          set -euo pipefail
+          printf '%s\n' '13.124.153.105 staging-app.13-124-153-105.nip.io' \
+            | sudo tee -a /etc/hosts >/dev/null
+          test "$(getent ahostsv4 staging-app.13-124-153-105.nip.io \
+            | awk 'NR == 1 { print $1; exit }')" = '13.124.153.105'
       - name: Verify live prior CAS
         id: prior_cas
         env:
