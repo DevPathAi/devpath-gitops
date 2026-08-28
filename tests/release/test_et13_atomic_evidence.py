@@ -436,6 +436,45 @@ class Et13AtomicEvidenceTest(unittest.TestCase):
                 self.candidate["frontend"]["source_sha"],
             )
 
+    def test_release_selection_ignores_runs_without_exact_release_artifact_pair(self):
+        expected_head = self.candidate["frontend"]["source_sha"]
+        base = {
+            "status": "completed",
+            "conclusion": "success",
+            "event": "workflow_dispatch",
+            "head_sha": expected_head,
+            "head_branch": "main",
+            "path": ".github/workflows/et13-evidence.yml",
+            "run_attempt": 1,
+        }
+        runs = [{**base, "id": 501}, {**base, "id": 502}]
+        release_id = self.candidate["release_id"]
+
+        def fake_list_named_artifacts(_env, _repository, artifact_name):
+            if "-run-502-" in artifact_name:
+                return []
+            return [
+                {
+                    "name": artifact_name,
+                    "expired": False,
+                    "workflow_run": {"id": 501},
+                }
+            ]
+
+        with mock.patch.object(
+            self.sealer,
+            "_list_named_artifacts",
+            side_effect=fake_list_named_artifacts,
+        ):
+            selected = self.sealer.select_frontend_evidence_run(
+                runs,
+                expected_head,
+                env={},
+                repository=self.candidate["frontend"]["repository"],
+                release_id=release_id,
+            )
+        self.assertEqual(selected["id"], 501)
+
     def test_run_discovery_paginates_and_detects_page_two_competing_run(self):
         expected_head = self.candidate["frontend"]["source_sha"]
         base = {

@@ -317,8 +317,12 @@ def _discover_external_artifact(
 def select_frontend_evidence_run(
     runs: list[dict[str, Any]],
     expected_head: str,
+    *,
+    env: dict[str, str] | None = None,
+    repository: str | None = None,
+    release_id: str | None = None,
 ) -> dict[str, Any]:
-    """Select the highest successful attempt of exactly one dispatched producer run."""
+    """Select one dispatched producer run, optionally scoped by release artifacts."""
     eligible = [
         run
         for run in runs
@@ -334,6 +338,40 @@ def select_frontend_evidence_run(
         and not isinstance(run.get("run_attempt"), bool)
         and run["run_attempt"] > 0
     ]
+    release_context = (env, repository, release_id)
+    if any(value is not None for value in release_context):
+        if not all(value is not None for value in release_context):
+            raise ValueError("frontend release selection context must be complete")
+        assert env is not None
+        assert repository is not None
+        assert release_id is not None
+        release_eligible: list[dict[str, Any]] = []
+        for run in eligible:
+            complete = True
+            for label in FRONTEND_CATALOG_CONTRACTS:
+                name = quality_artifact_name(
+                    label,
+                    release_id,
+                    run["run_attempt"],
+                    run["id"],
+                )
+                matches = [
+                    metadata
+                    for metadata in _list_named_artifacts(env, repository, name)
+                    if metadata.get("name") == name
+                    and metadata.get("expired") is False
+                    and (metadata.get("workflow_run") or {}).get("id") == run["id"]
+                ]
+                if len(matches) > 1:
+                    raise ValueError(
+                        f"{label}: duplicate active artifacts for one producer run"
+                    )
+                if len(matches) != 1:
+                    complete = False
+                    break
+            if complete:
+                release_eligible.append(run)
+        eligible = release_eligible
     run_ids = {run["id"] for run in eligible}
     if len(run_ids) != 1:
         raise ValueError("exactly one frontend producer run is required")
@@ -606,7 +644,13 @@ def _discover_frontend_pair(
     repository = candidate["frontend"]["repository"]
     expected_head = candidate["frontend"]["source_sha"]
     runs = list_frontend_evidence_runs(env, repository, expected_head)
-    selected = select_frontend_evidence_run(runs, expected_head)
+    selected = select_frontend_evidence_run(
+        runs,
+        expected_head,
+        env=env,
+        repository=repository,
+        release_id=release_id,
+    )
     run_id = selected["id"]
     run_attempt = selected["run_attempt"]
     discovered: dict[str, dict[str, Any]] = {}
