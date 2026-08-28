@@ -363,6 +363,7 @@ jobs:
       - name: Configure approved staging cluster
         id: kube
         env:
+          GH_TOKEN: ${{ github.token }}
           STAGING_KUBECONFIG_B64: ${{ secrets.STAGING_KUBECONFIG_B64 }}
         run: |
           set -euo pipefail
