@@ -8,6 +8,16 @@ APP_ACTION = "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da40
 
 
 class ProductionWorkflowWiringTest(unittest.TestCase):
+    def test_staging_seal_context_check_receives_the_workflow_token(self):
+        text = (WORKFLOWS / "mission-spine-validate.yml").read_text(
+            encoding="utf-8"
+        )
+        start = text.index("      - name: Configure approved staging cluster")
+        end = text.index("\n      - name:", start + 1)
+        section = text[start:end]
+        self.assertIn("GH_TOKEN: ${{ github.token }}", section)
+        self.assertIn("--mode sealed", section)
+
     def test_all_production_workflows_serialize_without_unapproved_cancellation(self):
         for filename in (
             "mission-spine-promote.yml",
