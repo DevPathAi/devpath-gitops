@@ -223,6 +223,59 @@ class SignedMobileManualTrustTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.validator.validate_candidate_spec(invalid, CANDIDATE_FIXTURE)
 
+    def test_signed_mobile_maps_candidate_source_to_producer_head(self):
+        mobile = self.candidate["quality_evidence_inputs"]["mobile_test_artifacts"]
+        run = {
+            "id": mobile["workflow_run_id"],
+            "status": "completed",
+            "conclusion": "success",
+            "event": mobile["event"],
+            "head_sha": mobile["source_sha"],
+            "head_branch": "main",
+            "path": mobile["workflow_path"],
+            "run_attempt": mobile["run_attempt"],
+            "repository": {"full_name": mobile["repository"]},
+        }
+        metadata = {
+            "id": mobile["artifact_id"],
+            "name": mobile["artifact_name"],
+            "expired": False,
+            "digest": f"sha256:{mobile['artifact_archive_sha256']}",
+            "workflow_run": {"id": mobile["workflow_run_id"]},
+        }
+        workflow = b"name: signed-mobile\n"
+
+        class ProvenanceChecked(Exception):
+            pass
+
+        def validate_provenance(label, producer, reference, expected_head, *_args):
+            self.assertEqual(label, "signed-mobile")
+            self.assertEqual(producer, run)
+            self.assertEqual(reference["head_sha"], mobile["source_sha"])
+            self.assertEqual(expected_head, mobile["source_sha"])
+            raise ProvenanceChecked
+
+        with mock.patch.object(
+            self.verifier,
+            "_run_json",
+            side_effect=[metadata, run, run],
+        ), mock.patch.object(
+            self.verifier,
+            "_workflow_bytes",
+            return_value=workflow,
+        ), mock.patch.object(
+            self.verifier,
+            "validate_workflow_dispatch_inputs",
+        ), mock.patch.object(
+            self.verifier,
+            "validate_run_provenance",
+            side_effect=validate_provenance,
+        ):
+            with self.assertRaises(ProvenanceChecked):
+                self.verifier.verify_signed_mobile_artifact(
+                    {}, self.candidate, Path("unused")
+                )
+
     def test_signed_mobile_hashes_and_ids_fail_closed(self):
         for field in ("workflow_run_id", "run_attempt", "artifact_id"):
             with self.subTest(field=field):

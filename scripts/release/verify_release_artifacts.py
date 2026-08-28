@@ -3605,10 +3605,11 @@ def verify_signed_mobile_artifact(
         {"release_id"},
         "signed-mobile",
     )
+    run_reference = {**mobile, "head_sha": mobile["source_sha"]}
     validate_run_provenance(
         "signed-mobile",
         run,
-        mobile,
+        run_reference,
         mobile["source_sha"],
         SIGNED_MOBILE_WORKFLOW,
         workflow_raw,
