@@ -18,6 +18,18 @@ class ProductionWorkflowWiringTest(unittest.TestCase):
         self.assertIn("GH_TOKEN: ${{ github.token }}", section)
         self.assertIn("--mode sealed", section)
 
+    def test_staging_seal_pins_the_exact_synthetic_host_before_cluster_checks(self):
+        text = (WORKFLOWS / "mission-spine-validate.yml").read_text(
+            encoding="utf-8"
+        )
+        start = text.index("  seal-and-staging:")
+        section = text[start:]
+        alias = "13.124.153.105 staging-app.13-124-153-105.nip.io"
+        self.assertIn("Pin exact staging synthetic hostname", section)
+        self.assertIn(alias, section)
+        self.assertIn("sudo tee -a /etc/hosts", section)
+        self.assertLess(section.index(alias), section.index("Verify live prior CAS"))
+
     def test_all_production_workflows_serialize_without_unapproved_cancellation(self):
         for filename in (
             "mission-spine-promote.yml",
