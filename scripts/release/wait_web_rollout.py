@@ -11,7 +11,7 @@ import subprocess
 import sys
 import time
 from typing import Any
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 from validate_release_manifest import resolve_release_bundle
 from stage_web_release import build_patch as build_staging_patch
@@ -29,7 +29,11 @@ class _NoRedirectHandler(HTTPRedirectHandler):
         return None
 
 
-_NO_REDIRECT_OPENER = build_opener(_NoRedirectHandler())
+# Release probe credentials must travel directly to the pinned origin.  Do not
+# inherit runner-level proxy configuration: a proxy would resolve the hostname
+# outside the runner and bypass the exact /etc/hosts pin installed by the
+# staging validation workflow.
+_NO_REDIRECT_OPENER = build_opener(ProxyHandler({}), _NoRedirectHandler())
 
 
 def _expected_digest(candidate: dict[str, Any], phase: str) -> str:

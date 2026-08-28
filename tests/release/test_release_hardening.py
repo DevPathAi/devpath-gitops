@@ -2,6 +2,7 @@ import copy
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -9,7 +10,7 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
-from urllib.request import Request
+from urllib.request import ProxyHandler, Request
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -166,6 +167,23 @@ class ReleaseHardeningTest(unittest.TestCase):
             ]
         }
         return application, deployment, replicasets, pods, image, commit
+
+    def test_synthetic_probe_opener_disables_environment_proxies(self):
+        with mock.patch.dict(
+            os.environ,
+            {"HTTPS_PROXY": "http://proxy.invalid:8443"},
+            clear=False,
+        ):
+            rollout = load_module(
+                "wait_web_rollout.py",
+                "hardened_rollout_with_environment_proxy",
+            )
+        self.assertFalse(
+            any(
+                isinstance(handler, ProxyHandler)
+                for handler in rollout._NO_REDIRECT_OPENER.handlers
+            )
+        )
 
     def test_rollout_requires_actual_ready_nonterminating_digest_and_stable_restarts(self):
         application, deployment, replicasets, pods, image, commit = self.healthy_snapshot()
@@ -402,7 +420,12 @@ class ReleaseHardeningTest(unittest.TestCase):
                 )
             )
             source = (SCRIPTS / Path(module.__file__).name).read_text(encoding="utf-8")
-            self.assertIn("build_opener(_NoRedirectHandler())", source)
+            opener = (
+                "build_opener(ProxyHandler({}), _NoRedirectHandler())"
+                if module is self.rollout
+                else "build_opener(_NoRedirectHandler())"
+            )
+            self.assertIn(opener, source)
             self.assertNotIn("with urlopen(request", source)
 
     def test_artifact_run_provenance_is_exact_not_suffix_or_branch_spoofable(self):
