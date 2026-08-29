@@ -16,6 +16,9 @@ REPOSITORY = "DevPathAi/devpath-gitops"
 SHA40 = re.compile(r"[0-9a-f]{40}")
 LOGIN = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?")
 TEAM_SLUG = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9_-]{0,98}[A-Za-z0-9])?")
+ACTIONS_BOT_ID = 41898282
+ACTIONS_BOT_LOGIN = "github-actions[bot]"
+ACTIONS_BOT_TYPE = "Bot"
 
 
 def _positive(value: Any, label: str) -> int:
@@ -44,6 +47,26 @@ def _identity(value: Any, label: str) -> tuple[int, str]:
     if not isinstance(login, str) or LOGIN.fullmatch(login) is None:
         raise ValueError(f"{label} login is invalid")
     return identity_id, login
+
+
+def _initiator_identity(value: Any, label: str) -> tuple[int, str]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} identity is missing")
+    login = value.get("login")
+    claims_automation = value.get("type") == ACTIONS_BOT_TYPE or (
+        isinstance(login, str) and (login == ACTIONS_BOT_LOGIN or "[bot]" in login)
+    )
+    if claims_automation:
+        if (
+            value.get("id") != ACTIONS_BOT_ID
+            or login != ACTIONS_BOT_LOGIN
+            or value.get("type") != ACTIONS_BOT_TYPE
+        ):
+            raise ValueError(
+                f"{label} must be exact GitHub Actions automation"
+            )
+        return ACTIONS_BOT_ID, ACTIONS_BOT_LOGIN
+    return _identity(value, label)
 
 
 def _matching_approvals(
@@ -149,8 +172,12 @@ def validate_current_protected_approval(
         raise ValueError("protected run coordinate mismatch")
     if run.get("status") != "in_progress" or run.get("conclusion") is not None:
         raise ValueError("protected run must be the current in-progress attempt")
-    _identity(run.get("actor"), "run actor")
-    _identity(run.get("triggering_actor"), "run triggering actor")
+    actor_identity = _initiator_identity(run.get("actor"), "run actor")
+    triggering_identity = _initiator_identity(
+        run.get("triggering_actor"), "run triggering actor"
+    )
+    if actor_identity != triggering_identity:
+        raise ValueError("run actor and triggering actor must be the same identity")
 
     matching_approvals = _matching_approvals(
         approvals, environment_id, environment_name
