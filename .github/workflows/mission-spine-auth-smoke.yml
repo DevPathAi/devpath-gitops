@@ -239,9 +239,12 @@ jobs:
           set -euo pipefail
           git -C gitops-main checkout --detach "$DESIRED_HEAD"
           test "$(git -C gitops-main rev-parse HEAD)" = "$DESIRED_HEAD"
-          python3 -m unittest \
-            tests.release.test_production_workflow_wiring \
-            tests.release.test_stage_web_release -v
+          (
+            cd gitops-main
+            python3 -m unittest \
+              tests.release.test_production_workflow_wiring \
+              tests.release.test_stage_web_release -v
+          )
 
       - name: Fast-forward main through the sole authorized GitOps App
         shell: bash
