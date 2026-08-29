@@ -25,10 +25,10 @@ on:
         description: "prod26r4 machine-user credential action"
         type: choice
         options:
-          - off
+          - "off"
           - audit
           - dispatch
-        default: off
+        default: "off"
       prod26r4_dispatch_confirmation:
         description: "dispatch 모드 전용 exact 확인 문자열"
         type: string
