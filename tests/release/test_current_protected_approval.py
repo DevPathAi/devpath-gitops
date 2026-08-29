@@ -105,6 +105,61 @@ class CurrentProtectedApprovalTest(unittest.TestCase):
         result = self.validate(run=run)
         self.assertEqual(result["approved_by_id"], 92)
 
+    def test_accepts_exact_github_actions_bot_as_both_initiators(self):
+        actions_bot = {
+            "id": 41898282,
+            "login": "github-actions[bot]",
+            "type": "Bot",
+        }
+        run = copy.deepcopy(self.run)
+        run["actor"] = copy.deepcopy(actions_bot)
+        run["triggering_actor"] = copy.deepcopy(actions_bot)
+
+        result = self.validate(run=run)
+
+        self.assertEqual(result["approved_by"], "release-reviewer")
+
+    def test_rejects_github_actions_bot_lookalikes(self):
+        actions_bot = {
+            "id": 41898282,
+            "login": "github-actions[bot]",
+            "type": "Bot",
+        }
+        for field, value in (
+            ("id", 1),
+            ("login", "github-actions-bot"),
+            ("type", "User"),
+        ):
+            run = copy.deepcopy(self.run)
+            lookalike = copy.deepcopy(actions_bot)
+            lookalike[field] = value
+            run["actor"] = lookalike
+            run["triggering_actor"] = copy.deepcopy(actions_bot)
+            with self.subTest(field=field), self.assertRaisesRegex(
+                ValueError, "exact GitHub Actions automation"
+            ):
+                self.validate(run=run)
+
+    def test_rejects_incomplete_github_actions_bot_identity(self):
+        for field in ("id", "login", "type"):
+            run = copy.deepcopy(self.run)
+            actions_bot = {
+                "id": 41898282,
+                "login": "github-actions[bot]",
+                "type": "Bot",
+            }
+            del actions_bot[field]
+            run["actor"] = actions_bot
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                self.validate(run=run)
+
+    def test_rejects_different_actor_and_triggering_actor(self):
+        run = copy.deepcopy(self.run)
+        run["triggering_actor"] = {"id": 2, "login": "other-initiator"}
+
+        with self.assertRaisesRegex(ValueError, "same identity"):
+            self.validate(run=run)
+
     def test_rejects_missing_or_wrong_environment_approval(self):
         with self.assertRaisesRegex(ValueError, "at least one approved"):
             self.validate(approvals=[])
