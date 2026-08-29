@@ -24,6 +24,7 @@ concurrency:
 
 jobs:
   candidate-journeys:
+    if: github.ref == 'refs/heads/main'
     name: Run candidate journeys
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -206,6 +207,7 @@ jobs:
           include-hidden-files: false
 
   seal-and-staging:
+    if: github.ref == 'refs/heads/main'
     name: Seal and validate staging
     needs: candidate-journeys
     runs-on: ubuntu-24.04
@@ -470,3 +472,105 @@ jobs:
           set -euo pipefail
           python control/scripts/release/manage_production_kubeconfig.py cleanup \
             --runner-temp "$RUNNER_TEMP" --path "${KUBECONFIG:-}"
+
+  dispatch-validation:
+    if: github.ref == 'refs/heads/chore/prod26r8-validate-dispatch'
+    name: Dispatch exact protected validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    env:
+      RELEASE_ID: ms-20260829-prod26r8
+      SOURCE_SHA: df94fba536fd6e1740333d6d6e79e11349b9e2b7
+      GITHUB_API_VERSION: "2026-03-10"
+    steps:
+      - name: Prove the exact one-shot dispatcher context
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTOR" = "VelkaressiaBlutkrone"
+          test "$GITHUB_TRIGGERING_ACTOR" = "VelkaressiaBlutkrone"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          test "$GITHUB_REF" = "refs/heads/chore/prod26r8-validate-dispatch"
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+      - name: Dispatch protected main through the repository Actions App
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          current_main="$(
+            gh api -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+              "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha'
+          )"
+          test "$current_main" = "$SOURCE_SHA"
+
+          payload="$RUNNER_TEMP/prod26r8-validation-dispatch.json"
+          response="$RUNNER_TEMP/prod26r8-validation-dispatch-response.json"
+          run_document="$RUNNER_TEMP/prod26r8-validation-run.json"
+          test ! -e "$payload"
+          test ! -e "$response"
+          test ! -e "$run_document"
+          umask 077
+          jq -n \
+            --arg release_id "$RELEASE_ID" \
+            '{
+              "ref": "main",
+              "inputs": {
+                "release_id": $release_id
+              }
+            }' >"$payload"
+
+          gh api --method POST \
+            -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+            --input "$payload" \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/mission-spine-validate.yml/dispatches" \
+            >"$response"
+          inner_run_id="$(jq -er '.workflow_run_id | select(type == "number" and . > 0)' "$response")"
+          [[ "$inner_run_id" =~ ^[1-9][0-9]*$ ]]
+
+          cancel_inner() {
+            gh api --method POST \
+              -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$inner_run_id/cancel" \
+              >/dev/null 2>&1 || true
+          }
+          trap 'status=$?; if test "$status" -ne 0; then cancel_inner; fi; exit "$status"' EXIT
+
+          for attempt in $(seq 1 12); do
+            if gh api -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$inner_run_id" \
+              >"$run_document"; then
+              break
+            fi
+            test "$attempt" -lt 12
+            sleep 1
+          done
+
+          inner_actor="$(jq -er '.actor.login' "$run_document")"
+          inner_triggering_actor="$(jq -er '.triggering_actor.login' "$run_document")"
+          test "$inner_actor" = "github-actions[bot]"
+          test "$(jq -er '.actor.id' "$run_document")" = "41898282"
+          test "$(jq -er '.actor.type' "$run_document")" = "Bot"
+          test "$inner_triggering_actor" = "github-actions[bot]"
+          test "$(jq -er '.triggering_actor.id' "$run_document")" = "41898282"
+          test "$(jq -er '.triggering_actor.type' "$run_document")" = "Bot"
+          test "$(jq -er '.event' "$run_document")" = "workflow_dispatch"
+          test "$(jq -er '.head_branch' "$run_document")" = "main"
+          test "$(jq -er '.head_sha' "$run_document")" = "$SOURCE_SHA"
+          test "$(jq -er '.run_attempt' "$run_document")" = "1"
+          test "$(jq -er '.path' "$run_document")" = ".github/workflows/mission-spine-validate.yml"
+          test "$(jq -r '.conclusion' "$run_document")" = "null"
+          trap - EXIT
+
+          {
+            echo "### Independent protected validation dispatch"
+            echo "- inner run: $inner_run_id"
+            echo "- actor: $inner_actor"
+            echo "- triggering actor: $inner_triggering_actor"
+            echo "- source SHA: $SOURCE_SHA"
+            echo "- release ID: $RELEASE_ID"
+          } >>"$GITHUB_STEP_SUMMARY"
