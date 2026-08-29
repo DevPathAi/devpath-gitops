@@ -96,6 +96,7 @@ jobs:
           test "$GITHUB_REF" = "refs/heads/chore/prod26r4-evidence-token-audit"
 
           token_login="$(gh api user --jq '.login')"
+          printf 'token login: %s\n' "$token_login"
           [[ "$token_login" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?$ ]]
           test "$token_login" != "VelkaressiaBlutkrone"
           test "$token_login" != "Qahnaarin"

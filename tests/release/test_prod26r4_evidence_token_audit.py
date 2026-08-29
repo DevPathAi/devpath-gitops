@@ -37,6 +37,7 @@ class Prod26R4EvidenceTokenAuditContractTest(unittest.TestCase):
         self.assertIn('test "$token_login" != "VelkaressiaBlutkrone"', self.workflow)
         self.assertIn('test "$token_login" != "Qahnaarin"', self.workflow)
         self.assertIn("gh api user --jq '.login'", self.workflow)
+        self.assertIn('printf \'token login: %s\\n\' "$token_login"', self.workflow)
 
     def test_capability_probe_cannot_create_a_run(self) -> None:
         self.assertIn(
