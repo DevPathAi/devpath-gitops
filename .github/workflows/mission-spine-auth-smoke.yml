@@ -139,3 +139,74 @@ jobs:
             echo "- invalid-ref dispatch status: $probe_status"
             echo "- no workflow run was requested or created"
           } >>"$GITHUB_STEP_SUMMARY"
+
+  audit-synthetic-probe-token:
+    if: github.ref == 'refs/heads/chore/prod26r4-evidence-token-audit'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify authentication and non-mutating Actions capability
+        env:
+          GH_TOKEN: ${{ secrets.MISSION_SYNTHETIC_PROBE_TOKEN }}
+          GITHUB_API_VERSION: "2026-03-10"
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTOR" = "VelkaressiaBlutkrone"
+          test "$GITHUB_TRIGGERING_ACTOR" = "VelkaressiaBlutkrone"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          test "$GITHUB_REF" = "refs/heads/chore/prod26r4-evidence-token-audit"
+
+          auth_error="$RUNNER_TEMP/prod26r4-synthetic-auth-error.txt"
+          test ! -e "$auth_error"
+          umask 077
+          set +e
+          token_login="$(gh api user --jq '.login' 2>"$auth_error")"
+          auth_exit="$?"
+          set -e
+          if [ "$auth_exit" -ne 0 ]; then
+            echo "synthetic token authenticated: false"
+            exit 1
+          fi
+
+          printf 'synthetic token login: %s\n' "$token_login"
+          [[ "$token_login" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?$ ]]
+          test "$token_login" != "VelkaressiaBlutkrone"
+          test "$token_login" != "Qahnaarin"
+          test "$(gh api user --jq '.type')" = "User"
+
+          payload="$RUNNER_TEMP/prod26r4-synthetic-capability-probe.json"
+          response="$RUNNER_TEMP/prod26r4-synthetic-capability-probe-response.txt"
+          test ! -e "$payload"
+          test ! -e "$response"
+          jq -n '{
+            "ref": "refs/heads/prod26r4-capability-probe-does-not-exist",
+            "inputs": {
+              "release_id": "ms-20260828-prod26r4",
+              "source_sha": "4f245d61cc4924c9db0f3f3cbb90434ad0fe7d93",
+              "sealed_release_sha": "e866a50f5ca535ebc1ed83343c651af064e424de",
+              "gitops_source_sha": "eca2a73378eff8a9ce310f7ef997b51b7910984f",
+              "release_manifest_sha256": "0b012f527ad30fde9a9cfdf9280377d84ef9a38da78987962ad86b38661a0575"
+            }
+          }' >"$payload"
+
+          set +e
+          gh api --include --method POST \
+            -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+            --input "$payload" \
+            repos/DevPathAi/devpath-shared/actions/workflows/335839429/dispatches \
+            >"$response" 2>&1
+          probe_exit="$?"
+          set -e
+          test "$probe_exit" -ne 0
+          probe_status="$(
+            awk '$1 ~ /^HTTP\// && $2 ~ /^[0-9][0-9][0-9]$/ { code=$2 } END { print code }' \
+              "$response"
+          )"
+          test "$probe_status" = "422"
+
+          {
+            echo "### MISSION_SYNTHETIC_PROBE_TOKEN audit"
+            echo "- login: $token_login"
+            echo "- invalid-ref dispatch status: $probe_status"
+            echo "- no workflow run was requested or created"
+          } >>"$GITHUB_STEP_SUMMARY"

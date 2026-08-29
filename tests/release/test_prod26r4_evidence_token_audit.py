@@ -51,6 +51,28 @@ class Prod26R4EvidenceTokenAuditContractTest(unittest.TestCase):
         self.assertIn('test "$probe_status" = "422"', self.workflow)
         self.assertIn('test "$probe_exit" -ne 0', self.workflow)
 
+    def test_synthetic_probe_token_is_audited_independently(self) -> None:
+        self.assertIn(
+            "  audit-synthetic-probe-token:\n"
+            "    if: github.ref == "
+            "'refs/heads/chore/prod26r4-evidence-token-audit'",
+            self.workflow,
+        )
+        self.assertIn(
+            "GH_TOKEN: ${{ secrets.MISSION_SYNTHETIC_PROBE_TOKEN }}",
+            self.workflow,
+        )
+        self.assertIn(
+            "synthetic token authenticated: false",
+            self.workflow,
+        )
+        self.assertIn(
+            'printf \'synthetic token login: %s\\n\' "$token_login"',
+            self.workflow,
+        )
+        self.assertIn('test "$token_login" != "VelkaressiaBlutkrone"', self.workflow)
+        self.assertIn('test "$token_login" != "Qahnaarin"', self.workflow)
+
 
 if __name__ == "__main__":
     unittest.main()
