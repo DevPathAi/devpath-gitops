@@ -439,7 +439,9 @@ class StageWebReleaseTest(unittest.TestCase):
                 f"--phase {target} --expected-current {current}", workflow
             )
         self.assertIn("--phase prior --expected-current candidate", workflow)
-        self.assertEqual(workflow.count("stage_web_release.py"), 5)
+        journey, seal = workflow.split("  seal-and-staging:", 1)
+        self.assertEqual(journey.count("stage_web_release.py"), 3)
+        self.assertEqual(seal.count("stage_web_release.py"), 5)
 
 
 if __name__ == "__main__":

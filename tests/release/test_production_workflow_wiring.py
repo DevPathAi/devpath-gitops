@@ -8,6 +8,51 @@ APP_ACTION = "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da40
 
 
 class ProductionWorkflowWiringTest(unittest.TestCase):
+    def test_live_candidate_journeys_run_on_the_exact_candidate_web_and_restore_prior(self):
+        text = (WORKFLOWS / "mission-spine-validate.yml").read_text(
+            encoding="utf-8"
+        )
+        start = text.index("  candidate-journeys:")
+        end = text.index("  seal-and-staging:", start)
+        section = text[start:end]
+
+        configure = section.index("Configure candidate journey staging cluster")
+        prior = section.index("Verify candidate journey live prior CAS")
+        stage = section.index("Stage exact candidate web for live journeys")
+        journey = section.index("npm run test:release")
+        restore = section.index("Fail-safe restore staging prior after live journeys")
+        cleanup = section.index("Remove the candidate journey staging kubeconfig")
+        self.assertEqual(
+            [configure, prior, stage, journey, restore, cleanup],
+            sorted([configure, prior, stage, journey, restore, cleanup]),
+        )
+        self.assertLess(
+            section.index("Authenticate exact candidate artifact and B-to-C data tree"),
+            section.index("secrets.STAGING_KUBECONFIG_B64"),
+        )
+
+        stage_block = section[stage:journey]
+        ordered = (
+            "--phase mission-off --expected-current prior",
+            "--environment staging --phase mission-off",
+            "--phase mission-on --expected-current mission-off",
+            "--environment staging --phase mission-on",
+        )
+        positions = [stage_block.index(value) for value in ordered]
+        self.assertEqual(positions, sorted(positions))
+
+        restore_block = section[restore:cleanup]
+        self.assertIn(
+            "if: always() && steps.journey_kube.outcome == 'success' && steps.journey_prior_cas.outcome == 'success'",
+            restore_block,
+        )
+        self.assertIn("--phase prior --expected-current candidate", restore_block)
+        self.assertIn("--environment staging --phase prior", restore_block)
+        self.assertEqual(section.count("stage_web_release.py"), 3)
+        self.assertEqual(section.count("wait_web_rollout.py"), 4)
+        self.assertEqual(section.count("manage_production_kubeconfig.py create"), 1)
+        self.assertEqual(section.count("manage_production_kubeconfig.py cleanup"), 1)
+
     def test_staging_seal_context_check_receives_the_workflow_token(self):
         text = (WORKFLOWS / "mission-spine-validate.yml").read_text(
             encoding="utf-8"

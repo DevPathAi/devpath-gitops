@@ -163,6 +163,57 @@ jobs:
           set -euo pipefail
           npm ci
           npx playwright install --with-deps chromium
+      - uses: azure/setup-kubectl@829323503d1be3d00ca8346e5391ca0b07a9ab0d # v5.1.0
+        with:
+          version: v1.36.2
+      - name: Configure candidate journey staging cluster
+        id: journey_kube
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STAGING_KUBECONFIG_B64: ${{ secrets.STAGING_KUBECONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/verify_main_release_context.py \
+            --control-root "$GITHUB_WORKSPACE/control" \
+            --data-root "$GITHUB_WORKSPACE/candidate-data" \
+            --workflow-path .github/workflows/mission-spine-validate.yml \
+            --release-id "$RELEASE_ID" --mode candidate
+          test -n "${STAGING_KUBECONFIG_B64:-}"
+          python control/scripts/release/manage_production_kubeconfig.py create \
+            --scope staging --runner-temp "$RUNNER_TEMP" --github-env "$GITHUB_ENV"
+      - name: Pin exact candidate journey staging hostname
+        run: |
+          set -euo pipefail
+          printf '%s\n' '13.124.153.105 staging-app.13-124-153-105.nip.io' \
+            | sudo tee -a /etc/hosts >/dev/null
+          test "$(getent ahostsv4 staging-app.13-124-153-105.nip.io \
+            | awk 'NR == 1 { print $1; exit }')" = '13.124.153.105'
+      - name: Verify candidate journey live prior CAS
+        id: journey_prior_cas
+        env:
+          MISSION_SYNTHETIC_PROBE_TOKEN: ${{ secrets.MISSION_SYNTHETIC_PROBE_TOKEN }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/wait_web_rollout.py \
+            --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
+            --environment staging --phase prior --canary-seconds 0
+      - name: Stage exact candidate web for live journeys
+        env:
+          MISSION_SYNTHETIC_PROBE_TOKEN: ${{ secrets.MISSION_SYNTHETIC_PROBE_TOKEN }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/stage_web_release.py \
+            --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
+            --phase mission-off --expected-current prior
+          python control/scripts/release/wait_web_rollout.py \
+            --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
+            --environment staging --phase mission-off --canary-seconds 0
+          python control/scripts/release/stage_web_release.py \
+            --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
+            --phase mission-on --expected-current mission-off
+          python control/scripts/release/wait_web_rollout.py \
+            --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
+            --environment staging --phase mission-on --canary-seconds 0
       - name: Run exactly two live cross-service journeys
         working-directory: home
         env:
@@ -175,6 +226,24 @@ jobs:
           test -n "${MISSION_RELEASE_CONTROL_TOKEN:-}"
           test ! -e "$MISSION_RELEASE_EVIDENCE_DIR"
           npm run test:release
+      - name: Fail-safe restore staging prior after live journeys
+        if: always() && steps.journey_kube.outcome == 'success' && steps.journey_prior_cas.outcome == 'success'
+        env:
+          MISSION_SYNTHETIC_PROBE_TOKEN: ${{ secrets.MISSION_SYNTHETIC_PROBE_TOKEN }}
+        run: |
+          set -euo pipefail
+          python control/scripts/release/stage_web_release.py \
+            --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
+            --phase prior --expected-current candidate
+          python control/scripts/release/wait_web_rollout.py \
+            --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
+            --environment staging --phase prior --canary-seconds 0
+      - name: Remove the candidate journey staging kubeconfig
+        if: always()
+        run: |
+          set -euo pipefail
+          python control/scripts/release/manage_production_kubeconfig.py cleanup \
+            --runner-temp "$RUNNER_TEMP" --path "${KUBECONFIG:-}"
       - name: Validate and byte-copy the two sanitized journey outputs
         id: journey
         run: |
