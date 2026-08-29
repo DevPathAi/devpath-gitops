@@ -26,12 +26,18 @@ class Prod26R4EvidenceTokenAuditContractTest(unittest.TestCase):
         self.assertIn(
             "  audit-evidence-token:\n"
             "    if: github.ref == "
-            "'refs/heads/chore/prod26r4-evidence-token-audit'",
+            "'refs/heads/chore/prod26r4-evidence-token-audit' && "
+            "inputs.prod26r4_legacy_token_audit",
             self.workflow,
         )
+        self.assertIn("prod26r4_legacy_token_audit:", self.workflow)
+        self.assertIn("default: false", self.workflow)
         self.assertIn("GH_TOKEN: ${{ secrets.RELEASE_EVIDENCE_TOKEN }}", self.workflow)
         self.assertIn('test "$GITHUB_RUN_ATTEMPT" = "1"', self.workflow)
-        self.assertNotIn("actions/runs/$inner_run_id", self.workflow)
+        audit_job = self.workflow.split("  audit-evidence-token:", 1)[1].split(
+            "\n  audit-synthetic-probe-token:", 1
+        )[0]
+        self.assertNotIn("actions/runs/$inner_run_id", audit_job)
 
     def test_audit_rejects_human_and_prohibited_identities(self) -> None:
         self.assertIn('test "$token_login" != "VelkaressiaBlutkrone"', self.workflow)
@@ -55,7 +61,8 @@ class Prod26R4EvidenceTokenAuditContractTest(unittest.TestCase):
         self.assertIn(
             "  audit-synthetic-probe-token:\n"
             "    if: github.ref == "
-            "'refs/heads/chore/prod26r4-evidence-token-audit'",
+            "'refs/heads/chore/prod26r4-evidence-token-audit' && "
+            "inputs.prod26r4_legacy_token_audit",
             self.workflow,
         )
         self.assertIn(

@@ -17,6 +17,23 @@ on:
         description: "verify_gitops_write_authority.py 전체 검증까지 실행"
         type: boolean
         default: false
+      prod26r4_legacy_token_audit:
+        description: "완료된 prod26r4 기존 토큰 감사를 명시적으로 재실행"
+        type: boolean
+        default: false
+      prod26r4_machine_user_mode:
+        description: "prod26r4 machine-user credential action"
+        type: choice
+        options:
+          - off
+          - audit
+          - dispatch
+        default: off
+      prod26r4_dispatch_confirmation:
+        description: "dispatch 모드 전용 exact 확인 문자열"
+        type: string
+        required: false
+        default: ""
 permissions: {}
 jobs:
   gitops-release-app:
@@ -80,7 +97,7 @@ jobs:
             --installation-id "$INSTALLATION_ID"
 
   audit-evidence-token:
-    if: github.ref == 'refs/heads/chore/prod26r4-evidence-token-audit'
+    if: github.ref == 'refs/heads/chore/prod26r4-evidence-token-audit' && inputs.prod26r4_legacy_token_audit
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -141,7 +158,7 @@ jobs:
           } >>"$GITHUB_STEP_SUMMARY"
 
   audit-synthetic-probe-token:
-    if: github.ref == 'refs/heads/chore/prod26r4-evidence-token-audit'
+    if: github.ref == 'refs/heads/chore/prod26r4-evidence-token-audit' && inputs.prod26r4_legacy_token_audit
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -209,4 +226,186 @@ jobs:
             echo "- login: $token_login"
             echo "- invalid-ref dispatch status: $probe_status"
             echo "- no workflow run was requested or created"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+  audit-prod26r4-machine-user:
+    if: github.ref == 'refs/heads/chore/prod26r4-evidence-token-audit' && inputs.prod26r4_machine_user_mode == 'audit'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify independent user identity and non-mutating Actions capability
+        env:
+          GH_TOKEN: ${{ secrets.PROD26R4_INITIATOR_TOKEN }}
+          GITHUB_API_VERSION: "2026-03-10"
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTOR" = "VelkaressiaBlutkrone"
+          test "$GITHUB_TRIGGERING_ACTOR" = "VelkaressiaBlutkrone"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          test "$GITHUB_REF" = "refs/heads/chore/prod26r4-evidence-token-audit"
+
+          token_login="$(gh api user --jq '.login')"
+          token_id="$(gh api user --jq '.id')"
+          token_type="$(gh api user --jq '.type')"
+          token_login_folded="${token_login,,}"
+          [[ "$token_login" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?$ ]]
+          [[ "$token_id" =~ ^[1-9][0-9]*$ ]]
+          test "$token_type" = "User"
+          test "$token_login_folded" != "velkaressiablutkrone"
+          test "$token_login_folded" != "qahnaarin"
+          printf 'machine-user login: %s\n' "$token_login"
+          printf 'machine-user id: %s\n' "$token_id"
+
+          payload="$RUNNER_TEMP/prod26r4-machine-user-capability-probe.json"
+          response="$RUNNER_TEMP/prod26r4-machine-user-capability-probe-response.txt"
+          test ! -e "$payload"
+          test ! -e "$response"
+          umask 077
+          jq -n '{
+            "ref": "refs/heads/prod26r4-capability-probe-does-not-exist",
+            "inputs": {
+              "release_id": "ms-20260828-prod26r4",
+              "source_sha": "4f245d61cc4924c9db0f3f3cbb90434ad0fe7d93",
+              "sealed_release_sha": "e866a50f5ca535ebc1ed83343c651af064e424de",
+              "gitops_source_sha": "eca2a73378eff8a9ce310f7ef997b51b7910984f",
+              "release_manifest_sha256": "0b012f527ad30fde9a9cfdf9280377d84ef9a38da78987962ad86b38661a0575"
+            }
+          }' >"$payload"
+
+          set +e
+          gh api --include --method POST \
+            -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+            --input "$payload" \
+            repos/DevPathAi/devpath-shared/actions/workflows/335839429/dispatches \
+            >"$response" 2>&1
+          probe_exit="$?"
+          set -e
+          test "$probe_exit" -ne 0
+          probe_status="$(
+            awk '$1 ~ /^HTTP\// && $2 ~ /^[0-9][0-9][0-9]$/ { code=$2 } END { print code }' \
+              "$response"
+          )"
+          test "$probe_status" = "422"
+
+          {
+            echo "### prod26r4 machine-user credential audit"
+            echo "- login: $token_login"
+            echo "- user id: $token_id"
+            echo "- type: $token_type"
+            echo "- invalid-ref dispatch status: $probe_status"
+            echo "- no workflow run was requested or created"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+  dispatch-prod26r4-machine-user:
+    if: github.ref == 'refs/heads/chore/prod26r4-evidence-token-audit' && inputs.prod26r4_machine_user_mode == 'dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch and authenticate the exact sealed migration run
+        env:
+          GH_TOKEN: ${{ secrets.PROD26R4_INITIATOR_TOKEN }}
+          GITHUB_API_VERSION: "2026-03-10"
+          CONFIRMATION: ${{ inputs.prod26r4_dispatch_confirmation }}
+        run: |
+          set -Eeuo pipefail
+          test "$GITHUB_ACTOR" = "VelkaressiaBlutkrone"
+          test "$GITHUB_TRIGGERING_ACTOR" = "VelkaressiaBlutkrone"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          test "$GITHUB_REF" = "refs/heads/chore/prod26r4-evidence-token-audit"
+          test "$CONFIRMATION" = "dispatch-ms-20260828-prod26r4"
+
+          token_login="$(gh api user --jq '.login')"
+          token_id="$(gh api user --jq '.id')"
+          token_type="$(gh api user --jq '.type')"
+          token_login_folded="${token_login,,}"
+          [[ "$token_login" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?$ ]]
+          [[ "$token_id" =~ ^[1-9][0-9]*$ ]]
+          test "$token_type" = "User"
+          test "$token_login_folded" != "velkaressiablutkrone"
+          test "$token_login_folded" != "qahnaarin"
+
+          shared_main="$(
+            gh api repos/DevPathAi/devpath-shared/git/ref/heads/main \
+              --jq '.object.sha'
+          )"
+          test "$shared_main" = "4f245d61cc4924c9db0f3f3cbb90434ad0fe7d93"
+
+          payload="$RUNNER_TEMP/prod26r4-machine-user-dispatch.json"
+          test ! -e "$payload"
+          umask 077
+          jq -n '{
+            "ref": "main",
+            "inputs": {
+              "release_id": "ms-20260828-prod26r4",
+              "source_sha": "4f245d61cc4924c9db0f3f3cbb90434ad0fe7d93",
+              "sealed_release_sha": "e866a50f5ca535ebc1ed83343c651af064e424de",
+              "gitops_source_sha": "eca2a73378eff8a9ce310f7ef997b51b7910984f",
+              "release_manifest_sha256": "0b012f527ad30fde9a9cfdf9280377d84ef9a38da78987962ad86b38661a0575"
+            }
+          }' >"$payload"
+
+          dispatch_response="$(
+            gh api --method POST \
+              -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+              --input "$payload" \
+              repos/DevPathAi/devpath-shared/actions/workflows/335839429/dispatches
+          )"
+          inner_run_id="$(jq -r '.workflow_run_id // empty' <<<"$dispatch_response")"
+          inner_run_url="$(jq -r '.html_url // empty' <<<"$dispatch_response")"
+          [[ "$inner_run_id" =~ ^[1-9][0-9]*$ ]]
+
+          inner_validated=false
+          cancel_inner() {
+            if [ "$inner_validated" != "true" ] && [ -n "${inner_run_id:-}" ]; then
+              gh api --method POST \
+                -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+                "repos/DevPathAi/devpath-shared/actions/runs/$inner_run_id/cancel" \
+                >/dev/null 2>&1 || true
+            fi
+          }
+          trap cancel_inner ERR
+          [[ "$inner_run_url" =~ ^https://github\.com/DevPathAi/devpath-shared/actions/runs/[1-9][0-9]*$ ]]
+
+          inner_run=""
+          for _ in $(seq 1 10); do
+            if inner_run="$(
+              gh api \
+                -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+                "repos/DevPathAi/devpath-shared/actions/runs/$inner_run_id" \
+                2>/dev/null
+            )"; then
+              break
+            fi
+            sleep 2
+          done
+          test -n "$inner_run"
+
+          inner_actor="$(jq -r '.actor.login // empty' <<<"$inner_run")"
+          inner_actor_type="$(jq -r '.actor.type // empty' <<<"$inner_run")"
+          inner_triggering_actor="$(jq -r '.triggering_actor.login // empty' <<<"$inner_run")"
+          inner_triggering_actor_type="$(jq -r '.triggering_actor.type // empty' <<<"$inner_run")"
+          inner_event="$(jq -r '.event // empty' <<<"$inner_run")"
+          inner_attempt="$(jq -r '.run_attempt // empty' <<<"$inner_run")"
+          inner_sha="$(jq -r '.head_sha // empty' <<<"$inner_run")"
+          inner_branch="$(jq -r '.head_branch // empty' <<<"$inner_run")"
+
+          test "$inner_actor" = "$token_login"
+          test "$inner_actor_type" = "User"
+          test "$inner_triggering_actor" = "$token_login"
+          test "$inner_triggering_actor_type" = "User"
+          test "$inner_event" = "workflow_dispatch"
+          test "$inner_attempt" = "1"
+          test "$inner_sha" = "4f245d61cc4924c9db0f3f3cbb90434ad0fe7d93"
+          test "$inner_branch" = "main"
+
+          inner_validated=true
+          trap - ERR
+          {
+            echo "### prod26r4 sealed migration dispatched"
+            echo "- initiator: $token_login (User $token_id)"
+            echo "- run: $inner_run_id"
+            echo "- URL: $inner_run_url"
+            echo "- Shared SHA: $inner_sha"
+            echo "- attempt: $inner_attempt"
+            echo "- awaiting independent protected-environment review"
           } >>"$GITHUB_STEP_SUMMARY"
