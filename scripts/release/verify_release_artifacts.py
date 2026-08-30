@@ -2028,8 +2028,10 @@ def validate_evidence_payload(
         value = _exact_payload(
             payload,
             {
-                "candidate_spec_sha256", "status", "ai_source_sha", "primary_model",
-                "fallback_models", "prompt_sha256", "fixture_revision", "fixture_sha256",
+                "candidate_spec_sha256", "status", "ai_source_sha",
+                "runtime_primary_model", "runtime_fallback_models",
+                "development_model", "tuning_revision", "tuning_sha256",
+                "prompt_sha256", "fixture_revision", "fixture_sha256",
                 "gitops_source_sha", "rendered_config_sha256",
                 "ollama_endpoint_sha256",
                 "hard_invariants_percent", "usefulness_percent", "baseline_delta_points",
@@ -2045,8 +2047,11 @@ def validate_evidence_payload(
         expected = {
             "ai_source_sha": candidate["services"]["devpath-ai-svc"]["source_sha"],
             "gitops_source_sha": candidate["gitops"]["base_sha"],
-            "primary_model": config["primary_model"],
-            "fallback_models": config["fallback_models"],
+            "runtime_primary_model": config["runtime_primary_model"],
+            "runtime_fallback_models": config["runtime_fallback_models"],
+            "development_model": config["development_model"],
+            "tuning_revision": config["tuning_revision"],
+            "tuning_sha256": config["tuning_sha256"],
             "prompt_sha256": config["prompt_sha256"],
             "fixture_revision": config["fixture_revision"],
             "fixture_sha256": config["fixture_sha256"],

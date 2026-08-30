@@ -136,8 +136,17 @@ class Et13FinalRebindTest(unittest.TestCase):
         ai = self.candidate["services"]["devpath-ai-svc"]
         config = self.candidate["ai_release_eval_config"]
         self.assertEqual(ai["source_sha"], AI_SOURCE_SHA)
-        self.assertEqual(config["primary_model"], "qwen2.5:3b")
-        self.assertEqual(config["fallback_models"], ["claude-sonnet-4-6"])
+        self.assertEqual(config["runtime_primary_model"], "qwen2.5:3b")
+        self.assertEqual(config["runtime_fallback_models"], ["claude-sonnet-4-6"])
+        self.assertEqual(
+            config["development_model"],
+            "devpath-mentor-eval:mentor-development-tuning-v1",
+        )
+        self.assertEqual(config["tuning_revision"], "mentor-development-tuning-v1")
+        self.assertEqual(
+            config["tuning_sha256"],
+            "325d43fadad64dcf43c0b74c60e124c95c8b5b10ef15979aed34552aba1b7bef",
+        )
         self.assertEqual(config["prompt_sha256"], AI_PROMPT_SHA)
         self.assertEqual(config["fixture_revision"], "mentor-golden-v2")
         self.assertEqual(config["fixture_sha256"], AI_FIXTURE_SHA)

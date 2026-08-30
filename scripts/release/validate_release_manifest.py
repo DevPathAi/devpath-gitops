@@ -1252,8 +1252,11 @@ def validate_candidate_spec(data: Any, source: Path | None = None) -> dict[str, 
     _exact_keys(
         evaluation,
         {
-            "primary_model",
-            "fallback_models",
+            "runtime_primary_model",
+            "runtime_fallback_models",
+            "development_model",
+            "tuning_revision",
+            "tuning_sha256",
             "prompt_sha256",
             "fixture_revision",
             "fixture_sha256",
@@ -1262,13 +1265,60 @@ def validate_candidate_spec(data: Any, source: Path | None = None) -> dict[str, 
         },
         "$.ai_release_eval_config",
     )
-    primary = _string(evaluation["primary_model"], "$.ai_release_eval_config.primary_model", SAFE_IDENTIFIER)
-    fallbacks = evaluation["fallback_models"]
+    primary = _string(
+        evaluation["runtime_primary_model"],
+        "$.ai_release_eval_config.runtime_primary_model",
+        SAFE_IDENTIFIER,
+    )
+    fallbacks = evaluation["runtime_fallback_models"]
     if not isinstance(fallbacks, list) or not fallbacks:
-        _fail("$.ai_release_eval_config.fallback_models", "must name at least one actual fallback model")
-    parsed_fallbacks = [_string(item, f"$.ai_release_eval_config.fallback_models[{index}]", SAFE_IDENTIFIER) for index, item in enumerate(fallbacks)]
+        _fail(
+            "$.ai_release_eval_config.runtime_fallback_models",
+            "must name at least one actual runtime fallback model",
+        )
+    parsed_fallbacks = [
+        _string(
+            item,
+            f"$.ai_release_eval_config.runtime_fallback_models[{index}]",
+            SAFE_IDENTIFIER,
+        )
+        for index, item in enumerate(fallbacks)
+    ]
     if len(set(parsed_fallbacks)) != len(parsed_fallbacks) or primary in parsed_fallbacks:
-        _fail("$.ai_release_eval_config.fallback_models", "must be unique and distinct from primary_model")
+        _fail(
+            "$.ai_release_eval_config.runtime_fallback_models",
+            "must be unique and distinct from runtime_primary_model",
+        )
+    development_model = _string(
+        evaluation["development_model"],
+        "$.ai_release_eval_config.development_model",
+        SAFE_IDENTIFIER,
+    )
+    if development_model != "devpath-mentor-eval:mentor-development-tuning-v1":
+        _fail(
+            "$.ai_release_eval_config.development_model",
+            "must be the approved local Ollama development model",
+        )
+    tuning_revision = _string(
+        evaluation["tuning_revision"],
+        "$.ai_release_eval_config.tuning_revision",
+        SAFE_IDENTIFIER,
+    )
+    if tuning_revision != "mentor-development-tuning-v1":
+        _fail(
+            "$.ai_release_eval_config.tuning_revision",
+            "must be mentor-development-tuning-v1",
+        )
+    tuning_sha256 = _string(
+        evaluation["tuning_sha256"],
+        "$.ai_release_eval_config.tuning_sha256",
+        SHA64,
+    )
+    if tuning_sha256 == ZERO_SHA256:
+        _fail(
+            "$.ai_release_eval_config.tuning_sha256",
+            "must bind non-zero Ollama tuning bytes",
+        )
     _string(evaluation["prompt_sha256"], "$.ai_release_eval_config.prompt_sha256", SHA64)
     _string(evaluation["fixture_revision"], "$.ai_release_eval_config.fixture_revision", SAFE_IDENTIFIER)
     _string(evaluation["fixture_sha256"], "$.ai_release_eval_config.fixture_sha256", SHA64)

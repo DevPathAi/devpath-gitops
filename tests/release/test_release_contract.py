@@ -66,6 +66,53 @@ class ReleaseManifestContractTest(unittest.TestCase):
         schema_validator.validate(self.candidate)
         schema_validator.validate(self.release)
 
+    def test_ai_eval_config_separates_runtime_and_local_development_model(self):
+        candidate = copy.deepcopy(self.candidate)
+        self.validator.validate_candidate_spec(candidate, CANDIDATE_FIXTURE)
+
+        schema = json.loads(
+            (ROOT / "release-manifests" / "schema-v1.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        jsonschema.Draft202012Validator(
+            schema,
+            format_checker=jsonschema.FormatChecker(),
+        ).validate(candidate)
+
+        legacy = copy.deepcopy(candidate)
+        config = legacy["ai_release_eval_config"]
+        legacy["ai_release_eval_config"] = {
+            "primary_model": config["runtime_primary_model"],
+            "fallback_models": config["runtime_fallback_models"],
+            "prompt_sha256": config["prompt_sha256"],
+            "fixture_revision": config["fixture_revision"],
+            "fixture_sha256": config["fixture_sha256"],
+            "rendered_config_sha256": config["rendered_config_sha256"],
+            "ollama_endpoint_sha256": config["ollama_endpoint_sha256"],
+        }
+        with self.assertRaisesRegex(ValueError, "ai_release_eval_config"):
+            self.validator.validate_candidate_spec(legacy, CANDIDATE_FIXTURE)
+
+        for field, value in (
+            ("development_model", "claude-sonnet-4-6"),
+            ("tuning_revision", "mentor-development-tuning-v2"),
+            ("tuning_sha256", "0" * 64),
+        ):
+            invalid = copy.deepcopy(candidate)
+            invalid["ai_release_eval_config"][field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(
+                ValueError, field
+            ):
+                self.validator.validate_candidate_spec(invalid, CANDIDATE_FIXTURE)
+            with self.subTest(schema_field=field), self.assertRaises(
+                jsonschema.ValidationError
+            ):
+                jsonschema.Draft202012Validator(
+                    schema,
+                    format_checker=jsonschema.FormatChecker(),
+                ).validate(invalid)
+
     def test_frontend_digests_are_distinct_and_selected_on_is_exact(self):
         invalid = copy.deepcopy(self.candidate)
         invalid["frontend"]["mission_on"]["image_digest"] = invalid["frontend"]["mission_off"]["image_digest"]
