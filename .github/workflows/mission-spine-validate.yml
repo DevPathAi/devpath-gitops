@@ -554,7 +554,7 @@ jobs:
     env:
       RELEASE_ID: ms-20260830-prod26r9
       DIAGNOSTIC_BRANCH: chore/k3s-api-ingress-live-test
-      DIAGNOSTIC_SHA: f5bfd336563b569a0a3a480de3fecea58f885b44
+      DIAGNOSTIC_SHA: 76a7f05ce1502c627e14b77b08d8cbfe420fb74b
       GITHUB_API_VERSION: "2026-03-10"
     steps:
       - name: Dispatch the exact branch diagnostic as GitHub Actions

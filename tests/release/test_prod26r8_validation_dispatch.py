@@ -71,7 +71,7 @@ class Prod26r9ValidationDispatchTest(unittest.TestCase):
         for expected in (
             "github.actor == 'VelkaressiaBlutkrone'",
             "DIAGNOSTIC_BRANCH: chore/k3s-api-ingress-live-test",
-            "DIAGNOSTIC_SHA: f5bfd336563b569a0a3a480de3fecea58f885b44",
+            "DIAGNOSTIC_SHA: 76a7f05ce1502c627e14b77b08d8cbfe420fb74b",
             'test "$branch_sha" = "$DIAGNOSTIC_SHA"',
             '"ref": $diagnostic_branch',
             'test "$diagnostic_actor" = "github-actions[bot]"',
