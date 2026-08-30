@@ -49,6 +49,12 @@ class KubernetesApiIngressTest(unittest.TestCase):
             ],
         }
 
+    def revoked_rule(self):
+        rule = self.valid_rule()
+        del rule["Description"]
+        del rule["Tags"]
+        return rule
+
     def test_open_authorizes_only_the_current_global_runner_ipv4_and_exports_rule_id(self):
         rule = self.valid_rule()
         aws = FakeAws([completed(json.dumps({"Return": True, "SecurityGroupRules": [rule]}))])
@@ -107,7 +113,10 @@ class KubernetesApiIngressTest(unittest.TestCase):
         rule = self.valid_rule()
         aws = FakeAws([
             completed(json.dumps({"Return": True, "SecurityGroupRules": [rule]})),
-            completed(json.dumps({"Return": True, "UnknownIpPermissions": []})),
+            completed(json.dumps({
+                "Return": True,
+                "RevokedSecurityGroupRules": [self.revoked_rule()],
+            })),
         ])
         with tempfile.TemporaryDirectory() as directory:
             github_env = Path(directory) / "missing-github-env"
@@ -128,7 +137,10 @@ class KubernetesApiIngressTest(unittest.TestCase):
         rule = self.valid_rule()
         aws = FakeAws([
             completed(json.dumps({"SecurityGroupRules": [rule]})),
-            completed(json.dumps({"Return": True, "UnknownIpPermissions": []})),
+            completed(json.dumps({
+                "Return": True,
+                "RevokedSecurityGroupRules": [self.revoked_rule()],
+            })),
         ])
         self.assertTrue(module.close_ingress("sgr-" + "a" * 17, command_runner=aws))
         self.assertIn("describe-security-group-rules", aws.commands[0])
