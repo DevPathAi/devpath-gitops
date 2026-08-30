@@ -553,7 +553,8 @@ jobs:
       contents: read
     env:
       RELEASE_ID: ms-20260830-prod26r9
-      DIAGNOSTIC_BRANCH: chore/prod26r9-validate-dispatch
+      DIAGNOSTIC_BRANCH: chore/k3s-api-ingress-live-test
+      DIAGNOSTIC_SHA: 5b955ece2de2d4755d7f80a9917bfd4c5e3d8a77
       GITHUB_API_VERSION: "2026-03-10"
     steps:
       - name: Dispatch the exact branch diagnostic as GitHub Actions
@@ -569,14 +570,15 @@ jobs:
               "repos/$GITHUB_REPOSITORY/git/ref/heads/$DIAGNOSTIC_BRANCH" \
               --jq '.object.sha'
           )"
-          test "$branch_sha" = "$GITHUB_SHA"
+          test "$branch_sha" = "$DIAGNOSTIC_SHA"
 
           payload="$RUNNER_TEMP/prod26r9-staging-diagnostic-dispatch.json"
           response="$RUNNER_TEMP/prod26r9-staging-diagnostic-response.json"
           run_document="$RUNNER_TEMP/prod26r9-staging-diagnostic-run.json"
           umask 077
-          jq -n --arg release_id "$RELEASE_ID" '{
-            "ref": "chore/prod26r9-validate-dispatch",
+          jq -n --arg diagnostic_branch "$DIAGNOSTIC_BRANCH" \
+            --arg release_id "$RELEASE_ID" '{
+            "ref": $diagnostic_branch,
             "inputs": {"release_id": $release_id}
           }' >"$payload"
           gh api --method POST \

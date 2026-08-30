@@ -70,7 +70,10 @@ class Prod26r9ValidationDispatchTest(unittest.TestCase):
         )[1].split("\n  diagnose-prod26r9-staging:", 1)[0]
         for expected in (
             "github.actor == 'VelkaressiaBlutkrone'",
-            '"ref": "chore/prod26r9-validate-dispatch"',
+            "DIAGNOSTIC_BRANCH: chore/k3s-api-ingress-live-test",
+            "DIAGNOSTIC_SHA: 5b955ece2de2d4755d7f80a9917bfd4c5e3d8a77",
+            'test "$branch_sha" = "$DIAGNOSTIC_SHA"',
+            '"ref": $diagnostic_branch',
             'test "$diagnostic_actor" = "github-actions[bot]"',
             'test "$diagnostic_actor_id" = "41898282"',
             'test "$diagnostic_attempt" = "1"',
