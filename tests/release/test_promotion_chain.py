@@ -42,10 +42,14 @@ class PromotionChainTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         shutil.copytree(ROOT / "apps", self.root / "apps")
+        for relative in self.chain.SHARED_MIGRATION_APPROVAL_FIX_PATHS:
+            target = self.root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / relative, target)
         git(self.root, "init", "-b", "main")
         git(self.root, "config", "user.name", "devpath-gitops-release[bot]")
         git(self.root, "config", "user.email", "test@example.invalid")
-        git(self.root, "add", "apps")
+        git(self.root, "add", "apps", "scripts", "tests")
         git(self.root, "commit", "-m", "base")
         self.base = git(self.root, "rev-parse", "HEAD")
         self.candidate = copy.deepcopy(self.fixture)
@@ -62,6 +66,16 @@ class PromotionChainTest(unittest.TestCase):
         if allow_empty:
             arguments.append("--allow-empty")
         git(self.root, *arguments, "-m", subject)
+        return git(self.root, "rev-parse", "HEAD")
+
+    def commit_shared_migration_approval_fix(self, suffix: str = "") -> str:
+        paths = self.chain.SHARED_MIGRATION_APPROVAL_FIX_PATHS
+        for relative in paths:
+            path = self.root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"approval-contract-fix{suffix}\n", encoding="utf-8")
+        git(self.root, "add", *paths)
+        git(self.root, "commit", "-m", self.chain.SHARED_MIGRATION_APPROVAL_FIX_SUBJECT)
         return git(self.root, "rev-parse", "HEAD")
 
     def set_migration(self):
@@ -322,6 +336,39 @@ class PromotionChainTest(unittest.TestCase):
         drift = self.commit("unsealed drift")
         with self.assertRaises(ValueError):
             self.inspect(drift)
+
+    def test_single_exact_shared_migration_approval_fix_is_phase_transparent(self):
+        self.set_migration()
+        migration = self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        control = self.commit_shared_migration_approval_fix()
+
+        state = self.inspect(control)
+        self.assertEqual("migration", state["phase"])
+        self.assertEqual(migration, state["migration_commit"])
+        self.assertEqual(control, state["current_commit"])
+
+        self.set_services()
+        services = self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        self.assertEqual("services", self.inspect(services)["phase"])
+
+    def test_shared_migration_approval_fix_requires_migration_and_cannot_repeat(self):
+        before_migration = self.commit_shared_migration_approval_fix()
+        with self.assertRaisesRegex(ValueError, "directly follow migration"):
+            self.inspect(before_migration)
+
+        git(self.root, "reset", "--hard", self.base)
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.commit_shared_migration_approval_fix()
+        repeated = self.commit_shared_migration_approval_fix("-repeated")
+        with self.assertRaisesRegex(ValueError, "directly follow migration"):
+            self.inspect(repeated)
 
     def test_recognized_commit_from_non_app_actor_is_rejected(self):
         self.set_migration()

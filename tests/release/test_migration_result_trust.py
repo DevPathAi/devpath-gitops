@@ -111,6 +111,23 @@ class MigrationResultTrustTest(unittest.TestCase):
         self.assertEqual(result["migration_commit_sha"], self.migration_commit)
         self.assertEqual(result["run_id"], 123)
 
+    def test_shared_migration_live_approval_contract_is_registered(self):
+        claim = {
+            "approval_environment": "mission-spine-migration-release",
+            "approval_environment_id": 456,
+            "approval_job_name": "deploy",
+            "approved_by": "release-reviewer",
+            "approved_by_id": 789,
+            "approval_effective_at": "2026-08-17T00:00:00Z",
+        }
+
+        self.assertEqual(
+            claim,
+            self.trust.evidence.validate_approval_claim(
+                "shared-migration-result", claim
+            ),
+        )
+
     def test_key_order_extra_or_noncanonical_bytes_are_rejected(self):
         payload = copy.deepcopy(self.payload)
         payload["extra"] = "no"

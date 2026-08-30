@@ -39,6 +39,15 @@ WEB_IMAGE = "ghcr.io/devpathai/devpath-web"
 MAX_CHAIN_COMMITS = 32
 MIGRATION_JOB_PREFIX = "devpath-flyway-migrate-"
 WRITE_ACTOR = "devpath-gitops-release[bot]"
+SHARED_MIGRATION_APPROVAL_FIX_SUBJECT = (
+    "fix(release): authenticate shared migration approval"
+)
+SHARED_MIGRATION_APPROVAL_FIX_PATHS = (
+    "scripts/release/verify_promotion_chain.py",
+    "scripts/release/verify_release_artifacts.py",
+    "tests/release/test_migration_result_trust.py",
+    "tests/release/test_promotion_chain.py",
+)
 
 
 def _git(root: Path, args: list[str], *, binary: bool = False) -> str | bytes:
@@ -466,6 +475,23 @@ def inspect_chain(
                 "phase": "migration",
                 "current_commit": commit,
                 "migration_commit": commit,
+            }
+        if subject == SHARED_MIGRATION_APPROVAL_FIX_SUBJECT:
+            _require_write_actor(root, commit)
+            if (
+                prior["phase"] != "migration"
+                or parent != prior["migration_commit"]
+            ):
+                raise ValueError(
+                    "shared migration approval fix must directly follow migration"
+                )
+            _require_delta(root, commit, SHARED_MIGRATION_APPROVAL_FIX_PATHS)
+            _require_migration(root, commit, candidate, release_manifest_sha256)
+            _require_service_base_selectors(root, commit, candidate)
+            _require_web(root, commit, candidate, candidate_spec_sha256, "base")
+            return {
+                **prior,
+                "current_commit": commit,
             }
         if subject == services_subject:
             _require_write_actor(root, commit)
