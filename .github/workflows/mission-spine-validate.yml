@@ -544,7 +544,7 @@ jobs:
             --runner-temp "$RUNNER_TEMP" --path "${KUBECONFIG:-}"
 
   dispatch-validation:
-    if: github.ref == 'refs/heads/chore/prod26r8-validate-dispatch'
+    if: github.ref == 'refs/heads/chore/prod26r9-validate-dispatch'
     name: Dispatch exact protected validation
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -552,8 +552,8 @@ jobs:
       actions: write
       contents: read
     env:
-      RELEASE_ID: ms-20260829-prod26r8
-      SOURCE_SHA: df94fba536fd6e1740333d6d6e79e11349b9e2b7
+      RELEASE_ID: ms-20260830-prod26r9
+      SOURCE_SHA: fa41e5e625060a635131f42aa1bf9de87190f3eb
       GITHUB_API_VERSION: "2026-03-10"
     steps:
       - name: Prove the exact one-shot dispatcher context
@@ -563,7 +563,7 @@ jobs:
           test "$GITHUB_ACTOR" = "VelkaressiaBlutkrone"
           test "$GITHUB_TRIGGERING_ACTOR" = "VelkaressiaBlutkrone"
           test "$GITHUB_RUN_ATTEMPT" = "1"
-          test "$GITHUB_REF" = "refs/heads/chore/prod26r8-validate-dispatch"
+          test "$GITHUB_REF" = "refs/heads/chore/prod26r9-validate-dispatch"
           [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
 
       - name: Dispatch protected main through the repository Actions App
@@ -578,9 +578,9 @@ jobs:
           )"
           test "$current_main" = "$SOURCE_SHA"
 
-          payload="$RUNNER_TEMP/prod26r8-validation-dispatch.json"
-          response="$RUNNER_TEMP/prod26r8-validation-dispatch-response.json"
-          run_document="$RUNNER_TEMP/prod26r8-validation-run.json"
+          payload="$RUNNER_TEMP/prod26r9-validation-dispatch.json"
+          response="$RUNNER_TEMP/prod26r9-validation-dispatch-response.json"
+          run_document="$RUNNER_TEMP/prod26r9-validation-run.json"
           test ! -e "$payload"
           test ! -e "$response"
           test ! -e "$run_document"

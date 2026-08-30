@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "mission-spine-validate.yml"
 
 
-class Prod26r8ValidationDispatchTest(unittest.TestCase):
+class Prod26r9ValidationDispatchTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.workflow = WORKFLOW.read_text(encoding="utf-8").replace("\r\n", "\n")
@@ -26,9 +26,9 @@ class Prod26r8ValidationDispatchTest(unittest.TestCase):
     def test_branch_dispatcher_is_exact_and_actions_only(self) -> None:
         dispatcher = self.workflow.split("\n  dispatch-validation:", 1)[1]
         for expected in (
-            "if: github.ref == 'refs/heads/chore/prod26r8-validate-dispatch'",
-            "RELEASE_ID: ms-20260829-prod26r8",
-            "SOURCE_SHA: df94fba536fd6e1740333d6d6e79e11349b9e2b7",
+            "if: github.ref == 'refs/heads/chore/prod26r9-validate-dispatch'",
+            "RELEASE_ID: ms-20260830-prod26r9",
+            "SOURCE_SHA: fa41e5e625060a635131f42aa1bf9de87190f3eb",
             "actions: write",
             "contents: read",
             'test "$GITHUB_ACTOR" = "VelkaressiaBlutkrone"',
