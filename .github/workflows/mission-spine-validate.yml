@@ -265,6 +265,76 @@ jobs:
           set -euo pipefail
           python control/scripts/release/manage_kubernetes_api_ingress.py close \
             --rule-id "${KUBERNETES_API_INGRESS_RULE_ID:-}"
+
+  verify-kubernetes-api-ingress-live:
+    if: github.ref == 'refs/heads/chore/k3s-api-ingress-live-test' && github.actor == 'github-actions[bot]'
+    name: Verify exact runner Kubernetes API ingress live
+    environment: mission-spine-staging
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: azure/setup-kubectl@829323503d1be3d00ca8346e5391ca0b07a9ab0d # v5.1.0
+        with:
+          version: v1.36.2
+      - uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: arn:aws:iam::963773969059:role/devpath-github-actions-k3s-api
+          aws-region: ap-northeast-2
+          role-duration-seconds: 3600
+          role-session-name: mission-spine-${{ github.run_id }}-${{ github.run_attempt }}
+          mask-aws-account-id: true
+          unset-current-credentials: true
+      - name: Lease this exact runner IPv4 for the Kubernetes API
+        run: |
+          set -euo pipefail
+          python scripts/release/manage_kubernetes_api_ingress.py open \
+            --github-env "$GITHUB_ENV"
+      - name: Configure protected staging kubeconfig
+        env:
+          STAGING_KUBECONFIG_B64: ${{ secrets.STAGING_KUBECONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "${STAGING_KUBECONFIG_B64:-}"
+          python scripts/release/manage_production_kubeconfig.py create \
+            --scope staging --runner-temp "$RUNNER_TEMP" --github-env "$GITHUB_ENV"
+      - name: Verify the leased rule and read-only staging reachability
+        shell: bash
+        run: |
+          set -euo pipefail
+          rule="$(aws ec2 describe-security-group-rules --region ap-northeast-2 \
+            --security-group-rule-ids "$KUBERNETES_API_INGRESS_RULE_ID" --output json)"
+          jq -e '
+            .SecurityGroupRules | length == 1 and
+            .[0].GroupId == "sg-0ad7dfa8afe5d1eea" and
+            .[0].IsEgress == false and .[0].IpProtocol == "tcp" and
+            .[0].FromPort == 6443 and .[0].ToPort == 6443 and
+            (.[0].CidrIpv4 | test("^[0-9.]+/32$")) and
+            any(.[0].Tags[]; .Key == "ManagedBy" and
+              .Value == "devpath-mission-spine-github-actions")
+          ' <<<"$rule" >/dev/null
+          kubectl --context devpath-staging --namespace devpath-staging \
+            --request-timeout=20s auth can-i get deployments
+          kubectl --context devpath-staging --namespace devpath-staging \
+            --request-timeout=20s get deployment/devpath-web-staging \
+            -o custom-columns='NAME:.metadata.name,DESIRED:.spec.replicas,READY:.status.readyReplicas,AVAILABLE:.status.availableReplicas'
+      - name: Remove protected staging kubeconfig
+        if: always()
+        run: |
+          set -euo pipefail
+          python scripts/release/manage_production_kubeconfig.py cleanup \
+            --runner-temp "$RUNNER_TEMP" --path "${KUBECONFIG:-}"
+      - name: Revoke this exact runner IPv4 from the Kubernetes API
+        if: always()
+        run: |
+          set -euo pipefail
+          python scripts/release/manage_kubernetes_api_ingress.py close \
+            --rule-id "${KUBERNETES_API_INGRESS_RULE_ID:-}"
       - name: Validate and byte-copy the two sanitized journey outputs
         id: journey
         run: |
