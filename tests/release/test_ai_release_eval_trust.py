@@ -108,8 +108,11 @@ class AiReleaseEvalTrustTest(unittest.TestCase):
             "producer_run_attempt": 1,
             "ai_source_sha": self.candidate["services"]["devpath-ai-svc"]["source_sha"],
             "gitops_source_sha": self.candidate["gitops"]["base_sha"],
-            "primary_model": config["primary_model"],
-            "fallback_models": config["fallback_models"],
+            "runtime_primary_model": config["runtime_primary_model"],
+            "runtime_fallback_models": config["runtime_fallback_models"],
+            "development_model": config["development_model"],
+            "tuning_revision": config["tuning_revision"],
+            "tuning_sha256": config["tuning_sha256"],
             "prompt_sha256": config["prompt_sha256"],
             "fixture_revision": config["fixture_revision"],
             "fixture_sha256": config["fixture_sha256"],
@@ -178,6 +181,38 @@ class AiReleaseEvalTrustTest(unittest.TestCase):
                         103,
                         invalid.get("producer_run_attempt", 1),
                     )
+
+    def test_ai_evidence_binds_runtime_identity_and_local_tuning_separately(self):
+        candidate = copy.deepcopy(self.candidate)
+        config = candidate["ai_release_eval_config"]
+        payload = self._payload()
+        self.verifier.validate_evidence_payload(
+            "ai-release-eval",
+            payload,
+            self.candidate_sha,
+            candidate,
+            103,
+            1,
+        )
+
+        for field, value in (
+            ("development_model", "claude-sonnet-4-6"),
+            ("tuning_revision", "mentor-development-tuning-v2"),
+            ("tuning_sha256", "4" * 64),
+        ):
+            invalid = copy.deepcopy(payload)
+            invalid[field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(
+                ValueError, field
+            ):
+                self.verifier.validate_evidence_payload(
+                    "ai-release-eval",
+                    invalid,
+                    self.candidate_sha,
+                    candidate,
+                    103,
+                    1,
+                )
 
     def test_ai_workflow_inputs_and_current_protected_main_are_exact(self):
         raw = b"""name: AI eval\non:\n  workflow_dispatch:\n    inputs:\n      release_id:\n        required: true\n        type: string\n      candidate_spec_sha256:\n        required: true\n        type: string\n      ai_source_sha:\n        required: true\n        type: string\n      gitops_source_sha:\n        required: true\n        type: string\njobs: {}\n"""

@@ -124,8 +124,11 @@
     "deletion_runbook": "documents/privacy/posthog-deletion-v1"
   },
   "ai_release_eval_config": {
-    "primary_model": "qwen2.5:3b",
-    "fallback_models": ["claude-sonnet-4-6"],
+    "runtime_primary_model": "qwen2.5:3b",
+    "runtime_fallback_models": ["claude-sonnet-4-6"],
+    "development_model": "devpath-mentor-eval:mentor-development-tuning-v1",
+    "tuning_revision": "mentor-development-tuning-v1",
+    "tuning_sha256": "325d43fadad64dcf43c0b74c60e124c95c8b5b10ef15979aed34552aba1b7bef",
     "prompt_sha256": "6f0e9042e3c5a37602ac08a632992f34563e80885684d5349dcc0c9f9e53fab5",
     "fixture_revision": "mentor-golden-v2",
     "fixture_sha256": "e90cec1236e07f324d7348a7e9c9e72401c7f0a3b8de3909d79f96615121eb8c",
