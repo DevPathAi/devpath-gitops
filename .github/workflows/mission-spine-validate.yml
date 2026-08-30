@@ -543,6 +543,129 @@ jobs:
           python control/scripts/release/manage_production_kubeconfig.py cleanup \
             --runner-temp "$RUNNER_TEMP" --path "${KUBECONFIG:-}"
 
+  dispatch-prod26r9-staging-diagnostic:
+    if: github.ref == 'refs/heads/chore/prod26r9-validate-dispatch' && github.actor == 'VelkaressiaBlutkrone'
+    name: Dispatch exact staging diagnostic as Actions App
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    env:
+      RELEASE_ID: ms-20260830-prod26r9
+      DIAGNOSTIC_BRANCH: chore/prod26r9-validate-dispatch
+      GITHUB_API_VERSION: "2026-03-10"
+    steps:
+      - name: Dispatch the exact branch diagnostic as GitHub Actions
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          test "$GITHUB_TRIGGERING_ACTOR" = "VelkaressiaBlutkrone"
+          branch_sha="$(
+            gh api -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+              "repos/$GITHUB_REPOSITORY/git/ref/heads/$DIAGNOSTIC_BRANCH" \
+              --jq '.object.sha'
+          )"
+          test "$branch_sha" = "$GITHUB_SHA"
+
+          payload="$RUNNER_TEMP/prod26r9-staging-diagnostic-dispatch.json"
+          response="$RUNNER_TEMP/prod26r9-staging-diagnostic-response.json"
+          run_document="$RUNNER_TEMP/prod26r9-staging-diagnostic-run.json"
+          umask 077
+          jq -n --arg release_id "$RELEASE_ID" '{
+            "ref": "chore/prod26r9-validate-dispatch",
+            "inputs": {"release_id": $release_id}
+          }' >"$payload"
+          gh api --method POST \
+            -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+            --input "$payload" \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/mission-spine-validate.yml/dispatches" \
+            >"$response"
+          diagnostic_run_id="$(
+            jq -er '.workflow_run_id | select(type == "number" and . > 0)' "$response"
+          )"
+          for attempt in $(seq 1 12); do
+            if gh api -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$diagnostic_run_id" \
+              >"$run_document"; then
+              break
+            fi
+            test "$attempt" -lt 12
+            sleep 1
+          done
+          diagnostic_actor="$(jq -er '.actor.login' "$run_document")"
+          diagnostic_actor_id="$(jq -er '.actor.id' "$run_document")"
+          diagnostic_attempt="$(jq -er '.run_attempt' "$run_document")"
+          test "$diagnostic_actor" = "github-actions[bot]"
+          test "$diagnostic_actor_id" = "41898282"
+          test "$(jq -er '.triggering_actor.id' "$run_document")" = "41898282"
+          test "$(jq -er '.event' "$run_document")" = "workflow_dispatch"
+          test "$(jq -er '.head_branch' "$run_document")" = "$DIAGNOSTIC_BRANCH"
+          test "$(jq -er '.head_sha' "$run_document")" = "$branch_sha"
+          test "$diagnostic_attempt" = "1"
+          test "$(jq -er '.path' "$run_document")" = \
+            ".github/workflows/mission-spine-validate.yml"
+
+  diagnose-prod26r9-staging:
+    if: github.ref == 'refs/heads/chore/prod26r9-validate-dispatch' && github.actor == 'github-actions[bot]'
+    name: Diagnose exact staging runtime read-only
+    environment: mission-spine-staging
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      KUBECTL_CONTEXT: devpath-staging
+      KUBECTL_NAMESPACE: devpath-staging
+      WEB_DEPLOYMENT: devpath-web-staging
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: azure/setup-kubectl@829323503d1be3d00ca8346e5391ca0b07a9ab0d # v4.0.1
+        with:
+          version: v1.31.4
+      - name: Configure protected staging kubeconfig
+        env:
+          STAGING_KUBECONFIG_B64: ${{ secrets.STAGING_KUBECONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "${STAGING_KUBECONFIG_B64:-}"
+          python scripts/release/manage_production_kubeconfig.py create \
+            --scope staging --runner-temp "$RUNNER_TEMP" --github-env "$GITHUB_ENV"
+      - name: Print only sanitized read-only staging runtime facts
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl config get-contexts -o name
+          kubectl --context "$KUBECTL_CONTEXT" --namespace "$KUBECTL_NAMESPACE" \
+            --request-timeout=20s auth can-i get deployments
+          kubectl --context "$KUBECTL_CONTEXT" --namespace "$KUBECTL_NAMESPACE" \
+            --request-timeout=20s get deployment/devpath-web-staging \
+            -o custom-columns='NAME:.metadata.name,GENERATION:.metadata.generation,DESIRED:.spec.replicas,READY:.status.readyReplicas,AVAILABLE:.status.availableReplicas,IMAGE:.spec.template.spec.containers[0].image,AUTOMOUNT:.spec.template.spec.automountServiceAccountToken'
+          selector="$(
+            kubectl --context "$KUBECTL_CONTEXT" --namespace "$KUBECTL_NAMESPACE" \
+              --request-timeout=20s get deployment/devpath-web-staging \
+              -o jsonpath='{range $key,$value := .spec.selector.matchLabels}{$key}={$value},{end}'
+          )"
+          selector="${selector%,}"
+          test -n "$selector"
+          kubectl --context "$KUBECTL_CONTEXT" --namespace "$KUBECTL_NAMESPACE" \
+            --request-timeout=20s get replicasets -l "$selector" \
+            -o custom-columns='NAME:.metadata.name,DESIRED:.spec.replicas,READY:.status.readyReplicas,AVAILABLE:.status.availableReplicas,IMAGE:.spec.template.spec.containers[0].image'
+          kubectl --context "$KUBECTL_CONTEXT" --namespace "$KUBECTL_NAMESPACE" \
+            --request-timeout=20s get pods -l "$selector" \
+            -o custom-columns='NAME:.metadata.name,PHASE:.status.phase,SPEC_IMAGE:.spec.containers[0].image,RUNTIME_IMAGE:.status.containerStatuses[0].imageID,READY:.status.containerStatuses[0].ready,RESTARTS:.status.containerStatuses[0].restartCount'
+      - name: Remove protected staging kubeconfig
+        if: always()
+        run: |
+          set -euo pipefail
+          python scripts/release/manage_production_kubeconfig.py cleanup \
+            --runner-temp "$RUNNER_TEMP" --path "${KUBECONFIG:-}"
+
   dispatch-validation:
     if: github.ref == 'refs/heads/chore/prod26r9-validate-dispatch'
     name: Dispatch exact protected validation

@@ -40,6 +40,43 @@ class Prod26r9ValidationDispatchTest(unittest.TestCase):
             self.assertIn(expected, dispatcher)
         self.assertNotIn("environment:", dispatcher)
 
+    def test_branch_staging_diagnostic_is_read_only_and_environment_scoped(self) -> None:
+        diagnostic = self.workflow.split("\n  diagnose-prod26r9-staging:", 1)[1].split(
+            "\n  dispatch-validation:", 1
+        )[0]
+        for expected in (
+            "if: github.ref == 'refs/heads/chore/prod26r9-validate-dispatch'",
+            "github.actor == 'github-actions[bot]'",
+            "environment: mission-spine-staging",
+            "contents: read",
+            "secrets.STAGING_KUBECONFIG_B64",
+            "--scope staging",
+            "get deployment/devpath-web-staging",
+            "get replicasets",
+            "get pods",
+        ):
+            self.assertIn(expected, diagnostic)
+        for forbidden in (
+            "kubectl apply",
+            "kubectl patch",
+            "kubectl delete",
+            "kubectl set image",
+            "kubectl rollout restart",
+        ):
+            self.assertNotIn(forbidden, diagnostic)
+
+        dispatcher = self.workflow.split(
+            "\n  dispatch-prod26r9-staging-diagnostic:", 1
+        )[1].split("\n  diagnose-prod26r9-staging:", 1)[0]
+        for expected in (
+            "github.actor == 'VelkaressiaBlutkrone'",
+            '"ref": "chore/prod26r9-validate-dispatch"',
+            'test "$diagnostic_actor" = "github-actions[bot]"',
+            'test "$diagnostic_actor_id" = "41898282"',
+            'test "$diagnostic_attempt" = "1"',
+        ):
+            self.assertIn(expected, dispatcher)
+
 
 if __name__ == "__main__":
     unittest.main()
