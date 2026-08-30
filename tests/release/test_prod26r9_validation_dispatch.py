@@ -28,7 +28,7 @@ class Prod26r9ValidationDispatchTest(unittest.TestCase):
         for expected in (
             "if: github.ref == 'refs/heads/chore/prod26r9-validate-dispatch-r9-final'",
             "RELEASE_ID: ms-20260830-prod26r9",
-            "SOURCE_SHA: 34df49f53eb4c4cc42a2c8e060f5738ce27691b7",
+            "SOURCE_SHA: 02800678ec36b1d662440b38885af2311298dfa8",
             "actions: write",
             "contents: read",
             'test "$GITHUB_ACTOR" = "VelkaressiaBlutkrone"',

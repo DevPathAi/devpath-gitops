@@ -593,7 +593,7 @@ jobs:
       contents: read
     env:
       RELEASE_ID: ms-20260830-prod26r9
-      SOURCE_SHA: 34df49f53eb4c4cc42a2c8e060f5738ce27691b7
+      SOURCE_SHA: 02800678ec36b1d662440b38885af2311298dfa8
       GITHUB_API_VERSION: "2026-03-10"
     steps:
       - name: Prove the exact one-shot dispatcher context
