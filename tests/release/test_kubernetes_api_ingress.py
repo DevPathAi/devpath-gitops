@@ -107,7 +107,7 @@ class KubernetesApiIngressTest(unittest.TestCase):
         rule = self.valid_rule()
         aws = FakeAws([
             completed(json.dumps({"Return": True, "SecurityGroupRules": [rule]})),
-            completed(json.dumps({"Return": True})),
+            completed(json.dumps({"Return": True, "UnknownIpPermissions": []})),
         ])
         with tempfile.TemporaryDirectory() as directory:
             github_env = Path(directory) / "missing-github-env"
@@ -128,7 +128,7 @@ class KubernetesApiIngressTest(unittest.TestCase):
         rule = self.valid_rule()
         aws = FakeAws([
             completed(json.dumps({"SecurityGroupRules": [rule]})),
-            completed(json.dumps({"Return": True})),
+            completed(json.dumps({"Return": True, "UnknownIpPermissions": []})),
         ])
         self.assertTrue(module.close_ingress("sgr-" + "a" * 17, command_runner=aws))
         self.assertIn("describe-security-group-rules", aws.commands[0])
