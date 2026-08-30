@@ -196,8 +196,8 @@ class ProductionWorkflowWiringTest(unittest.TestCase):
         landing = (WORKFLOWS / "mission-spine-landing-last.yml").read_text(encoding="utf-8")
         self.assertEqual(promote.count("name: Remove the exact production kubeconfig"), 2)
         self.assertEqual(rollback.count("name: Remove the exact production kubeconfig"), 1)
-        self.assertEqual(promote.count("if: always()"), 3)
-        self.assertEqual(rollback.count("if: always()"), 2)
+        self.assertEqual(promote.count("if: always()"), 6)
+        self.assertEqual(rollback.count("if: always()"), 4)
         self.assertEqual(promote.count("manage_production_kubeconfig.py create"), 3)
         self.assertEqual(promote.count("manage_production_kubeconfig.py cleanup"), 3)
         self.assertEqual(rollback.count("manage_production_kubeconfig.py create"), 2)
@@ -228,6 +228,55 @@ class ProductionWorkflowWiringTest(unittest.TestCase):
         self.assertIn("production_deployments_enabled", (ROOT / "scripts/release/cloudflare_pages.py").read_text(encoding="utf-8"))
         for text in (promote, rollback, landing):
             self.assertIn("overwrite: false", text)
+
+    def test_every_remote_kubernetes_job_uses_ephemeral_runner_32_ingress(self):
+        action = (
+            "aws-actions/configure-aws-credentials@"
+            "e6de054238d6b7531b4efff3b6587d9aade6a06c"
+        )
+        role = "arn:aws:iam::963773969059:role/devpath-github-actions-k3s-api"
+        cases = {
+            "mission-spine-validate.yml": ("candidate-journeys", "seal-and-staging"),
+            "mission-spine-promote.yml": (
+                "production_off",
+                "rebaseline_staging",
+                "production_on",
+            ),
+            "mission-spine-rollback.yml": ("reverse-rollback", "rebaseline_staging"),
+        }
+        for filename, jobs in cases.items():
+            text = (WORKFLOWS / filename).read_text(encoding="utf-8")
+            self.assertEqual(text.count(action), len(jobs))
+            for job in jobs:
+                start = text.index(f"  {job}:")
+                later = [
+                    match.start()
+                    for match in re.finditer(r"^  [a-z][a-z0-9_-]+:\s*$", text, re.M)
+                    if match.start() > start
+                ]
+                section = text[start : min(later) if later else len(text)]
+                with self.subTest(filename=filename, job=job):
+                    self.assertIn("id-token: write", section)
+                    self.assertIn(action, section)
+                    self.assertIn(role, section)
+                    self.assertEqual(
+                        section.count("manage_kubernetes_api_ingress.py open"), 1
+                    )
+                    self.assertEqual(
+                        section.count("manage_kubernetes_api_ingress.py close"), 1
+                    )
+                    opened = section.index("manage_kubernetes_api_ingress.py open")
+                    kube = section.index("manage_production_kubeconfig.py create")
+                    kube_cleanup = section.index("manage_production_kubeconfig.py cleanup")
+                    closed = section.index("manage_kubernetes_api_ingress.py close")
+                    self.assertEqual(
+                        [opened, kube, kube_cleanup, closed],
+                        sorted([opened, kube, kube_cleanup, closed]),
+                    )
+                    close_step = section.rfind("      - name:", 0, closed)
+                    self.assertIn("if: always()", section[close_step:closed])
+                    self.assertNotIn("AWS_ACCESS_KEY_ID", section)
+                    self.assertNotIn("AWS_SECRET_ACCESS_KEY", section)
 
     def test_every_production_web_runtime_binds_the_exact_gitops_commit(self):
         for filename in ("mission-spine-promote.yml", "mission-spine-rollback.yml"):

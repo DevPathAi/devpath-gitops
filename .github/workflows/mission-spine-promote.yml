@@ -94,6 +94,7 @@ jobs:
       actions: read
       contents: read
       deployments: write
+      id-token: write
     outputs:
       migration_commit: ${{ steps.migration.outputs.migration_commit_sha }}
       services_commit: ${{ steps.off_chain.outputs.services_commit }}
@@ -214,6 +215,19 @@ jobs:
           python control/scripts/release/verify_migration_result.py --root "$GITHUB_WORKSPACE/sealed-release" \
             --gitops-root "$GITHUB_WORKSPACE/gitops-main" \
             --release-id "$RELEASE_ID" --github-output "$GITHUB_OUTPUT"
+      - uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: arn:aws:iam::963773969059:role/devpath-github-actions-k3s-api
+          aws-region: ap-northeast-2
+          role-duration-seconds: 3600
+          role-session-name: mission-spine-${{ github.run_id }}-${{ github.run_attempt }}
+          mask-aws-account-id: true
+          unset-current-credentials: true
+      - name: Lease this exact runner IPv4 for the Kubernetes API
+        run: |
+          set -euo pipefail
+          python control/scripts/release/manage_kubernetes_api_ingress.py open \
+            --github-env "$GITHUB_ENV"
       - name: Configure the production cluster
         env:
           PRODUCTION_KUBECONFIG_B64: ${{ secrets.PRODUCTION_KUBECONFIG_B64 }}
@@ -413,6 +427,13 @@ jobs:
           python control/scripts/release/manage_production_kubeconfig.py cleanup \
             --runner-temp "$RUNNER_TEMP" --path "${KUBECONFIG:-}"
 
+      - name: Revoke this exact runner IPv4 from the Kubernetes API
+        if: always()
+        run: |
+          set -euo pipefail
+          python control/scripts/release/manage_kubernetes_api_ingress.py close \
+            --rule-id "${KUBERNETES_API_INGRESS_RULE_ID:-}"
+
   rebaseline_staging:
     name: Rebaseline staging to promoted mission-ON
     needs: [resolve, production_on]
@@ -427,6 +448,7 @@ jobs:
       actions: read
       contents: read
       deployments: read
+      id-token: write
     steps:
       - name: Checkout original protected-main workflow bytes
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -477,6 +499,19 @@ jobs:
       - uses: azure/setup-kubectl@829323503d1be3d00ca8346e5391ca0b07a9ab0d # v5.1.0
         with:
           version: v1.36.2
+      - uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: arn:aws:iam::963773969059:role/devpath-github-actions-k3s-api
+          aws-region: ap-northeast-2
+          role-duration-seconds: 3600
+          role-session-name: mission-spine-${{ github.run_id }}-${{ github.run_attempt }}
+          mask-aws-account-id: true
+          unset-current-credentials: true
+      - name: Lease this exact runner IPv4 for the Kubernetes API
+        run: |
+          set -euo pipefail
+          python control/scripts/release/manage_kubernetes_api_ingress.py open \
+            --github-env "$GITHUB_ENV"
       - name: Configure approved staging cluster
         id: kube
         env:
@@ -536,6 +571,13 @@ jobs:
           python control/scripts/release/manage_production_kubeconfig.py cleanup \
             --runner-temp "$RUNNER_TEMP" --path "${KUBECONFIG:-}"
 
+      - name: Revoke this exact runner IPv4 from the Kubernetes API
+        if: always()
+        run: |
+          set -euo pipefail
+          python control/scripts/release/manage_kubernetes_api_ingress.py close \
+            --rule-id "${KUBERNETES_API_INGRESS_RULE_ID:-}"
+
   production_on:
     name: Promote mission-ON and hold the exact canary
     needs: resolve
@@ -551,6 +593,7 @@ jobs:
       actions: read
       contents: read
       deployments: write
+      id-token: write
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -664,6 +707,19 @@ jobs:
             --root "$GITHUB_WORKSPACE/sealed-release" \
             --gitops-root "$GITHUB_WORKSPACE/gitops-main" \
             --release-id "$RELEASE_ID" >/dev/null
+      - uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: arn:aws:iam::963773969059:role/devpath-github-actions-k3s-api
+          aws-region: ap-northeast-2
+          role-duration-seconds: 3600
+          role-session-name: mission-spine-${{ github.run_id }}-${{ github.run_attempt }}
+          mask-aws-account-id: true
+          unset-current-credentials: true
+      - name: Lease this exact runner IPv4 for the Kubernetes API
+        run: |
+          set -euo pipefail
+          python control/scripts/release/manage_kubernetes_api_ingress.py open \
+            --github-env "$GITHUB_ENV"
       - name: Configure the production cluster
         env:
           PRODUCTION_KUBECONFIG_B64: ${{ secrets.PRODUCTION_KUBECONFIG_B64 }}
@@ -828,3 +884,9 @@ jobs:
           set -euo pipefail
           python control/scripts/release/manage_production_kubeconfig.py cleanup \
             --runner-temp "$RUNNER_TEMP" --path "${KUBECONFIG:-}"
+      - name: Revoke this exact runner IPv4 from the Kubernetes API
+        if: always()
+        run: |
+          set -euo pipefail
+          python control/scripts/release/manage_kubernetes_api_ingress.py close \
+            --rule-id "${KUBERNETES_API_INGRESS_RULE_ID:-}"
