@@ -197,7 +197,7 @@ jobs:
           set -euo pipefail
           python control/scripts/release/wait_web_rollout.py \
             --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
-            --environment staging --phase prior --canary-seconds 0
+            --environment staging --phase prior --canary-seconds 0 --candidate-only
       - name: Stage exact candidate web for live journeys
         env:
           MISSION_SYNTHETIC_PROBE_TOKEN: ${{ secrets.MISSION_SYNTHETIC_PROBE_TOKEN }}
@@ -205,16 +205,16 @@ jobs:
           set -euo pipefail
           python control/scripts/release/stage_web_release.py \
             --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
-            --phase mission-off --expected-current prior
+            --phase mission-off --expected-current prior --candidate-only
           python control/scripts/release/wait_web_rollout.py \
             --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
-            --environment staging --phase mission-off --canary-seconds 0
+            --environment staging --phase mission-off --canary-seconds 0 --candidate-only
           python control/scripts/release/stage_web_release.py \
             --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
-            --phase mission-on --expected-current mission-off
+            --phase mission-on --expected-current mission-off --candidate-only
           python control/scripts/release/wait_web_rollout.py \
             --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
-            --environment staging --phase mission-on --canary-seconds 0
+            --environment staging --phase mission-on --canary-seconds 0 --candidate-only
       - name: Run exactly two live cross-service journeys
         working-directory: home
         env:
@@ -235,10 +235,10 @@ jobs:
           set -euo pipefail
           python control/scripts/release/stage_web_release.py \
             --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
-            --phase prior --expected-current candidate
+            --phase prior --expected-current candidate --candidate-only
           python control/scripts/release/wait_web_rollout.py \
             --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
-            --environment staging --phase prior --canary-seconds 0
+            --environment staging --phase prior --canary-seconds 0 --candidate-only
       - name: Remove the candidate journey staging kubeconfig
         if: always()
         run: |

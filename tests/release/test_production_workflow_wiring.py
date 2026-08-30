@@ -56,6 +56,8 @@ class ProductionWorkflowWiringTest(unittest.TestCase):
         self.assertIn("--environment staging --phase prior", restore_block)
         self.assertEqual(section.count("stage_web_release.py"), 3)
         self.assertEqual(section.count("wait_web_rollout.py"), 4)
+        self.assertEqual(section.count("--candidate-only"), 7)
+        self.assertNotIn("--candidate-only", text[end:])
         self.assertEqual(section.count("manage_production_kubeconfig.py create"), 1)
         self.assertEqual(section.count("manage_production_kubeconfig.py cleanup"), 1)
 

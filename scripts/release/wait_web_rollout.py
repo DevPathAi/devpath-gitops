@@ -13,7 +13,7 @@ import time
 from typing import Any
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
-from validate_release_manifest import resolve_release_bundle
+from validate_release_manifest import resolve_candidate_spec, resolve_release_bundle
 from stage_web_release import build_patch as build_staging_patch
 from verify_kubernetes_release_runtime import validate_application
 
@@ -416,11 +416,15 @@ def wait_rollout(
     canary_seconds: int,
     github_output: Path | None = None,
     commit: str | None = None,
+    *,
+    candidate_only: bool = False,
 ) -> None:
     if not os.environ.get("KUBECONFIG"):
         raise ValueError("KUBECONFIG is required")
     if environment not in {"staging", "production"}:
         raise ValueError("environment must be staging or production")
+    if candidate_only and environment != "staging":
+        raise ValueError("candidate-only rollout is restricted to staging")
     if canary_seconds not in {0, 900} or (canary_seconds == 900 and phase != "mission-on"):
         raise ValueError("only the mission-ON phase may run the exact 900-second canary")
     if environment == "production" and (
@@ -428,7 +432,10 @@ def wait_rollout(
     ):
         raise ValueError("production web rollout requires the exact GitOps commit")
     expected_revision = commit if environment == "production" else None
-    _, _, _, candidate, candidate_hash = resolve_release_bundle(root, release_id)
+    if candidate_only:
+        _, candidate, candidate_hash = resolve_candidate_spec(root, release_id)
+    else:
+        _, _, _, candidate, candidate_hash = resolve_release_bundle(root, release_id)
     identity = candidate["environments"][environment]
     context = identity["kubernetes_context"]
     namespace = identity["namespace"]
@@ -535,6 +542,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--canary-seconds", type=int, choices=[0, 900], required=True)
     parser.add_argument("--github-output", type=Path)
     parser.add_argument("--commit")
+    parser.add_argument("--candidate-only", action="store_true")
     args = parser.parse_args(argv)
     try:
         wait_rollout(
@@ -545,6 +553,7 @@ def main(argv: list[str] | None = None) -> int:
             args.canary_seconds,
             args.github_output,
             args.commit,
+            candidate_only=args.candidate_only,
         )
         return 0
     except (OSError, ValueError, json.JSONDecodeError) as exc:

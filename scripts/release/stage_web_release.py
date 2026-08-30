@@ -19,6 +19,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from validate_release_manifest import (
     DEDICATED_STAGING_IDENTITY,
+    resolve_candidate_spec,
     resolve_release_bundle,
     validate_candidate_spec,
 )
@@ -207,13 +208,23 @@ def build_cas_patch(
     return patch
 
 
-def stage(root: Path, release_id: str, phase: str, expected_current: str) -> None:
+def stage(
+    root: Path,
+    release_id: str,
+    phase: str,
+    expected_current: str,
+    *,
+    candidate_only: bool = False,
+) -> None:
     if not os.environ.get("KUBECONFIG"):
         raise ValueError("KUBECONFIG is required")
     binary = shutil.which("kubectl")
     if binary is None:
         raise ValueError("kubectl is required")
-    _, _, _, candidate, candidate_hash = resolve_release_bundle(root, release_id)
+    if candidate_only:
+        _, candidate, candidate_hash = resolve_candidate_spec(root, release_id)
+    else:
+        _, _, _, candidate, candidate_hash = resolve_release_bundle(root, release_id)
     identity = _staging_identity(candidate)
     target = f"deployment/{identity['web_deployment']}"
     get_result = subprocess.run(
@@ -274,9 +285,16 @@ def main(argv: list[str] | None = None) -> int:
         choices=(*PHASE_DIGESTS, "candidate"),
         required=True,
     )
+    parser.add_argument("--candidate-only", action="store_true")
     args = parser.parse_args(argv)
     try:
-        stage(args.root.resolve(), args.release_id, args.phase, args.expected_current)
+        stage(
+            args.root.resolve(),
+            args.release_id,
+            args.phase,
+            args.expected_current,
+            candidate_only=args.candidate_only,
+        )
         print(f"staged exact {args.phase} web image and release identity")
         return 0
     except (OSError, ValueError, json.JSONDecodeError) as exc:
