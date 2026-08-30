@@ -584,7 +584,7 @@ jobs:
             --rule-id "${KUBERNETES_API_INGRESS_RULE_ID:-}"
 
   dispatch-validation:
-    if: github.ref == 'refs/heads/chore/prod26r9-validate-dispatch-r9-final-retry1'
+    if: github.ref == 'refs/heads/chore/prod26r9-validate-dispatch-r9-final-retry2'
     name: Dispatch exact protected validation
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -603,7 +603,7 @@ jobs:
           test "$GITHUB_ACTOR" = "VelkaressiaBlutkrone"
           test "$GITHUB_TRIGGERING_ACTOR" = "VelkaressiaBlutkrone"
           test "$GITHUB_RUN_ATTEMPT" = "1"
-          test "$GITHUB_REF" = "refs/heads/chore/prod26r9-validate-dispatch-r9-final-retry1"
+          test "$GITHUB_REF" = "refs/heads/chore/prod26r9-validate-dispatch-r9-final-retry2"
           [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
 
       - name: Dispatch protected main through the repository Actions App

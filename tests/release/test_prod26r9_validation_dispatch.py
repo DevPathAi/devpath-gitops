@@ -26,7 +26,7 @@ class Prod26r9ValidationDispatchTest(unittest.TestCase):
     def test_branch_dispatcher_is_exact_and_actions_only(self) -> None:
         dispatcher = self.workflow.split("\n  dispatch-validation:", 1)[1]
         for expected in (
-            "if: github.ref == 'refs/heads/chore/prod26r9-validate-dispatch-r9-final-retry1'",
+            "if: github.ref == 'refs/heads/chore/prod26r9-validate-dispatch-r9-final-retry2'",
             "RELEASE_ID: ms-20260830-prod26r9",
             "SOURCE_SHA: bda5d3d991922db18ceafe379fb54e2d3ee603fc",
             "actions: write",
