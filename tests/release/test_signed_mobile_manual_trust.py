@@ -829,6 +829,60 @@ class SignedMobileManualTrustTest(unittest.TestCase):
             self.candidate["frontend"]["source_sha"],
         )
 
+        actions_bot = {
+            "id": 41898282,
+            "login": "github-actions[bot]",
+            "type": "Bot",
+        }
+        automation_run = copy.deepcopy(run)
+        automation_run["actor"] = copy.deepcopy(actions_bot)
+        automation_run["triggering_actor"] = copy.deepcopy(actions_bot)
+        self.verifier.validate_protected_approval(
+            label,
+            claim,
+            environment,
+            approvals,
+            jobs,
+            automation_run,
+            self.candidate["frontend"]["source_sha"],
+        )
+
+        for field, value in (
+            ("id", 1),
+            ("login", "github-actions-bot"),
+            ("type", "User"),
+        ):
+            lookalike_run = copy.deepcopy(automation_run)
+            lookalike_run["actor"][field] = value
+            with self.subTest(actions_bot_lookalike=field), self.assertRaisesRegex(
+                ValueError, "exact GitHub Actions automation"
+            ):
+                self.verifier.validate_protected_approval(
+                    label,
+                    claim,
+                    environment,
+                    approvals,
+                    jobs,
+                    lookalike_run,
+                    self.candidate["frontend"]["source_sha"],
+                )
+
+        mismatched_initiator_run = copy.deepcopy(run)
+        mismatched_initiator_run["triggering_actor"] = {
+            "id": 4002,
+            "login": "other-initiator",
+        }
+        with self.assertRaisesRegex(ValueError, "same identity"):
+            self.verifier.validate_protected_approval(
+                label,
+                claim,
+                environment,
+                approvals,
+                jobs,
+                mismatched_initiator_run,
+                self.candidate["frontend"]["source_sha"],
+            )
+
         for mutation, message in (
             (("environment", "prevent_self_review", False), "prevent self-review"),
             (("environment-root", "can_admins_bypass", True), "identity"),

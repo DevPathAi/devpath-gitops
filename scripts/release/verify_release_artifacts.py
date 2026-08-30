@@ -41,6 +41,7 @@ from validate_release_manifest import (
     quality_source,
     resolve_release_bundle,
 )
+from verify_current_protected_approval import _initiator_identity
 
 
 MAX_EVIDENCE_BYTES = 256 * 1024
@@ -1358,21 +1359,28 @@ def validate_protected_approval(
         raise ValueError(f"{label}: protected approval run head SHA mismatch")
     if (run.get("repository") or {}).get("full_name") != expected_repository:
         raise ValueError(f"{label}: protected approval run repository mismatch")
+    initiator_identities = []
     for label_suffix, initiator in (
         ("actor", run.get("actor")),
         ("triggering actor", run.get("triggering_actor")),
     ):
         if not isinstance(initiator, dict):
             raise ValueError(f"{label}: protected run initiator identity is missing")
-        _positive_int(
-            initiator.get("id"),
-            f"{label} protected run {label_suffix} id",
+        try:
+            initiator_identities.append(
+                _initiator_identity(
+                    initiator,
+                    f"{label} protected run {label_suffix}",
+                )
+            )
+        except ValueError as exc:
+            raise ValueError(
+                f"{label}: protected run initiator identity is invalid ({exc})"
+            ) from exc
+    if initiator_identities[0] != initiator_identities[1]:
+        raise ValueError(
+            f"{label}: protected run actor and triggering actor must be the same identity"
         )
-        login = initiator.get("login")
-        if not isinstance(login, str) or re.fullmatch(
-            r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?", login
-        ) is None:
-            raise ValueError(f"{label}: protected run initiator identity is invalid")
 
     if not isinstance(approvals, list):
         raise ValueError(f"{label}: approval history is invalid")
