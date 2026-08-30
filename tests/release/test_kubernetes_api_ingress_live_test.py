@@ -29,6 +29,7 @@ class KubernetesApiIngressLiveTestWiring(unittest.TestCase):
         self.assertEqual(order, tuple(sorted(order)))
         for forbidden in ("kubectl apply", "kubectl patch", "kubectl delete"):
             self.assertNotIn(forbidden, section)
+        self.assertNotIn("prepare_journey_evidence.py", section.split("\n  seal-and-staging:", 1)[0])
 
 
 if __name__ == "__main__":

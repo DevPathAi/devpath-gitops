@@ -335,36 +335,6 @@ jobs:
           set -euo pipefail
           python scripts/release/manage_kubernetes_api_ingress.py close \
             --rule-id "${KUBERNETES_API_INGRESS_RULE_ID:-}"
-      - name: Validate and byte-copy the two sanitized journey outputs
-        id: journey
-        run: |
-          set -euo pipefail
-          python control/scripts/release/prepare_journey_evidence.py \
-            --root "$GITHUB_WORKSPACE/candidate-data" --release-id "$RELEASE_ID" \
-            --evidence-dir "$RUNNER_TEMP/mission-spine-journeys" \
-            --output-dir "$RUNNER_TEMP/mission-spine-artifacts" \
-            --github-output "$GITHUB_OUTPUT"
-      - name: Upload activation evidence
-        id: upload_activation
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: ${{ inputs.release_id }}-journey-activation-attempt-${{ github.run_attempt }}
-          path: ${{ steps.journey.outputs.activation_path }}
-          if-no-files-found: error
-          retention-days: 30
-          overwrite: false
-          include-hidden-files: false
-      - name: Upload contextual practice evidence
-        id: upload_contextual
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: ${{ inputs.release_id }}-journey-contextual-practice-attempt-${{ github.run_attempt }}
-          path: ${{ steps.journey.outputs.contextual_path }}
-          if-no-files-found: error
-          retention-days: 30
-          overwrite: false
-          include-hidden-files: false
-
   seal-and-staging:
     name: Seal and validate staging
     needs: candidate-journeys
