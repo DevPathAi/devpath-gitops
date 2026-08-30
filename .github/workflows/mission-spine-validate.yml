@@ -170,6 +170,7 @@ jobs:
         id: journey_kube
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_EVIDENCE_TOKEN: ${{ secrets.RELEASE_EVIDENCE_TOKEN }}
           STAGING_KUBECONFIG_B64: ${{ secrets.STAGING_KUBECONFIG_B64 }}
         run: |
           set -euo pipefail

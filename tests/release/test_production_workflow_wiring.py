@@ -31,6 +31,12 @@ class ProductionWorkflowWiringTest(unittest.TestCase):
             section.index("secrets.STAGING_KUBECONFIG_B64"),
         )
 
+        configure_block = section[configure:prior]
+        self.assertIn(
+            "RELEASE_EVIDENCE_TOKEN: ${{ secrets.RELEASE_EVIDENCE_TOKEN }}",
+            configure_block,
+        )
+
         stage_block = section[stage:journey]
         ordered = (
             "--phase mission-off --expected-current prior",
