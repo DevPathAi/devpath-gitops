@@ -20,6 +20,7 @@ on:
 permissions: {}
 jobs:
   gitops-release-app:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: mission-spine-production-off
     steps:
@@ -51,7 +52,7 @@ jobs:
           # 실패한다(스텝 1이 곧 스코프 증명).
           echo "auth smoke passed: app=$APP_SLUG installation=$INSTALLATION_ID"
   full-write-authority:
-    if: inputs.full
+    if: github.ref == 'refs/heads/main' && inputs.full
     runs-on: ubuntu-latest
     environment: mission-spine-production-off
     steps:
@@ -77,3 +78,191 @@ jobs:
           python3 scripts/release/verify_gitops_write_authority.py \
             --expected-app-id "$APP_ID" --app-slug "$APP_SLUG" \
             --installation-id "$INSTALLATION_ID"
+
+  dispatch-candidate-journey-candidate-only-merge:
+    if: ${{ github.ref == 'refs/heads/chore/candidate-journey-candidate-only-merge' && !inputs.full }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    env:
+      EXPECTED_MAIN: 4aba68e3b5e24cd56e0eb177bba606376aaabe8d
+      DESIRED_HEAD: fa41e5e625060a635131f42aa1bf9de87190f3eb
+      GITHUB_API_VERSION: "2026-03-10"
+    steps:
+      - name: Prove the exact one-shot dispatcher context
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTOR" = "VelkaressiaBlutkrone"
+          test "$GITHUB_TRIGGERING_ACTOR" = "VelkaressiaBlutkrone"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          test "$GITHUB_REF" = "refs/heads/chore/candidate-journey-candidate-only-merge"
+
+      - name: Dispatch the protected App writer through GitHub Actions
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(
+            gh api -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+              "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha'
+          )" = "$EXPECTED_MAIN"
+          test "$(
+            gh api -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+              "repos/$GITHUB_REPOSITORY/branches/chore%2Fcandidate-journey-candidate-only-merge" \
+              --jq '.commit.sha'
+          )" = "$GITHUB_SHA"
+
+          payload="$RUNNER_TEMP/candidate-journey-candidate-only-merge-dispatch.json"
+          response="$RUNNER_TEMP/candidate-journey-candidate-only-merge-response.json"
+          run_document="$RUNNER_TEMP/candidate-journey-candidate-only-merge-run.json"
+          umask 077
+          jq -n \
+            --arg ref "chore/candidate-journey-candidate-only-merge" \
+            '{ref: $ref, inputs: {full: "true"}}' >"$payload"
+          gh api --method POST \
+            -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+            --input "$payload" \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/mission-spine-auth-smoke.yml/dispatches" \
+            >"$response"
+          inner_run_id="$(jq -er '.workflow_run_id | select(type == "number" and . > 0)' "$response")"
+
+          cancel_inner() {
+            gh api --method POST \
+              -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$inner_run_id/cancel" \
+              >/dev/null 2>&1 || true
+          }
+          trap 'status=$?; if test "$status" -ne 0; then cancel_inner; fi; exit "$status"' EXIT
+          for attempt in $(seq 1 12); do
+            if gh api -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$inner_run_id" >"$run_document"; then
+              break
+            fi
+            test "$attempt" -lt 12
+            sleep 1
+          done
+          test "$(jq -er '.actor.login' "$run_document")" = "github-actions[bot]"
+          test "$(jq -er '.actor.id' "$run_document")" = "41898282"
+          test "$(jq -er '.actor.type' "$run_document")" = "Bot"
+          test "$(jq -er '.triggering_actor.login' "$run_document")" = "github-actions[bot]"
+          test "$(jq -er '.triggering_actor.id' "$run_document")" = "41898282"
+          test "$(jq -er '.triggering_actor.type' "$run_document")" = "Bot"
+          test "$(jq -er '.head_sha' "$run_document")" = "$GITHUB_SHA"
+          test "$(jq -er '.run_attempt' "$run_document")" = "1"
+          test "$(jq -er '.path' "$run_document")" = ".github/workflows/mission-spine-auth-smoke.yml"
+          trap - EXIT
+          echo "inner_run_id=$inner_run_id" >>"$GITHUB_STEP_SUMMARY"
+
+  apply-candidate-journey-candidate-only-merge:
+    if: ${{ github.ref == 'refs/heads/chore/candidate-journey-candidate-only-merge' && inputs.full }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: mission-spine-production-off
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      EXPECTED_MAIN: 4aba68e3b5e24cd56e0eb177bba606376aaabe8d
+      DESIRED_HEAD: fa41e5e625060a635131f42aa1bf9de87190f3eb
+      EXPECTED_PR: "137"
+    steps:
+      - name: Prove the exact protected automation context
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTOR" = "github-actions[bot]"
+          test "$GITHUB_TRIGGERING_ACTOR" = "github-actions[bot]"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          test "$GITHUB_REF" = "refs/heads/chore/candidate-journey-candidate-only-merge"
+
+      - name: Prove the helper branch has not moved
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(
+            gh api "repos/$GITHUB_REPOSITORY/branches/chore%2Fcandidate-journey-candidate-only-merge" \
+              --jq '.commit.sha'
+          )" = "$GITHUB_SHA"
+
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app_token
+        with:
+          app-id: ${{ secrets.GITOPS_RELEASE_APP_ID }}
+          private-key: ${{ secrets.GITOPS_RELEASE_APP_PRIVATE_KEY }}
+          owner: DevPathAi
+          permission-administration: read
+          permission-contents: write
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          repository: DevPathAi/devpath-gitops
+          ref: main
+          token: ${{ steps.app_token.outputs.token }}
+          path: gitops-main
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Authenticate the exact App and release-workflow delta
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          APP_ID: ${{ secrets.GITOPS_RELEASE_APP_ID }}
+          APP_SLUG: ${{ steps.app_token.outputs.app-slug }}
+          INSTALLATION_ID: ${{ steps.app_token.outputs.installation-id }}
+        run: |
+          set -euo pipefail
+          test "$(git -C gitops-main rev-parse HEAD)" = "$EXPECTED_MAIN"
+          python3 gitops-main/scripts/release/verify_gitops_write_authority.py \
+            --expected-app-id "$APP_ID" --app-slug "$APP_SLUG" \
+            --installation-id "$INSTALLATION_ID"
+          git -C gitops-main fetch --no-tags origin \
+            refs/heads/fix/candidate-journey-candidate-only:refs/remotes/origin/fix/candidate-journey-candidate-only
+          test "$(git -C gitops-main rev-parse refs/remotes/origin/fix/candidate-journey-candidate-only)" = "$DESIRED_HEAD"
+          test "$(git -C gitops-main rev-list --count "$EXPECTED_MAIN..$DESIRED_HEAD")" = "1"
+          test "$(git -C gitops-main merge-base "$EXPECTED_MAIN" "$DESIRED_HEAD")" = "$EXPECTED_MAIN"
+          mapfile -t changed_paths < <(git -C gitops-main diff --name-only "$EXPECTED_MAIN..$DESIRED_HEAD")
+          test "${#changed_paths[@]}" = "5"
+          test "${changed_paths[0]}" = ".github/workflows/mission-spine-validate.yml"
+          test "${changed_paths[1]}" = "scripts/release/stage_web_release.py"
+          test "${changed_paths[2]}" = "scripts/release/wait_web_rollout.py"
+          test "${changed_paths[3]}" = "tests/release/test_production_workflow_wiring.py"
+          test "${changed_paths[4]}" = "tests/release/test_release_hardening.py"
+          git -C gitops-main diff --check "$EXPECTED_MAIN..$DESIRED_HEAD"
+
+      - name: Re-run the exact release workflow tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C gitops-main checkout --detach "$DESIRED_HEAD"
+          test "$(git -C gitops-main rev-parse HEAD)" = "$DESIRED_HEAD"
+          (
+            cd gitops-main
+            python3 -m unittest \
+              tests.release.test_release_hardening \
+              tests.release.test_production_workflow_wiring -v
+          )
+
+      - name: Fast-forward main through the sole authorized GitOps App
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          PR_READ_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(GH_TOKEN="$PR_READ_TOKEN" gh api \
+            "repos/$GITHUB_REPOSITORY/pulls/$EXPECTED_PR" --jq '.state')" = "open"
+          test "$(GH_TOKEN="$PR_READ_TOKEN" gh api \
+            "repos/$GITHUB_REPOSITORY/pulls/$EXPECTED_PR" --jq '.base.sha')" = "$EXPECTED_MAIN"
+          test "$(GH_TOKEN="$PR_READ_TOKEN" gh api \
+            "repos/$GITHUB_REPOSITORY/pulls/$EXPECTED_PR" --jq '.head.sha')" = "$DESIRED_HEAD"
+          git -C gitops-main fetch --no-tags origin main:refs/remotes/origin/main
+          test "$(git -C gitops-main rev-parse refs/remotes/origin/main)" = "$EXPECTED_MAIN"
+          git -C gitops-main push origin "$DESIRED_HEAD:refs/heads/main"
+          git -C gitops-main fetch --no-tags origin main:refs/remotes/origin/main
+          test "$(git -C gitops-main rev-parse refs/remotes/origin/main)" = "$DESIRED_HEAD"
