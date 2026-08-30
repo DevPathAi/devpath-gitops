@@ -154,7 +154,10 @@ def _revoke(rule_id: str, command_runner: Callable[[list[str]], Any]) -> None:
         ),
         "security-group revoke",
     )
-    if result != {"Return": True}:
+    if result not in (
+        {"Return": True},
+        {"Return": True, "UnknownIpPermissions": []},
+    ):
         raise ValueError("AWS security-group revoke was not exact")
 
 
