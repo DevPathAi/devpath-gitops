@@ -240,6 +240,23 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
         )
         self.assertEqual(len(normalized_result["pods"]), 2)
 
+        source_tag_pods = copy.deepcopy(self.pods)
+        for pod in source_tag_pods["items"]:
+            pod["status"]["containerStatuses"][0]["image"] = (
+                f"{self.trust['image_repository']}:{self.trust['source_sha']}"
+            )
+        source_tag_result = self.runtime.validate_service_runtime(
+            self.app,
+            self.deployment,
+            self.replicasets,
+            source_tag_pods,
+            self.name,
+            self.commit,
+            self.commit,
+            self.trust,
+        )
+        self.assertEqual(len(source_tag_result["pods"]), 2)
+
     def test_monorepo_application_binds_current_and_last_applied_revisions(self):
         observed = "c" * 40
         applied = self.commit
@@ -335,6 +352,21 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
         pods = copy.deepcopy(self.pods)
         pods["items"][0]["status"]["containerStatuses"][0]["image"] = (
             "sha256:" + "0" * 64
+        )
+        with self.assertRaisesRegex(ValueError, "runtime image"):
+            self.runtime.validate_service_runtime(
+                self.app,
+                self.deployment,
+                self.replicasets,
+                pods,
+                self.name,
+                self.commit,
+                self.commit,
+                self.trust,
+            )
+        pods = copy.deepcopy(self.pods)
+        pods["items"][0]["status"]["containerStatuses"][0]["image"] = (
+            self.trust["image_repository"] + ":main"
         )
         with self.assertRaisesRegex(ValueError, "runtime image"):
             self.runtime.validate_service_runtime(

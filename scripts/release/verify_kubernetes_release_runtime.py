@@ -441,6 +441,7 @@ def validate_service_runtime(
                 trust["root_digest"],
                 trust["manifest_digest"],
                 trust["config_digest"],
+                f"{trust['image_repository']}:{trust['source_sha']}",
             },
             "service Pod runtime image",
         )
@@ -480,13 +481,13 @@ def _terminated(status: dict[str, Any], label: str) -> None:
 def _authenticated_status_image(
     value: Any,
     exact_reference: str,
-    authenticated_digests: set[str],
+    authenticated_values: set[str],
     label: str,
 ) -> None:
-    """Accept the submitted image reference or a kubelet-normalized trusted digest."""
+    """Accept the submitted image reference or an authenticated kubelet identity."""
     if value == exact_reference:
         return
-    if not isinstance(value, str) or value not in authenticated_digests:
+    if not isinstance(value, str) or value not in authenticated_values:
         raise ValueError(f"{label} is not authenticated")
 
 

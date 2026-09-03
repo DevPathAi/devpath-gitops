@@ -48,6 +48,7 @@ class PromotionChainTest(unittest.TestCase):
             *self.chain.MIGRATION_RUNTIME_ADMISSION_FIX_PATHS,
             *self.chain.MIGRATION_PREFLIGHT_IDENTITY_FIX_PATHS,
             *self.chain.SERVICE_STATUS_IMAGE_FIX_PATHS,
+            *self.chain.SERVICE_SOURCE_STATUS_FIX_PATHS,
         }
         for relative in copied_contract_paths:
             target = self.root / relative
@@ -169,6 +170,20 @@ class PromotionChainTest(unittest.TestCase):
             )
         git(self.root, "add", *paths)
         git(self.root, "commit", "-m", self.chain.SERVICE_STATUS_IMAGE_FIX_SUBJECT)
+        return git(self.root, "rev-parse", "HEAD")
+
+    def commit_service_source_status_fix(self, *, suffix: str = "") -> str:
+        paths = self.chain.SERVICE_SOURCE_STATUS_FIX_PATHS
+        for relative in paths:
+            path = self.root / relative
+            path.write_text(
+                path.read_text(encoding="utf-8")
+                + f"\n# service-source-status-fix{suffix}\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+        git(self.root, "add", *paths)
+        git(self.root, "commit", "-m", self.chain.SERVICE_SOURCE_STATUS_FIX_SUBJECT)
         return git(self.root, "rev-parse", "HEAD")
 
     def set_migration(self):
@@ -651,6 +666,61 @@ class PromotionChainTest(unittest.TestCase):
         status_image = git(self.root, "rev-parse", "HEAD")
         with self.assertRaisesRegex(ValueError, "path set is not exact"):
             self.inspect(status_image)
+
+    def test_exact_service_source_status_fix_is_phase_transparent_and_cannot_repeat(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.commit_shared_migration_approval_fix()
+        self.commit_migration_runtime_fix()
+        self.commit_migration_runtime_admission_fix()
+        self.commit_migration_preflight_identity_fix()
+        self.set_services()
+        services = self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        status_image = self.commit_service_status_image_fix()
+        source_status = self.commit_service_source_status_fix()
+
+        state = self.inspect(source_status)
+        self.assertEqual("services", state["phase"])
+        self.assertEqual(services, state["services_commit"])
+        self.assertEqual(status_image, state["service_status_image_fix_commit"])
+        self.assertEqual(source_status, state["service_source_status_fix_commit"])
+        self.assertEqual(source_status, state["current_commit"])
+
+        repeated = self.commit_service_source_status_fix(suffix="-repeated")
+        with self.assertRaisesRegex(ValueError, "directly follow status image fix"):
+            self.inspect(repeated)
+
+    def test_service_source_status_fix_requires_status_fix_and_exact_paths(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.commit_shared_migration_approval_fix()
+        self.commit_migration_runtime_fix()
+        self.commit_migration_runtime_admission_fix()
+        self.commit_migration_preflight_identity_fix()
+        self.set_services()
+        self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        source_status = self.commit_service_source_status_fix()
+        with self.assertRaisesRegex(ValueError, "directly follow status image fix"):
+            self.inspect(source_status)
+
+        git(self.root, "reset", "--hard", "HEAD^")
+        self.commit_service_status_image_fix()
+        omitted = self.chain.SERVICE_SOURCE_STATUS_FIX_PATHS[-1]
+        self.commit_service_source_status_fix()
+        git(self.root, "checkout", "HEAD^", "--", omitted)
+        git(self.root, "add", omitted)
+        git(self.root, "commit", "--amend", "--no-edit")
+        source_status = git(self.root, "rev-parse", "HEAD")
+        with self.assertRaisesRegex(ValueError, "path set is not exact"):
+            self.inspect(source_status)
 
     def test_recognized_commit_from_non_app_actor_is_rejected(self):
         self.set_migration()
