@@ -24,6 +24,7 @@ MIGRATION_PREFLIGHT_IMAGE = (
     "postgres:17-alpine@sha256:"
     "979c4379dd698aba0b890599a6104e082035f98ef31d9b9291ec22f2b13059ca"
 )
+MIGRATION_PREFLIGHT_ROOT_DIGEST = MIGRATION_PREFLIGHT_IMAGE.rsplit("@", 1)[1]
 MIGRATION_PREFLIGHT_COMMAND = ["/bin/sh", "/opt/devpath/preflight.sh"]
 MIGRATION_PREFLIGHT_MANIFEST_DIGEST = (
     "sha256:5a6fcbc5d93831991d2386fa634509b3c49a1ac5ffb70c13c2322840f821d7e7"
@@ -640,6 +641,7 @@ def validate_migration_runtime(
     if "@" in normalized_preflight:
         normalized_preflight = normalized_preflight.rsplit("@", 1)[1]
     if normalized_preflight not in {
+        MIGRATION_PREFLIGHT_ROOT_DIGEST,
         MIGRATION_PREFLIGHT_MANIFEST_DIGEST,
         MIGRATION_PREFLIGHT_CONFIG_DIGEST,
     }:

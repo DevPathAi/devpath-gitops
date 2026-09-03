@@ -551,6 +551,25 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
         self.assertEqual(admitted_result["status"], "passed")
         self.assertTrue(admitted_result["service_account_projection_admitted"])
 
+        root_identity_pod = copy.deepcopy(admitted_pod)
+        root_identity_pod["status"]["initContainerStatuses"][0]["imageID"] = (
+            "docker.io/library/postgres@"
+            + self.runtime.MIGRATION_PREFLIGHT_IMAGE.rsplit("@", 1)[1]
+        )
+        root_identity_result = self.runtime.validate_migration_runtime(
+            app,
+            job,
+            {"items": [root_identity_pod]},
+            "mission-spine-flyway-target=202608221001 status=validated\n",
+            self.commit,
+            release_hash,
+            migration_trust,
+            "202608221001",
+            "V202608221001__correct_question_bank_accuracy.sql",
+            "2026-08-17T00:00:00Z",
+        )
+        self.assertEqual(root_identity_result["status"], "passed")
+
         for label, mutation in (
             (
                 "token-path",

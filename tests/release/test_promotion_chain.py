@@ -46,6 +46,7 @@ class PromotionChainTest(unittest.TestCase):
             *self.chain.SHARED_MIGRATION_APPROVAL_FIX_PATHS,
             *self.chain.MIGRATION_RUNTIME_FIX_PATHS,
             *self.chain.MIGRATION_RUNTIME_ADMISSION_FIX_PATHS,
+            *self.chain.MIGRATION_PREFLIGHT_IDENTITY_FIX_PATHS,
         }
         for relative in copied_contract_paths:
             target = self.root / relative
@@ -133,6 +134,25 @@ class PromotionChainTest(unittest.TestCase):
             "commit",
             "-m",
             self.chain.MIGRATION_RUNTIME_ADMISSION_FIX_SUBJECT,
+        )
+        return git(self.root, "rev-parse", "HEAD")
+
+    def commit_migration_preflight_identity_fix(self, *, suffix: str = "") -> str:
+        paths = self.chain.MIGRATION_PREFLIGHT_IDENTITY_FIX_PATHS
+        for relative in paths:
+            path = self.root / relative
+            path.write_text(
+                path.read_text(encoding="utf-8")
+                + f"\n# migration-preflight-identity-fix{suffix}\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+        git(self.root, "add", *paths)
+        git(
+            self.root,
+            "commit",
+            "-m",
+            self.chain.MIGRATION_PREFLIGHT_IDENTITY_FIX_SUBJECT,
         )
         return git(self.root, "rev-parse", "HEAD")
 
@@ -514,6 +534,51 @@ class PromotionChainTest(unittest.TestCase):
         admission = git(self.root, "rev-parse", "HEAD")
         with self.assertRaisesRegex(ValueError, "path set is not exact"):
             self.inspect(admission)
+
+    def test_exact_preflight_identity_fix_is_phase_transparent_and_cannot_repeat(self):
+        self.set_migration()
+        migration = self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        approval = self.commit_shared_migration_approval_fix()
+        runtime = self.commit_migration_runtime_fix()
+        admission = self.commit_migration_runtime_admission_fix()
+        identity = self.commit_migration_preflight_identity_fix()
+
+        state = self.inspect(identity)
+        self.assertEqual("migration", state["phase"])
+        self.assertEqual(migration, state["migration_commit"])
+        self.assertEqual(approval, state["shared_migration_approval_fix_commit"])
+        self.assertEqual(runtime, state["migration_runtime_fix_commit"])
+        self.assertEqual(admission, state["migration_runtime_admission_fix_commit"])
+        self.assertEqual(identity, state["migration_preflight_identity_fix_commit"])
+        self.assertEqual(identity, state["current_commit"])
+
+        repeated = self.commit_migration_preflight_identity_fix(suffix="-repeated")
+        with self.assertRaisesRegex(ValueError, "directly follow admission fix"):
+            self.inspect(repeated)
+
+    def test_preflight_identity_fix_requires_admission_fix_and_exact_paths(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.commit_shared_migration_approval_fix()
+        self.commit_migration_runtime_fix()
+        identity = self.commit_migration_preflight_identity_fix()
+        with self.assertRaisesRegex(ValueError, "directly follow admission fix"):
+            self.inspect(identity)
+
+        git(self.root, "reset", "--hard", "HEAD^")
+        self.commit_migration_runtime_admission_fix()
+        omitted = self.chain.MIGRATION_PREFLIGHT_IDENTITY_FIX_PATHS[-1]
+        self.commit_migration_preflight_identity_fix()
+        git(self.root, "checkout", "HEAD^", "--", omitted)
+        git(self.root, "add", omitted)
+        git(self.root, "commit", "--amend", "--no-edit")
+        identity = git(self.root, "rev-parse", "HEAD")
+        with self.assertRaisesRegex(ValueError, "path set is not exact"):
+            self.inspect(identity)
 
     def test_recognized_commit_from_non_app_actor_is_rejected(self):
         self.set_migration()
