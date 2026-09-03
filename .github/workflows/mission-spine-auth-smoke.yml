@@ -1,10 +1,10 @@
-name: prod26r9 post-ON resume identity fix publisher
+name: prod26r9 web applied revision lineage publisher
 
 on:
   workflow_dispatch:
     inputs:
       full:
-        description: Publish the exact tested prod26r9 post-ON resume identity fix
+        description: Publish the exact tested prod26r9 web applied revision lineage fix
         type: boolean
         required: true
         default: false
@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: prod26r9-post-on-resume-identity-fix-publish
+  group: prod26r9-web-applied-revision-lineage-fix-publish
   cancel-in-progress: false
 
 jobs:
@@ -38,12 +38,13 @@ jobs:
       STATUS_FIX_SHA: aaef09d39df61f1561f32ce616a498a00585c068
       SOURCE_STATUS_FIX_SHA: cc9d0424f7a2dc1d962e4bb7e820248373cc40e4
       OFF_SHA: 711273896cd3e6c8130ba8fab4b1683e08340260
-      MAIN_SHA: e4408b007d2104a6a2743a1237ce2b9bd62a50ee
-      TARGET_SHA: 1988b373d80d056f51e074fa25b3434c9b300efc
+      CANARY_FIX_SHA: e4408b007d2104a6a2743a1237ce2b9bd62a50ee
+      MAIN_SHA: 1988b373d80d056f51e074fa25b3434c9b300efc
+      TARGET_SHA: f9b717ef71bbf3daf5b3313474405755417c18c3
       SEALED_SHA: 9ae75a2f0dc9f22f2383775fd2f785d510f93740
-      HELPER_BASE_SHA: b05092ecd04a1b931ceeb5ae53f9570969fcadd0
+      HELPER_BASE_SHA: f19401f3793d5330365bb6186dac3740b427464f
       HELPER_BRANCH: chore/prod26r9-et11-runtime-fix-publish
-      TARGET_BRANCH: fix/prod26r9-post-on-resume-identity
+      TARGET_BRANCH: fix/prod26r9-web-applied-revision-lineage
       GITHUB_API_VERSION: "2026-03-10"
       PYTHONDONTWRITEBYTECODE: "1"
       GIT_CONFIG_COUNT: "2"
@@ -86,7 +87,7 @@ jobs:
           )"
           test "$current_main" = "$MAIN_SHA"
 
-      - name: Checkout the exact tested post-ON resume identity fix
+      - name: Checkout the exact tested web applied revision lineage fix
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ env.TARGET_SHA }}
@@ -94,20 +95,25 @@ jobs:
           persist-credentials: false
           path: target
 
-      - name: Test the exact post-ON resume identity fix
+      - name: Test the exact web applied revision lineage fix
         working-directory: target
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$TARGET_SHA"
           test "$(git rev-parse HEAD^)" = "$MAIN_SHA"
           test "$(git show -s --format=%s HEAD)" = \
-            'fix(release): restore post-ON resume identity'
+            'fix(release): bind web applied revision lineage'
           test "$(git show -s --format=%an HEAD)" = 'devpath-gitops-release[bot]'
           test "$(git show -s --format=%cn HEAD)" = 'devpath-gitops-release[bot]'
           mapfile -t target_paths < <(git diff-tree --no-commit-id --name-only -r HEAD)
-          test "${#target_paths[@]}" -eq 2
-          test "${target_paths[0]}" = "scripts/release/verify_promotion_chain.py"
-          test "${target_paths[1]}" = "tests/release/test_promotion_chain.py"
+          test "${#target_paths[@]}" -eq 7
+          test "${target_paths[0]}" = ".github/workflows/mission-spine-promote.yml"
+          test "${target_paths[1]}" = ".github/workflows/mission-spine-rollback.yml"
+          test "${target_paths[2]}" = "scripts/release/verify_promotion_chain.py"
+          test "${target_paths[3]}" = "scripts/release/wait_web_rollout.py"
+          test "${target_paths[4]}" = "tests/release/test_production_workflow_wiring.py"
+          test "${target_paths[5]}" = "tests/release/test_promotion_chain.py"
+          test "${target_paths[6]}" = "tests/release/test_release_hardening.py"
           git diff --check "$MAIN_SHA" "$TARGET_SHA"
           python3 -m unittest discover -s tests/release
 
@@ -183,6 +189,7 @@ jobs:
           on_commit="$(sed -n 's/^on_commit=//p' "$before_output")"
           canary_form_fix_commit="$(sed -n 's/^canary_runtime_form_fix_commit=//p' "$before_output")"
           post_on_resume_fix_commit="$(sed -n 's/^post_on_resume_fix_commit=//p' "$before_output")"
+          web_applied_revision_fix_commit="$(sed -n 's/^web_applied_revision_fix_commit=//p' "$before_output")"
           current_commit="$(sed -n 's/^current_commit=//p' "$before_output")"
           test "$phase" = "mission-on"
           test "$migration_commit" = "$MIGRATION_SHA"
@@ -195,11 +202,12 @@ jobs:
           test "$source_status_fix_commit" = "$SOURCE_STATUS_FIX_SHA"
           test "$off_commit" = "$OFF_SHA"
           test "$on_commit" = "$TARGET_SHA"
-          test "$canary_form_fix_commit" = "$MAIN_SHA"
-          test "$post_on_resume_fix_commit" = "$TARGET_SHA"
+          test "$canary_form_fix_commit" = "$CANARY_FIX_SHA"
+          test "$post_on_resume_fix_commit" = "$MAIN_SHA"
+          test "$web_applied_revision_fix_commit" = "$TARGET_SHA"
           test "$current_commit" = "$TARGET_SHA"
 
-      - name: Fast-forward protected main to the exact tested post-ON resume identity fix
+      - name: Fast-forward protected main to the exact tested web applied revision lineage fix
         env:
           GH_TOKEN: ${{ steps.app_token.outputs.token }}
           APP_ID: ${{ secrets.GITOPS_RELEASE_APP_ID }}
@@ -240,6 +248,7 @@ jobs:
           on_commit="$(sed -n 's/^on_commit=//p' "$after_output")"
           canary_form_fix_commit="$(sed -n 's/^canary_runtime_form_fix_commit=//p' "$after_output")"
           post_on_resume_fix_commit="$(sed -n 's/^post_on_resume_fix_commit=//p' "$after_output")"
+          web_applied_revision_fix_commit="$(sed -n 's/^web_applied_revision_fix_commit=//p' "$after_output")"
           current_commit="$(sed -n 's/^current_commit=//p' "$after_output")"
           test "$phase" = "mission-on"
           test "$migration_commit" = "$MIGRATION_SHA"
@@ -252,6 +261,7 @@ jobs:
           test "$source_status_fix_commit" = "$SOURCE_STATUS_FIX_SHA"
           test "$off_commit" = "$OFF_SHA"
           test "$on_commit" = "$TARGET_SHA"
-          test "$canary_form_fix_commit" = "$MAIN_SHA"
-          test "$post_on_resume_fix_commit" = "$TARGET_SHA"
+          test "$canary_form_fix_commit" = "$CANARY_FIX_SHA"
+          test "$post_on_resume_fix_commit" = "$MAIN_SHA"
+          test "$web_applied_revision_fix_commit" = "$TARGET_SHA"
           test "$current_commit" = "$TARGET_SHA"
