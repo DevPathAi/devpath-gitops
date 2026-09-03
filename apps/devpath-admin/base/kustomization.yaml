@@ -7,4 +7,4 @@ resources:
 images:
 - name: ghcr.io/devpathai/devpath-admin
   newName: ghcr.io/devpathai/devpath-admin
-  newTag: 5c5f3a90f8d3da2523bb1dd13c057655f7b82897
+  digest: sha256:c17a869bf0893758536837485f44494cb8462b7a562caa07a6ca3cf1bf36f12a
