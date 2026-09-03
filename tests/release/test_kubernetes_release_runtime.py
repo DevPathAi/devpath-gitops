@@ -490,6 +490,107 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
         self.assertEqual(result["job"], name)
         self.assertEqual(result["status"], "passed")
 
+        admitted_pod = copy.deepcopy(pod)
+        service_account_volume = "kube-api-access-npnnz"
+        service_account_mount = {
+            "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+            "name": service_account_volume,
+            "readOnly": True,
+        }
+        for section in ("initContainers", "containers"):
+            admitted_pod["spec"][section][0].setdefault("volumeMounts", []).append(
+                copy.deepcopy(service_account_mount)
+            )
+        admitted_pod["spec"]["volumes"] = [
+            {
+                "name": service_account_volume,
+                "projected": {
+                    "defaultMode": 420,
+                    "sources": [
+                        {
+                            "serviceAccountToken": {
+                                "expirationSeconds": 3607,
+                                "path": "token",
+                            }
+                        },
+                        {
+                            "configMap": {
+                                "items": [{"key": "ca.crt", "path": "ca.crt"}],
+                                "name": "kube-root-ca.crt",
+                            }
+                        },
+                        {
+                            "downwardAPI": {
+                                "items": [
+                                    {
+                                        "fieldRef": {
+                                            "apiVersion": "v1",
+                                            "fieldPath": "metadata.namespace",
+                                        },
+                                        "path": "namespace",
+                                    }
+                                ]
+                            }
+                        },
+                    ],
+                },
+            }
+        ]
+        admitted_result = self.runtime.validate_migration_runtime(
+            app,
+            job,
+            {"items": [admitted_pod]},
+            "mission-spine-flyway-target=202608221001 status=validated\n",
+            self.commit,
+            release_hash,
+            migration_trust,
+            "202608221001",
+            "V202608221001__correct_question_bank_accuracy.sql",
+            "2026-08-17T00:00:00Z",
+        )
+        self.assertEqual(admitted_result["status"], "passed")
+        self.assertTrue(admitted_result["service_account_projection_admitted"])
+
+        for label, mutation in (
+            (
+                "token-path",
+                lambda value: value["spec"]["volumes"][0]["projected"][
+                    "sources"
+                ][0]["serviceAccountToken"].__setitem__("path", "other"),
+            ),
+            (
+                "expiration",
+                lambda value: value["spec"]["volumes"][0]["projected"][
+                    "sources"
+                ][0]["serviceAccountToken"].__setitem__(
+                    "expirationSeconds", 7201
+                ),
+            ),
+            (
+                "mount",
+                lambda value: value["spec"]["containers"][0]["volumeMounts"][
+                    0
+                ].__setitem__("readOnly", False),
+            ),
+        ):
+            changed = copy.deepcopy(admitted_pod)
+            mutation(changed)
+            with self.subTest(service_account_projection=label), self.assertRaisesRegex(
+                ValueError, "service account"
+            ):
+                self.runtime.validate_migration_runtime(
+                    app,
+                    job,
+                    {"items": [changed]},
+                    "mission-spine-flyway-target=202608221001 status=validated\n",
+                    self.commit,
+                    release_hash,
+                    migration_trust,
+                    "202608221001",
+                    "V202608221001__correct_question_bank_accuracy.sql",
+                    "2026-08-17T00:00:00Z",
+                )
+
         k3s_normalized_pod = copy.deepcopy(pod)
         k3s_normalized_pod["status"]["initContainerStatuses"][0]["image"] = (
             self.runtime.MIGRATION_PREFLIGHT_CONFIG_DIGEST

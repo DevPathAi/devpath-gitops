@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import copy
 from datetime import datetime, timezone
 from pathlib import Path
 import re
@@ -32,6 +33,8 @@ MIGRATION_PREFLIGHT_CONFIG_DIGEST = (
 )
 ARGO_NAMESPACE = "argocd"
 SHA40 = re.compile(r"[0-9a-f]{40}")
+SERVICE_ACCOUNT_VOLUME = re.compile(r"kube-api-access-[a-z0-9]{5}")
+SERVICE_ACCOUNT_MOUNT_PATH = "/var/run/secrets/kubernetes.io/serviceaccount"
 
 
 def _positive_int(value: Any, label: str) -> int:
@@ -62,6 +65,110 @@ def _no_ephemeral(spec: Any, status: Any, label: str) -> None:
         "ephemeralContainerStatuses"
     ) not in (None, []):
         raise ValueError(f"{label} may not contain ephemeral containers")
+
+
+def _without_admitted_service_account_projection(
+    runtime_pod_spec: dict[str, Any], template_pod_spec: dict[str, Any]
+) -> tuple[dict[str, Any], bool]:
+    """Remove only the exact service-account projection injected into a Pod."""
+    runtime = copy.deepcopy(runtime_pod_spec)
+    template_volumes = template_pod_spec.get("volumes") or []
+    runtime_volumes = runtime.get("volumes") or []
+    if not isinstance(template_volumes, list) or not isinstance(runtime_volumes, list):
+        raise ValueError("migration Pod volumes are invalid")
+    template_names = {
+        item.get("name") for item in template_volumes if isinstance(item, dict)
+    }
+    admitted = [
+        item
+        for item in runtime_volumes
+        if isinstance(item, dict)
+        and isinstance(item.get("name"), str)
+        and SERVICE_ACCOUNT_VOLUME.fullmatch(item["name"])
+        and item["name"] not in template_names
+    ]
+    if not admitted:
+        return runtime, False
+    if len(admitted) != 1:
+        raise ValueError("migration Pod service account projection is not singular")
+    volume = admitted[0]
+    volume_name = volume["name"]
+    projected = volume.get("projected")
+    if (
+        set(volume) != {"name", "projected"}
+        or not isinstance(projected, dict)
+        or set(projected) != {"defaultMode", "sources"}
+        or projected.get("defaultMode") != 420
+    ):
+        raise ValueError("migration Pod service account projection is not exact")
+    sources = projected.get("sources")
+    if not isinstance(sources, list) or len(sources) != 3:
+        raise ValueError("migration Pod service account projection is not exact")
+    token = sources[0]
+    token_projection = token.get("serviceAccountToken") if isinstance(token, dict) else None
+    expiration = (
+        token_projection.get("expirationSeconds")
+        if isinstance(token_projection, dict)
+        else None
+    )
+    if (
+        not isinstance(token, dict)
+        or set(token) != {"serviceAccountToken"}
+        or not isinstance(token_projection, dict)
+        or set(token_projection) != {"expirationSeconds", "path"}
+        or isinstance(expiration, bool)
+        or not isinstance(expiration, int)
+        or not 3600 <= expiration <= 7200
+        or token_projection.get("path") != "token"
+        or sources[1]
+        != {
+            "configMap": {
+                "items": [{"key": "ca.crt", "path": "ca.crt"}],
+                "name": "kube-root-ca.crt",
+            }
+        }
+        or sources[2]
+        != {
+            "downwardAPI": {
+                "items": [
+                    {
+                        "fieldRef": {
+                            "apiVersion": "v1",
+                            "fieldPath": "metadata.namespace",
+                        },
+                        "path": "namespace",
+                    }
+                ]
+            }
+        }
+    ):
+        raise ValueError("migration Pod service account projection is not exact")
+    expected_mount = {
+        "mountPath": SERVICE_ACCOUNT_MOUNT_PATH,
+        "name": volume_name,
+        "readOnly": True,
+    }
+    for section in ("initContainers", "containers"):
+        items = runtime.get(section)
+        if not isinstance(items, list) or not items:
+            raise ValueError("migration Pod service account mounts are invalid")
+        for item in items:
+            if not isinstance(item, dict):
+                raise ValueError("migration Pod service account mounts are invalid")
+            mounts = item.get("volumeMounts")
+            if not isinstance(mounts, list) or mounts.count(expected_mount) != 1:
+                raise ValueError("migration Pod service account mount is not exact")
+            remaining = [mount for mount in mounts if mount != expected_mount]
+            if remaining:
+                item["volumeMounts"] = remaining
+            else:
+                item.pop("volumeMounts")
+    remaining_volumes = [item for item in runtime_volumes if item is not volume]
+    if remaining_volumes:
+        runtime["volumes"] = remaining_volumes
+    else:
+        runtime.pop("volumes", None)
+    return runtime, True
 
 
 def _metadata(document: Any, kind: str, name: str, namespace: str) -> dict[str, Any]:
@@ -491,11 +598,18 @@ def validate_migration_runtime(
         raise ValueError("migration Pod UID is missing")
     _owner(pod_metadata, "Job", expected_name, uid, "batch/v1")
     runtime_pod_spec = pod.get("spec") or {}
+    if not isinstance(runtime_pod_spec, dict):
+        raise ValueError("migration Pod spec is invalid")
+    normalized_runtime_pod_spec, service_account_projection_admitted = (
+        _without_admitted_service_account_projection(runtime_pod_spec, pod_spec)
+    )
     if (
-        runtime_pod_spec.get("containers") != pod_spec.get("containers")
-        or runtime_pod_spec.get("initContainers") != pod_spec.get("initContainers")
-        or runtime_pod_spec.get("restartPolicy") != pod_spec.get("restartPolicy")
-        or runtime_pod_spec.get("volumes") != pod_spec.get("volumes")
+        normalized_runtime_pod_spec.get("containers") != pod_spec.get("containers")
+        or normalized_runtime_pod_spec.get("initContainers")
+        != pod_spec.get("initContainers")
+        or normalized_runtime_pod_spec.get("restartPolicy")
+        != pod_spec.get("restartPolicy")
+        or normalized_runtime_pod_spec.get("volumes") != pod_spec.get("volumes")
     ):
         raise ValueError("migration Pod spec differs from the authenticated Job template")
     pod_status = pod.get("status") or {}
@@ -561,6 +675,7 @@ def validate_migration_runtime(
         "observed_commit": observed_commit,
         "application_observed_revision": observed_commit,
         "application_applied_revision": application_applied_commit,
+        "service_account_projection_admitted": service_account_projection_admitted,
         "namespace": NAMESPACE,
         "application": "devpath-migration",
         "job": expected_name,

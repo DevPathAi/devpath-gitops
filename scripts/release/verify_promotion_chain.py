@@ -62,6 +62,15 @@ MIGRATION_RUNTIME_FIX_PATHS = (
     "tests/release/test_promotion_chain.py",
     "tests/release/test_release_contract.py",
 )
+MIGRATION_RUNTIME_ADMISSION_FIX_SUBJECT = (
+    "fix(release): accept Kubernetes service account projection"
+)
+MIGRATION_RUNTIME_ADMISSION_FIX_PATHS = (
+    "scripts/release/verify_kubernetes_release_runtime.py",
+    "scripts/release/verify_promotion_chain.py",
+    "tests/release/test_kubernetes_release_runtime.py",
+    "tests/release/test_promotion_chain.py",
+)
 
 
 def _git(root: Path, args: list[str], *, binary: bool = False) -> str | bytes:
@@ -594,6 +603,7 @@ def inspect_chain(
                 "migration_commit": "",
                 "shared_migration_approval_fix_commit": "",
                 "migration_runtime_fix_commit": "",
+                "migration_runtime_admission_fix_commit": "",
                 "services_commit": "",
                 "off_commit": "",
                 "on_commit": "",
@@ -657,6 +667,26 @@ def inspect_chain(
                 **prior,
                 "current_commit": commit,
                 "migration_runtime_fix_commit": commit,
+            }
+        if subject == MIGRATION_RUNTIME_ADMISSION_FIX_SUBJECT:
+            _require_write_actor(root, commit)
+            if (
+                prior["phase"] != "migration"
+                or not prior["migration_runtime_fix_commit"]
+                or parent != prior["migration_runtime_fix_commit"]
+                or prior["migration_runtime_admission_fix_commit"]
+            ):
+                raise ValueError(
+                    "migration runtime admission fix must directly follow runtime fix"
+                )
+            _require_delta(root, commit, MIGRATION_RUNTIME_ADMISSION_FIX_PATHS)
+            _require_migration(root, commit, candidate, release_manifest_sha256)
+            _require_service_base_selectors(root, commit, candidate)
+            _require_web(root, commit, candidate, candidate_spec_sha256, "base")
+            return {
+                **prior,
+                "current_commit": commit,
+                "migration_runtime_admission_fix_commit": commit,
             }
         if subject == services_subject:
             _require_write_actor(root, commit)
