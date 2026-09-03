@@ -1,10 +1,10 @@
-name: prod26r9 ET11 migration runtime fix publisher
+name: prod26r9 migration runtime admission fix publisher
 
 on:
   workflow_dispatch:
     inputs:
       full:
-        description: Publish the exact tested prod26r9 ET11 runtime fix
+        description: Publish the exact tested prod26r9 runtime admission fix
         type: boolean
         required: true
         default: false
@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: prod26r9-et11-runtime-fix-publish
+  group: prod26r9-runtime-admission-fix-publish
   cancel-in-progress: false
 
 jobs:
@@ -30,9 +30,11 @@ jobs:
     env:
       RELEASE_ID: ms-20260830-prod26r9
       MIGRATION_SHA: 5bcde50ed982c9b5382f7b87579a4096212c1b1b
-      MAIN_SHA: 6ab7b95a2f981be176469300c1ce4693a5163952
-      TARGET_SHA: 0576f3a52a02b3c434ab8b0931b53cc543e490ae
+      APPROVAL_FIX_SHA: 6ab7b95a2f981be176469300c1ce4693a5163952
+      MAIN_SHA: 0576f3a52a02b3c434ab8b0931b53cc543e490ae
+      TARGET_SHA: 6f3d57e555a92a9ff1941728cc32312feaf03ef3
       SEALED_SHA: 9ae75a2f0dc9f22f2383775fd2f785d510f93740
+      HELPER_BASE_SHA: 922d75de516bd79ebd11ab721b4a872201296a3f
       HELPER_BRANCH: chore/prod26r9-et11-runtime-fix-publish
       TARGET_BRANCH: fix/prod26r9-shared-migration-approval-contract
       GITHUB_API_VERSION: "2026-03-10"
@@ -61,7 +63,7 @@ jobs:
           test "$GITHUB_REF_NAME" = "$HELPER_BRANCH"
           test "$INPUT_FULL" = "true"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git rev-parse HEAD^)" = "$MAIN_SHA"
+          test "$(git rev-parse HEAD^)" = "$HELPER_BASE_SHA"
           mapfile -t helper_paths < <(git diff-tree --no-commit-id --name-only -r HEAD)
           test "${#helper_paths[@]}" -eq 2
           test "${helper_paths[0]}" = ".github/workflows/mission-spine-auth-smoke.yml"
@@ -72,7 +74,7 @@ jobs:
           )"
           test "$current_main" = "$MAIN_SHA"
 
-      - name: Checkout the exact tested ET11 runtime fix
+      - name: Checkout the exact tested runtime admission fix
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ env.TARGET_SHA }}
@@ -80,28 +82,22 @@ jobs:
           persist-credentials: false
           path: target
 
-      - name: Test the exact ET11 runtime fix
+      - name: Test the exact runtime admission fix
         working-directory: target
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$TARGET_SHA"
           test "$(git rev-parse HEAD^)" = "$MAIN_SHA"
           test "$(git show -s --format=%s HEAD)" = \
-            'fix(release): bind sealed ET11 migration runtime'
+            'fix(release): accept Kubernetes service account projection'
           test "$(git show -s --format=%an HEAD)" = 'devpath-gitops-release[bot]'
           test "$(git show -s --format=%cn HEAD)" = 'devpath-gitops-release[bot]'
           mapfile -t target_paths < <(git diff-tree --no-commit-id --name-only -r HEAD)
-          test "${#target_paths[@]}" -eq 10
-          test "${target_paths[0]}" = "apps/devpath-migration/base/job.yaml"
-          test "${target_paths[1]}" = "apps/devpath-migration/base/sandbox-preflight.yaml"
-          test "${target_paths[2]}" = "apps/devpath-sandbox-svc/base/RUNBOOK.md"
-          test "${target_paths[3]}" = "scripts/release/verify_kubernetes_release_runtime.py"
-          test "${target_paths[4]}" = "scripts/release/verify_promotion_chain.py"
-          test "${target_paths[5]}" = "scripts/release/wait_release_rollouts.py"
-          test "${target_paths[6]}" = "scripts/verify-sandbox-hardening.ps1"
-          test "${target_paths[7]}" = "tests/release/test_kubernetes_release_runtime.py"
-          test "${target_paths[8]}" = "tests/release/test_promotion_chain.py"
-          test "${target_paths[9]}" = "tests/release/test_release_contract.py"
+          test "${#target_paths[@]}" -eq 4
+          test "${target_paths[0]}" = "scripts/release/verify_kubernetes_release_runtime.py"
+          test "${target_paths[1]}" = "scripts/release/verify_promotion_chain.py"
+          test "${target_paths[2]}" = "tests/release/test_kubernetes_release_runtime.py"
+          test "${target_paths[3]}" = "tests/release/test_promotion_chain.py"
           git diff --check "$MAIN_SHA" "$TARGET_SHA"
           python3 -m unittest discover -s tests/release
 
@@ -168,14 +164,16 @@ jobs:
           migration_commit="$(sed -n 's/^migration_commit=//p' "$before_output")"
           approval_fix_commit="$(sed -n 's/^shared_migration_approval_fix_commit=//p' "$before_output")"
           runtime_fix_commit="$(sed -n 's/^migration_runtime_fix_commit=//p' "$before_output")"
+          admission_fix_commit="$(sed -n 's/^migration_runtime_admission_fix_commit=//p' "$before_output")"
           current_commit="$(sed -n 's/^current_commit=//p' "$before_output")"
           test "$phase" = "migration"
           test "$migration_commit" = "$MIGRATION_SHA"
-          test "$approval_fix_commit" = "$MAIN_SHA"
-          test "$runtime_fix_commit" = "$TARGET_SHA"
+          test "$approval_fix_commit" = "$APPROVAL_FIX_SHA"
+          test "$runtime_fix_commit" = "$MAIN_SHA"
+          test "$admission_fix_commit" = "$TARGET_SHA"
           test "$current_commit" = "$TARGET_SHA"
 
-      - name: Fast-forward protected main to the exact tested ET11 runtime fix
+      - name: Fast-forward protected main to the exact tested runtime admission fix
         env:
           GH_TOKEN: ${{ steps.app_token.outputs.token }}
           APP_ID: ${{ secrets.GITOPS_RELEASE_APP_ID }}
@@ -207,9 +205,11 @@ jobs:
           migration_commit="$(sed -n 's/^migration_commit=//p' "$after_output")"
           approval_fix_commit="$(sed -n 's/^shared_migration_approval_fix_commit=//p' "$after_output")"
           runtime_fix_commit="$(sed -n 's/^migration_runtime_fix_commit=//p' "$after_output")"
+          admission_fix_commit="$(sed -n 's/^migration_runtime_admission_fix_commit=//p' "$after_output")"
           current_commit="$(sed -n 's/^current_commit=//p' "$after_output")"
           test "$phase" = "migration"
           test "$migration_commit" = "$MIGRATION_SHA"
-          test "$approval_fix_commit" = "$MAIN_SHA"
-          test "$runtime_fix_commit" = "$TARGET_SHA"
+          test "$approval_fix_commit" = "$APPROVAL_FIX_SHA"
+          test "$runtime_fix_commit" = "$MAIN_SHA"
+          test "$admission_fix_commit" = "$TARGET_SHA"
           test "$current_commit" = "$TARGET_SHA"

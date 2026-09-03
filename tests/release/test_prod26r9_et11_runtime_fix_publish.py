@@ -17,7 +17,9 @@ class Prod26R9Et11RuntimeFixPublishTest(unittest.TestCase):
             "5bcde50ed982c9b5382f7b87579a4096212c1b1b",
             "6ab7b95a2f981be176469300c1ce4693a5163952",
             "0576f3a52a02b3c434ab8b0931b53cc543e490ae",
+            "6f3d57e555a92a9ff1941728cc32312feaf03ef3",
             "9ae75a2f0dc9f22f2383775fd2f785d510f93740",
+            "922d75de516bd79ebd11ab721b4a872201296a3f",
             "chore/prod26r9-et11-runtime-fix-publish",
             "fix/prod26r9-shared-migration-approval-contract",
         ):
@@ -33,20 +35,14 @@ class Prod26R9Et11RuntimeFixPublishTest(unittest.TestCase):
             'test "$GITHUB_TRIGGERING_ACTOR" = "VelkaressiaBlutkrone"',
             'test "$GITHUB_RUN_ATTEMPT" = "1"',
             'test "$GITHUB_REF" = "refs/heads/$HELPER_BRANCH"',
-            'test "$(git rev-parse HEAD^)" = "$MAIN_SHA"',
+            'test "$(git rev-parse HEAD^)" = "$HELPER_BASE_SHA"',
             'test "$(git -C gitops-main rev-parse "$TARGET_SHA^")" = "$MAIN_SHA"',
-            "fix(release): bind sealed ET11 migration runtime",
-            'test "${#target_paths[@]}" -eq 10',
-            "apps/devpath-migration/base/job.yaml",
-            "apps/devpath-migration/base/sandbox-preflight.yaml",
-            "apps/devpath-sandbox-svc/base/RUNBOOK.md",
+            "fix(release): accept Kubernetes service account projection",
+            'test "${#target_paths[@]}" -eq 4',
             "scripts/release/verify_kubernetes_release_runtime.py",
             "scripts/release/verify_promotion_chain.py",
-            "scripts/release/wait_release_rollouts.py",
-            "scripts/verify-sandbox-hardening.ps1",
             "tests/release/test_kubernetes_release_runtime.py",
             "tests/release/test_promotion_chain.py",
-            "tests/release/test_release_contract.py",
         ):
             self.assertIn(fragment, self.workflow)
 
@@ -74,8 +70,9 @@ class Prod26R9Et11RuntimeFixPublishTest(unittest.TestCase):
         for fragment in (
             'test "$phase" = "migration"',
             'test "$migration_commit" = "$MIGRATION_SHA"',
-            'test "$approval_fix_commit" = "$MAIN_SHA"',
-            'test "$runtime_fix_commit" = "$TARGET_SHA"',
+            'test "$approval_fix_commit" = "$APPROVAL_FIX_SHA"',
+            'test "$runtime_fix_commit" = "$MAIN_SHA"',
+            'test "$admission_fix_commit" = "$TARGET_SHA"',
             'test "$current_commit" = "$TARGET_SHA"',
         ):
             self.assertIn(fragment, self.workflow)
