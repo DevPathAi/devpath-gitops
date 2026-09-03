@@ -10,8 +10,8 @@ configMapGenerator:
   - MISSION_RELEASE_READY=true
   - MISSION_RELEASE_ID=ms-20260830-prod26r9
   - MISSION_CANDIDATE_SPEC_SHA256=f86f010532dff3d231528f5ba4bc9b128704b9582393415b520ab981f7ad9ca5
-  - MISSION_IMAGE_DIGEST=sha256:97a2c3f3b156d56adfd856649afbeadb4e8bfb58b4d9a9297263b2a012f1803d
+  - MISSION_IMAGE_DIGEST=sha256:278b1a862c5a9750f67cb1089f70ddba97fd1260af8e3ef3c95d0c1a3f16cc21
 images:
 - name: ghcr.io/devpathai/devpath-web
   newName: ghcr.io/devpathai/devpath-web
-  digest: sha256:97a2c3f3b156d56adfd856649afbeadb4e8bfb58b4d9a9297263b2a012f1803d
+  digest: sha256:278b1a862c5a9750f67cb1089f70ddba97fd1260af8e3ef3c95d0c1a3f16cc21
