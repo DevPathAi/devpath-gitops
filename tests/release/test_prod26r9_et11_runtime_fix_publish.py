@@ -23,12 +23,12 @@ class Prod26R9Et11RuntimeFixPublishTest(unittest.TestCase):
             "aaef09d39df61f1561f32ce616a498a00585c068",
             "cc9d0424f7a2dc1d962e4bb7e820248373cc40e4",
             "711273896cd3e6c8130ba8fab4b1683e08340260",
-            "ab72e59f903be8b243ccd129a7d6e44de9ec1b1f",
             "e4408b007d2104a6a2743a1237ce2b9bd62a50ee",
+            "1988b373d80d056f51e074fa25b3434c9b300efc",
             "9ae75a2f0dc9f22f2383775fd2f785d510f93740",
-            "e447341d84c077e0bc3fe44f150bd39a935defa9",
+            "b05092ecd04a1b931ceeb5ae53f9570969fcadd0",
             "chore/prod26r9-et11-runtime-fix-publish",
-            "fix/prod26r9-shared-migration-approval-contract",
+            "fix/prod26r9-post-on-resume-identity",
         ):
             self.assertIn(value, self.workflow)
 
@@ -44,17 +44,10 @@ class Prod26R9Et11RuntimeFixPublishTest(unittest.TestCase):
             'test "$GITHUB_REF" = "refs/heads/$HELPER_BRANCH"',
             'test "$(git rev-parse HEAD^)" = "$HELPER_BASE_SHA"',
             'test "$(git -C gitops-main rev-parse "$TARGET_SHA^")" = "$MAIN_SHA"',
-            "fix(release): align canary runtime image forms",
-            'test "${#target_paths[@]}" -eq 9',
-            "scripts/release/build_production_canary.py",
-            "scripts/release/verify_oci_images.py",
+            "fix(release): restore post-ON resume identity",
+            'test "${#target_paths[@]}" -eq 2',
             "scripts/release/verify_promotion_chain.py",
-            "scripts/release/verify_promotion_evidence.py",
-            "tests/release/test_oci_image_trust.py",
-            "tests/release/test_production_canary.py",
             "tests/release/test_promotion_chain.py",
-            "tests/release/test_promotion_evidence.py",
-            "tests/release/test_release_contract.py",
         ):
             self.assertIn(fragment, self.workflow)
 
@@ -90,8 +83,9 @@ class Prod26R9Et11RuntimeFixPublishTest(unittest.TestCase):
             'test "$status_image_fix_commit" = "$STATUS_FIX_SHA"',
             'test "$source_status_fix_commit" = "$SOURCE_STATUS_FIX_SHA"',
             'test "$off_commit" = "$OFF_SHA"',
-            'test "$on_commit" = "$MAIN_SHA"',
-            'test "$canary_form_fix_commit" = "$TARGET_SHA"',
+            'test "$on_commit" = "$TARGET_SHA"',
+            'test "$canary_form_fix_commit" = "$MAIN_SHA"',
+            'test "$post_on_resume_fix_commit" = "$TARGET_SHA"',
             'test "$current_commit" = "$TARGET_SHA"',
         ):
             self.assertIn(fragment, self.workflow)
