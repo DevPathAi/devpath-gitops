@@ -122,10 +122,10 @@ Assert-Contains $migration "name:\s+sandbox-migration-preflight" `
   "migration Job must render the fail-closed Sandbox preflight"
 Assert-Contains $migration "EXPECTED_ET8_SHARED_COMMIT[\s\S]*2b03c38934fdd19332da59107e4330a3af92d078" `
   "migration preflight must preserve the exact ET8 shared checkpoint"
-Assert-Contains $migration "EXPECTED_SHARED_COMMIT[\s\S]*58c78bfe35e99e618863b53f689c216b40295826" `
+Assert-Contains $migration "EXPECTED_SHARED_COMMIT[\s\S]*b6b8c6ba79818af4d338f2875352ecd07f455068" `
   "migration preflight must name the exact final shared lineage"
-Assert-Contains $migration "ghcr\.io/devpathai/devpath-migration:58c78bfe35e99e618863b53f689c216b40295826" `
-  "migration Job image must be the exact final shared commit"
+Assert-Contains $migration "ghcr\.io/devpathai/devpath-migration@sha256:e9194edf3400d7164b0a063fc8b6f73d83c96e99f23d5334e67833ad2e4b3d03" `
+  "migration Job image must be the sealed ET11 root digest"
 Assert-Contains $migration "filesystem:/flyway/sql,classpath:db/migration" `
   "migration Job must discover both SQL and nontransactional Java migrations"
 Assert-Contains $migration "migration-runner\.jar" `
@@ -134,7 +134,7 @@ Assert-Contains $migration "postgres:17-alpine@sha256:979c4379dd698aba0b890599a6
   "migration preflight client image must be pinned by digest"
 Assert-Contains $migration "ET8_FLYWAY_VERSION[\s\S]*202608161008" `
   "migration Job must retain the final ET8 Flyway checkpoint"
-Assert-Contains $migration "TARGET_FLYWAY_VERSION[\s\S]*202608201002" `
+Assert-Contains $migration "TARGET_FLYWAY_VERSION[\s\S]*202608221001" `
   "migration Job must target the final shared Flyway version"
 Assert-Contains $migration "MAINTENANCE_APPROVED[\s\S]*sandbox-migration-gate" `
   "migration preflight must require external maintenance approval"
@@ -150,11 +150,11 @@ Assert-Contains $migration "LOCK TABLE sandbox_sessions IN ACCESS EXCLUSIVE MODE
 $runbook = Get-Content "apps/devpath-sandbox-svc/base/RUNBOOK.md" -Raw
 Assert-Contains $runbook "V202608161008" `
   "Sandbox runbook must require the ET8 terminal-fence checkpoint"
-Assert-Contains $runbook "V202608201002" `
+Assert-Contains $runbook "V202608221001" `
   "Sandbox runbook must require the final shared migration"
 Assert-Contains $runbook "2b03c38934fdd19332da59107e4330a3af92d078" `
   "Sandbox runbook must name the exact ET8 shared checkpoint"
-Assert-Contains $runbook "58c78bfe35e99e618863b53f689c216b40295826" `
+Assert-Contains $runbook "b6b8c6ba79818af4d338f2875352ecd07f455068" `
   "Sandbox runbook must name the exact final shared lineage"
 Assert-Contains $runbook "sandbox\.runs\.expired_active" `
   "Sandbox runbook must define the sustained expired-lease alert"

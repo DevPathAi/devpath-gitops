@@ -1,15 +1,21 @@
 import copy
 import importlib.util
 from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "release" / "verify_kubernetes_release_runtime.py"
+SCRIPTS = SCRIPT.parent
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
 
 
-def load_module():
-    spec = importlib.util.spec_from_file_location("kubernetes_release_runtime", SCRIPT)
+def load_module(path=SCRIPT, name="kubernetes_release_runtime"):
+    spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
@@ -64,6 +70,50 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.runtime = load_module()
+        cls.wait = load_module(
+            SCRIPTS / "wait_release_rollouts.py", "wait_release_rollouts_test"
+        )
+
+    def test_migration_application_revision_tracks_any_base_manifest_change(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-b", "main"], cwd=root, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.invalid"],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "test"], cwd=root, check=True
+            )
+            base = root / "apps" / "devpath-migration" / "base"
+            base.mkdir(parents=True)
+            (base / "kustomization.yaml").write_text("resources: []\n", encoding="utf-8")
+            (base / "job.yaml").write_text("suspend: true\n", encoding="utf-8")
+            subprocess.run(["git", "add", "apps"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-m", "migration"], cwd=root, check=True)
+            migration_commit = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
+            ).stdout.strip()
+            (base / "job.yaml").write_text("suspend: true\ntarget: ET11\n", encoding="utf-8")
+            subprocess.run(["git", "add", "apps"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-m", "runtime fix"], cwd=root, check=True)
+            observed_commit = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
+            ).stdout.strip()
+
+            self.assertEqual(
+                self.wait._last_path_change(
+                    root, observed_commit, self.wait.MIGRATION_PATH
+                ),
+                migration_commit,
+            )
+            self.assertEqual(
+                self.wait._last_path_change(
+                    root, observed_commit, self.wait.MIGRATION_APPLICATION_PATH
+                ),
+                observed_commit,
+            )
 
     def setUp(self):
         self.name = "devpath-ai-svc"
@@ -439,6 +489,70 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
         )
         self.assertEqual(result["job"], name)
         self.assertEqual(result["status"], "passed")
+
+        k3s_normalized_pod = copy.deepcopy(pod)
+        k3s_normalized_pod["status"]["initContainerStatuses"][0]["image"] = (
+            self.runtime.MIGRATION_PREFLIGHT_CONFIG_DIGEST
+        )
+        k3s_normalized_pod["status"]["containerStatuses"][0]["image"] = (
+            migration_trust["config_digest"]
+        )
+        normalized_result = self.runtime.validate_migration_runtime(
+            app,
+            job,
+            {"items": [k3s_normalized_pod]},
+            "mission-spine-flyway-target=202608221001 status=validated\n",
+            self.commit,
+            release_hash,
+            migration_trust,
+            "202608221001",
+            "V202608221001__correct_question_bank_accuracy.sql",
+            "2026-08-17T00:00:00Z",
+        )
+        self.assertEqual(normalized_result["runtime_image_digest"], migration_trust["config_digest"])
+
+        observed_commit = "c" * 40
+        applied_commit = "d" * 40
+        corrected_app = application(
+            "devpath-migration", observed_commit, applied_commit
+        )
+        corrected_result = self.runtime.validate_migration_runtime(
+            corrected_app,
+            job,
+            {"items": [pod]},
+            "mission-spine-flyway-target=202608221001 status=validated\n",
+            self.commit,
+            release_hash,
+            migration_trust,
+            "202608221001",
+            "V202608221001__correct_question_bank_accuracy.sql",
+            "2026-08-17T00:00:00Z",
+            observed_commit=observed_commit,
+            application_applied_commit=applied_commit,
+        )
+        self.assertEqual(
+            corrected_result["application_applied_revision"], applied_commit
+        )
+
+        for statuses, message in (
+            ("initContainerStatuses", "preflight runtime image"),
+            ("containerStatuses", "Pod runtime image"),
+        ):
+            untrusted_image_pod = copy.deepcopy(pod)
+            untrusted_image_pod["status"][statuses][0]["image"] = "sha256:" + "0" * 64
+            with self.subTest(statuses=statuses), self.assertRaisesRegex(ValueError, message):
+                self.runtime.validate_migration_runtime(
+                    app,
+                    job,
+                    {"items": [untrusted_image_pod]},
+                    "mission-spine-flyway-target=202608221001 status=validated\n",
+                    self.commit,
+                    release_hash,
+                    migration_trust,
+                    "202608221001",
+                    "V202608221001__correct_question_bank_accuracy.sql",
+                    "2026-08-17T00:00:00Z",
+                )
 
         for mutation, message in (
             (lambda value: value["metadata"].__setitem__("name", "devpath-flyway-migrate"), "identity"),

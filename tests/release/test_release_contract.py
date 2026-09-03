@@ -359,6 +359,20 @@ class ReleaseManifestContractTest(unittest.TestCase):
 
     def test_migration_job_base_is_inert_and_emits_only_the_validated_target_marker(self):
         job = (ROOT / "apps/devpath-migration/base/job.yaml").read_text(encoding="utf-8")
+        preflight = (ROOT / "apps/devpath-migration/base/sandbox-preflight.yaml").read_text(
+            encoding="utf-8"
+        )
+        runbook = (ROOT / "apps/devpath-sandbox-svc/base/RUNBOOK.md").read_text(
+            encoding="utf-8"
+        )
+        hardening = (ROOT / "scripts/verify-sandbox-hardening.ps1").read_text(
+            encoding="utf-8"
+        )
+        migration = self.candidate["shared_migration"]
+        production_source_sha = "b6b8c6ba79818af4d338f2875352ecd07f455068"
+        production_image_digest = (
+            "sha256:e9194edf3400d7164b0a063fc8b6f73d83c96e99f23d5334e67833ad2e4b3d03"
+        )
         self.assertIn("metadata:\n  name: devpath-flyway-migrate\n", job)
         self.assertNotIn("argocd.argoproj.io/sync-options", job)
         self.assertNotIn("Force=true", job)
@@ -373,6 +387,22 @@ class ReleaseManifestContractTest(unittest.TestCase):
         )
         self.assertIn(marker, job)
         self.assertIn(validate, job)
+        self.assertEqual(
+            job.count(f'value: "{migration["flyway_target"]}"'),
+            2,
+            "Job init and Flyway containers must bind the schema-approved target",
+        )
+        self.assertIn(f'test "$TARGET_FLYWAY_VERSION" = "{migration["flyway_target"]}"', job)
+        self.assertIn(f'test -f /flyway/sql/{migration["required_migration"]}', job)
+        self.assertEqual(job.count(f'value: "{production_source_sha}"'), 2)
+        self.assertIn(f'test "$EXPECTED_SHARED_COMMIT" = "{production_source_sha}"', job)
+        self.assertIn(f'required_commit="{production_source_sha}"', preflight)
+        self.assertIn(f'required_target="{migration["flyway_target"]}"', preflight)
+        self.assertIn(production_source_sha, runbook)
+        self.assertIn(f'V{migration["flyway_target"]}', runbook)
+        self.assertIn(production_source_sha, hardening)
+        self.assertIn(production_image_digest, hardening)
+        self.assertNotIn("ghcr.io/devpathai/devpath-migration:58c78bfe", hardening)
         self.assertLess(job.index(validate), job.index(marker))
         # validate 가 target 을 잃으면 승인 범위 밖의 마이그레이션(이미지에는 있으나 아직
         # 적용하지 않기로 한 것)을 "적용 안 됨" 오류로 잡아 set -e 아래에서 Job 을 죽인다.

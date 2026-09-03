@@ -42,7 +42,11 @@ class PromotionChainTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         shutil.copytree(ROOT / "apps", self.root / "apps")
-        for relative in self.chain.SHARED_MIGRATION_APPROVAL_FIX_PATHS:
+        copied_contract_paths = {
+            *self.chain.SHARED_MIGRATION_APPROVAL_FIX_PATHS,
+            *self.chain.MIGRATION_RUNTIME_FIX_PATHS,
+        }
+        for relative in copied_contract_paths:
             target = self.root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / relative, target)
@@ -76,6 +80,40 @@ class PromotionChainTest(unittest.TestCase):
             path.write_text(f"approval-contract-fix{suffix}\n", encoding="utf-8")
         git(self.root, "add", *paths)
         git(self.root, "commit", "-m", self.chain.SHARED_MIGRATION_APPROVAL_FIX_SUBJECT)
+        return git(self.root, "rev-parse", "HEAD")
+
+    def commit_migration_runtime_fix(self, *, suffix: str = "") -> str:
+        paths = self.chain.MIGRATION_RUNTIME_FIX_PATHS
+        source_sha = self.candidate["shared_migration"]["source_sha"]
+        target = self.candidate["shared_migration"]["flyway_target"]
+        required = self.candidate["shared_migration"]["required_migration"]
+        job_path = self.root / self.chain.MIGRATION_JOB_PATH
+        job = job_path.read_text(encoding="utf-8")
+        job = self.chain.render_migration_runtime_job(
+            job,
+            source_sha=source_sha,
+            flyway_target=target,
+            required_migration=required,
+        )
+        job_path.write_text(job, encoding="utf-8", newline="\n")
+        preflight_path = self.root / self.chain.MIGRATION_PREFLIGHT_PATH
+        preflight = self.chain.render_migration_preflight(
+            preflight_path.read_text(encoding="utf-8"),
+            source_sha=source_sha,
+            flyway_target=target,
+        )
+        preflight_path.write_text(preflight, encoding="utf-8", newline="\n")
+        for relative in paths:
+            if relative in {self.chain.MIGRATION_JOB_PATH, self.chain.MIGRATION_PREFLIGHT_PATH}:
+                continue
+            path = self.root / relative
+            path.write_text(
+                path.read_text(encoding="utf-8") + f"\n# migration-runtime-fix{suffix}\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+        git(self.root, "add", *paths)
+        git(self.root, "commit", "-m", self.chain.MIGRATION_RUNTIME_FIX_SUBJECT)
         return git(self.root, "rev-parse", "HEAD")
 
     def set_migration(self):
@@ -369,6 +407,51 @@ class PromotionChainTest(unittest.TestCase):
         repeated = self.commit_shared_migration_approval_fix("-repeated")
         with self.assertRaisesRegex(ValueError, "directly follow migration"):
             self.inspect(repeated)
+
+    def test_exact_migration_runtime_fix_is_phase_transparent_and_cannot_repeat(self):
+        self.set_migration()
+        migration = self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        approval = self.commit_shared_migration_approval_fix()
+        runtime = self.commit_migration_runtime_fix()
+
+        state = self.inspect(runtime)
+        self.assertEqual("migration", state["phase"])
+        self.assertEqual(migration, state["migration_commit"])
+        self.assertEqual(approval, state["shared_migration_approval_fix_commit"])
+        self.assertEqual(runtime, state["migration_runtime_fix_commit"])
+        self.assertEqual(runtime, state["current_commit"])
+
+        repeated = self.commit_migration_runtime_fix(suffix="-repeated")
+        with self.assertRaisesRegex(ValueError, "directly follow approval fix"):
+            self.inspect(repeated)
+
+    def test_migration_runtime_fix_requires_the_approval_fix_and_exact_paths(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        runtime = self.commit_migration_runtime_fix()
+        with self.assertRaisesRegex(ValueError, "directly follow approval fix"):
+            self.inspect(runtime)
+
+        git(self.root, "reset", "--hard", "HEAD^")
+        self.commit_shared_migration_approval_fix()
+        omitted = self.chain.MIGRATION_RUNTIME_FIX_PATHS[-1]
+        path = self.root / omitted
+        path.write_text(
+            path.read_text(encoding="utf-8") + "\n# omitted-path-restored\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+        runtime = self.commit_migration_runtime_fix()
+        git(self.root, "checkout", "HEAD^", "--", omitted)
+        git(self.root, "add", omitted)
+        git(self.root, "commit", "--amend", "--no-edit")
+        runtime = git(self.root, "rev-parse", "HEAD")
+        with self.assertRaisesRegex(ValueError, "path set is not exact"):
+            self.inspect(runtime)
 
     def test_recognized_commit_from_non_app_actor_is_rejected(self):
         self.set_migration()

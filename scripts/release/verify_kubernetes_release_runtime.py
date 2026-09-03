@@ -360,6 +360,19 @@ def _terminated(status: dict[str, Any], label: str) -> None:
         raise ValueError(f"{label} did not terminate successfully")
 
 
+def _authenticated_status_image(
+    value: Any,
+    exact_reference: str,
+    authenticated_digests: set[str],
+    label: str,
+) -> None:
+    """Accept the submitted image reference or a kubelet-normalized trusted digest."""
+    if value == exact_reference:
+        return
+    if not isinstance(value, str) or value not in authenticated_digests:
+        raise ValueError(f"{label} is not authenticated")
+
+
 def validate_migration_runtime(
     application: Any,
     job: Any,
@@ -372,14 +385,16 @@ def validate_migration_runtime(
     required_migration: str,
     not_before: str,
     observed_commit: str | None = None,
+    application_applied_commit: str | None = None,
 ) -> dict[str, Any]:
     observed_commit = observed_commit or migration_commit
+    application_applied_commit = application_applied_commit or migration_commit
     validate_application(
         application,
         "devpath-migration",
         "apps/devpath-migration/base",
         observed_commit,
-        migration_commit,
+        application_applied_commit,
     )
     expected_name = migration_job_name(
         trust["root_digest"], release_manifest_sha256
@@ -493,8 +508,15 @@ def validate_migration_runtime(
         "migration initContainerStatuses",
     )
     _terminated(init, "migration preflight")
-    if init.get("image") != MIGRATION_PREFLIGHT_IMAGE:
-        raise ValueError("migration preflight runtime image is not exact")
+    _authenticated_status_image(
+        init.get("image"),
+        MIGRATION_PREFLIGHT_IMAGE,
+        {
+            MIGRATION_PREFLIGHT_MANIFEST_DIGEST,
+            MIGRATION_PREFLIGHT_CONFIG_DIGEST,
+        },
+        "migration preflight runtime image",
+    )
     preflight_image_id = init.get("imageID")
     if not isinstance(preflight_image_id, str):
         raise ValueError("migration preflight runtime imageID is missing")
@@ -512,8 +534,16 @@ def validate_migration_runtime(
         pod_status.get("containerStatuses"), "flyway", "migration containerStatuses"
     )
     _terminated(runtime, "migration flyway container")
-    if runtime.get("image") != expected_image:
-        raise ValueError("migration Pod runtime image is not the sealed root digest")
+    _authenticated_status_image(
+        runtime.get("image"),
+        expected_image,
+        {
+            trust["root_digest"],
+            trust["manifest_digest"],
+            trust["config_digest"],
+        },
+        "migration Pod runtime image",
+    )
     runtime_id = normalize_runtime_image_id(runtime.get("imageID"), trust)
     marker = f"mission-spine-flyway-target={flyway_target} status=validated"
     if (
@@ -530,7 +560,7 @@ def validate_migration_runtime(
         "migration_commit": migration_commit,
         "observed_commit": observed_commit,
         "application_observed_revision": observed_commit,
-        "application_applied_revision": migration_commit,
+        "application_applied_revision": application_applied_commit,
         "namespace": NAMESPACE,
         "application": "devpath-migration",
         "job": expected_name,

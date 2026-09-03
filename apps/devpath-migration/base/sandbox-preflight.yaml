@@ -8,9 +8,9 @@ data:
     set -eu
 
     required_et8_commit="2b03c38934fdd19332da59107e4330a3af92d078"
-    required_commit="58c78bfe35e99e618863b53f689c216b40295826"
+    required_commit="b6b8c6ba79818af4d338f2875352ecd07f455068"
     required_et8_target="202608161008"
-    required_target="202608201002"
+    required_target="202608221001"
     [ "${EXPECTED_ET8_SHARED_COMMIT:-}" = "$required_et8_commit" ] || {
       echo "exact ET8 shared checkpoint is not approved" >&2
       exit 1
@@ -85,4 +85,4 @@ data:
     ROLLBACK;
     SQL
 
-    echo "Sandbox V202608161001 lock preflight passed for ET8 V202608161008 -> final V202608201002; historical SQL remains immutable"
+    echo "Sandbox V202608161001 lock preflight passed for ET8 V202608161008 -> final V202608221001; historical SQL remains immutable"

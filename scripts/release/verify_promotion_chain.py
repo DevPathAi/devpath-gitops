@@ -33,6 +33,7 @@ from validate_release_manifest import resolve_release_bundle, validate_candidate
 SHA40 = re.compile(r"[0-9a-f]{40}")
 MIGRATION_PATH = "apps/devpath-migration/base/kustomization.yaml"
 MIGRATION_JOB_PATH = "apps/devpath-migration/base/job.yaml"
+MIGRATION_PREFLIGHT_PATH = "apps/devpath-migration/base/sandbox-preflight.yaml"
 WEB_PATH = "apps/devpath-web/base/kustomization.yaml"
 MIGRATION_IMAGE = "ghcr.io/devpathai/devpath-migration"
 WEB_IMAGE = "ghcr.io/devpathai/devpath-web"
@@ -47,6 +48,19 @@ SHARED_MIGRATION_APPROVAL_FIX_PATHS = (
     "scripts/release/verify_release_artifacts.py",
     "tests/release/test_migration_result_trust.py",
     "tests/release/test_promotion_chain.py",
+)
+MIGRATION_RUNTIME_FIX_SUBJECT = "fix(release): bind sealed ET11 migration runtime"
+MIGRATION_RUNTIME_FIX_PATHS = (
+    "apps/devpath-migration/base/job.yaml",
+    "apps/devpath-migration/base/sandbox-preflight.yaml",
+    "apps/devpath-sandbox-svc/base/RUNBOOK.md",
+    "scripts/release/verify_kubernetes_release_runtime.py",
+    "scripts/release/verify_promotion_chain.py",
+    "scripts/release/wait_release_rollouts.py",
+    "scripts/verify-sandbox-hardening.ps1",
+    "tests/release/test_kubernetes_release_runtime.py",
+    "tests/release/test_promotion_chain.py",
+    "tests/release/test_release_contract.py",
 )
 
 
@@ -109,6 +123,133 @@ def _blob(root: Path, commit: str, path: str) -> str:
     if "\r" in source or not source.endswith("\n"):
         raise ValueError("promotion chain kustomization is not canonical LF text")
     return source
+
+
+def _replace_exact(
+    source: str,
+    pattern: str,
+    replacement: str,
+    expected_count: int,
+    label: str,
+) -> str:
+    rendered, count = re.subn(pattern, replacement, source, flags=re.MULTILINE)
+    if count != expected_count:
+        raise ValueError(f"{label} is not uniquely replaceable")
+    return rendered
+
+
+def render_migration_runtime_job(
+    source: str,
+    *,
+    source_sha: str,
+    flyway_target: str,
+    required_migration: str,
+) -> str:
+    if (
+        SHA40.fullmatch(source_sha) is None
+        or re.fullmatch(r"[0-9]{12}", flyway_target) is None
+        or re.fullmatch(r"V[0-9]{12}__[a-z0-9_]+\.sql", required_migration) is None
+        or "\r" in source
+        or not source.endswith("\n")
+    ):
+        raise ValueError("migration runtime binding is invalid")
+    rendered = _replace_exact(
+        source,
+        r'(- name: EXPECTED_SHARED_COMMIT\n\s+value: ")[0-9a-f]{40}("$)',
+        rf"\g<1>{source_sha}\g<2>",
+        2,
+        "migration shared commit env",
+    )
+    rendered = _replace_exact(
+        rendered,
+        r'(- name: TARGET_FLYWAY_VERSION\n\s+value: ")[0-9]{12}("$)',
+        rf"\g<1>{flyway_target}\g<2>",
+        2,
+        "migration Flyway target env",
+    )
+    rendered = _replace_exact(
+        rendered,
+        r'(test "\$EXPECTED_SHARED_COMMIT" = ")[0-9a-f]{40}("$)',
+        rf"\g<1>{source_sha}\g<2>",
+        1,
+        "migration shared commit assertion",
+    )
+    rendered = _replace_exact(
+        rendered,
+        r'(test "\$TARGET_FLYWAY_VERSION" = ")[0-9]{12}("$)',
+        rf"\g<1>{flyway_target}\g<2>",
+        1,
+        "migration Flyway target assertion",
+    )
+    rendered = _replace_exact(
+        rendered,
+        r"^              test -f /flyway/sql/(?!V202608161008__validate_sandbox_terminal_reconciliation_fence\.sql$)V[0-9]{12}__[a-z0-9_]+\.sql$",
+        f"              test -f /flyway/sql/{required_migration}",
+        1,
+        "migration required SQL assertion",
+    )
+    return rendered
+
+
+def render_migration_preflight(
+    source: str,
+    *,
+    source_sha: str,
+    flyway_target: str,
+) -> str:
+    if (
+        SHA40.fullmatch(source_sha) is None
+        or re.fullmatch(r"[0-9]{12}", flyway_target) is None
+        or "\r" in source
+        or not source.endswith("\n")
+    ):
+        raise ValueError("migration preflight binding is invalid")
+    rendered = _replace_exact(
+        source,
+        r'^    required_commit="[0-9a-f]{40}"$',
+        f'    required_commit="{source_sha}"',
+        1,
+        "migration preflight shared commit",
+    )
+    rendered = _replace_exact(
+        rendered,
+        r'^    required_target="[0-9]{12}"$',
+        f'    required_target="{flyway_target}"',
+        1,
+        "migration preflight target",
+    )
+    rendered = _replace_exact(
+        rendered,
+        r'( -> final )V[0-9]{12}(; historical SQL remains immutable")$',
+        rf"\g<1>V{flyway_target}\g<2>",
+        1,
+        "migration preflight success marker",
+    )
+    return rendered
+
+
+def _require_migration_runtime_fix(
+    root: Path,
+    commit: str,
+    parent: str,
+    candidate: dict[str, Any],
+) -> None:
+    migration = candidate["shared_migration"]
+    expected_job = render_migration_runtime_job(
+        _blob(root, parent, MIGRATION_JOB_PATH),
+        source_sha=migration["source_sha"],
+        flyway_target=migration["flyway_target"],
+        required_migration=migration["required_migration"],
+    )
+    if _blob(root, commit, MIGRATION_JOB_PATH) != expected_job:
+        raise ValueError("migration runtime Job fix is not the exact sealed binding")
+    expected_preflight = render_migration_preflight(
+        _blob(root, parent, MIGRATION_PREFLIGHT_PATH),
+        source_sha=migration["source_sha"],
+        flyway_target=migration["flyway_target"],
+    )
+    if _blob(root, commit, MIGRATION_PREFLIGHT_PATH) != expected_preflight:
+        raise ValueError("migration preflight fix is not the exact sealed binding")
 
 
 def migration_job_name(image_digest: str, release_manifest_sha256: str) -> str:
@@ -451,6 +592,8 @@ def inspect_chain(
                 "current_commit": commit,
                 "base_commit": base,
                 "migration_commit": "",
+                "shared_migration_approval_fix_commit": "",
+                "migration_runtime_fix_commit": "",
                 "services_commit": "",
                 "off_commit": "",
                 "on_commit": "",
@@ -492,6 +635,28 @@ def inspect_chain(
             return {
                 **prior,
                 "current_commit": commit,
+                "shared_migration_approval_fix_commit": commit,
+            }
+        if subject == MIGRATION_RUNTIME_FIX_SUBJECT:
+            _require_write_actor(root, commit)
+            if (
+                prior["phase"] != "migration"
+                or not prior["shared_migration_approval_fix_commit"]
+                or parent != prior["shared_migration_approval_fix_commit"]
+                or prior["migration_runtime_fix_commit"]
+            ):
+                raise ValueError(
+                    "migration runtime fix must directly follow approval fix"
+                )
+            _require_delta(root, commit, MIGRATION_RUNTIME_FIX_PATHS)
+            _require_migration_runtime_fix(root, commit, parent, candidate)
+            _require_migration(root, commit, candidate, release_manifest_sha256)
+            _require_service_base_selectors(root, commit, candidate)
+            _require_web(root, commit, candidate, candidate_spec_sha256, "base")
+            return {
+                **prior,
+                "current_commit": commit,
+                "migration_runtime_fix_commit": commit,
             }
         if subject == services_subject:
             _require_write_actor(root, commit)
