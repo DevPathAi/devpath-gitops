@@ -41,11 +41,16 @@ jobs:
       MAIN_SHA: ab72e59f903be8b243ccd129a7d6e44de9ec1b1f
       TARGET_SHA: e4408b007d2104a6a2743a1237ce2b9bd62a50ee
       SEALED_SHA: 9ae75a2f0dc9f22f2383775fd2f785d510f93740
-      HELPER_BASE_SHA: 6c73e41301b85290796291fe4d17bdf4c59e9c7b
+      HELPER_BASE_SHA: e447341d84c077e0bc3fe44f150bd39a935defa9
       HELPER_BRANCH: chore/prod26r9-et11-runtime-fix-publish
       TARGET_BRANCH: fix/prod26r9-shared-migration-approval-contract
       GITHUB_API_VERSION: "2026-03-10"
       PYTHONDONTWRITEBYTECODE: "1"
+      GIT_CONFIG_COUNT: "2"
+      GIT_CONFIG_KEY_0: maintenance.auto
+      GIT_CONFIG_VALUE_0: "false"
+      GIT_CONFIG_KEY_1: gc.auto
+      GIT_CONFIG_VALUE_1: "0"
     steps:
       - name: Checkout the exact helper branch
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0

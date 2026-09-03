@@ -26,7 +26,7 @@ class Prod26R9Et11RuntimeFixPublishTest(unittest.TestCase):
             "ab72e59f903be8b243ccd129a7d6e44de9ec1b1f",
             "e4408b007d2104a6a2743a1237ce2b9bd62a50ee",
             "9ae75a2f0dc9f22f2383775fd2f785d510f93740",
-            "6c73e41301b85290796291fe4d17bdf4c59e9c7b",
+            "e447341d84c077e0bc3fe44f150bd39a935defa9",
             "chore/prod26r9-et11-runtime-fix-publish",
             "fix/prod26r9-shared-migration-approval-contract",
         ):
@@ -93,6 +93,16 @@ class Prod26R9Et11RuntimeFixPublishTest(unittest.TestCase):
             'test "$on_commit" = "$MAIN_SHA"',
             'test "$canary_form_fix_commit" = "$TARGET_SHA"',
             'test "$current_commit" = "$TARGET_SHA"',
+        ):
+            self.assertIn(fragment, self.workflow)
+
+    def test_transient_test_repositories_disable_detached_git_maintenance(self) -> None:
+        for fragment in (
+            'GIT_CONFIG_COUNT: "2"',
+            "GIT_CONFIG_KEY_0: maintenance.auto",
+            'GIT_CONFIG_VALUE_0: "false"',
+            "GIT_CONFIG_KEY_1: gc.auto",
+            'GIT_CONFIG_VALUE_1: "0"',
         ):
             self.assertIn(fragment, self.workflow)
 
