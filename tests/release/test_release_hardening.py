@@ -259,6 +259,54 @@ class ReleaseHardeningTest(unittest.TestCase):
                     app, dep, rss, pod_set, "devpath-web", {image}, image, {}, commit
                 )
 
+    def test_rollout_distinguishes_observed_control_head_from_applied_web_revision(self):
+        application, deployment, replicasets, pods, image, observed = self.healthy_snapshot()
+        applied = "a" * 40
+        application["status"]["operationState"]["syncResult"]["revision"] = applied
+
+        self.rollout.validate_rollout_snapshot(
+            application,
+            deployment,
+            replicasets,
+            pods,
+            "devpath-web",
+            {image},
+            image,
+            {},
+            observed,
+            expected_applied_revision=applied,
+        )
+
+        application["status"]["operationState"]["syncResult"]["revision"] = observed
+        with self.assertRaisesRegex(ValueError, "Argo Application revision"):
+            self.rollout.validate_rollout_snapshot(
+                application,
+                deployment,
+                replicasets,
+                pods,
+                "devpath-web",
+                {image},
+                image,
+                {},
+                observed,
+                expected_applied_revision=applied,
+            )
+
+    def test_last_web_path_change_is_resolved_from_exact_control_history(self):
+        observed = "b" * 40
+        applied = "a" * 40
+        completed = mock.Mock(returncode=0, stdout=applied + "\n")
+        with mock.patch.object(self.rollout.subprocess, "run", return_value=completed) as run:
+            self.assertEqual(
+                applied,
+                self.rollout._last_web_path_change(Path("gitops-main"), observed),
+            )
+        self.assertEqual(
+            ["git", "log", "-1", "--format=%H", observed, "--", "apps/devpath-web/base"],
+            run.call_args.args[0],
+        )
+        self.assertEqual(Path("gitops-main"), run.call_args.kwargs["cwd"])
+
     def test_rollout_accepts_candidate_bound_staging_deployment_identity(self):
         application, deployment, replicasets, pods, image, _ = self.healthy_snapshot()
         expected_container = self.stager.build_patch(

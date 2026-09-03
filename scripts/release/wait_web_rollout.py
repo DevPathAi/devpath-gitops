@@ -63,6 +63,32 @@ def _kubectl(args: list[str], context: str, namespace: str) -> str:
     return result.stdout
 
 
+def _last_web_path_change(gitops_root: Path, observed_commit: str) -> str:
+    result = subprocess.run(
+        [
+            "git",
+            "log",
+            "-1",
+            "--format=%H",
+            observed_commit,
+            "--",
+            "apps/devpath-web/base",
+        ],
+        cwd=gitops_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    applied_commit = result.stdout.strip()
+    if (
+        result.returncode != 0
+        or len(applied_commit) != 40
+        or any(character not in "0123456789abcdef" for character in applied_commit)
+    ):
+        raise ValueError("web applied revision could not be resolved from Git history")
+    return applied_commit
+
+
 def _single_container(items: Any, container: str, path: str) -> dict[str, Any]:
     if not isinstance(items, list) or len(items) != 1:
         raise ValueError(f"{path} must contain only the exact app container")
@@ -123,6 +149,7 @@ def validate_rollout_snapshot(
     restart_baseline: dict[tuple[str, str], int],
     expected_revision: str | None,
     *,
+    expected_applied_revision: str | None = None,
     expected_deployment: str | None = None,
     expected_namespace: str = "devpath",
     expected_container_spec: dict[str, Any] | None = None,
@@ -152,12 +179,13 @@ def validate_rollout_snapshot(
     ):
         raise ValueError("web Deployment identity is not exact")
     if expected_revision is not None:
+        applied_revision = expected_applied_revision or expected_revision
         validate_application(
             application,
             deployment_name,
             f"apps/{deployment_name}/base",
             expected_revision,
-            expected_revision,
+            applied_revision,
         )
     if isinstance(generation, bool) or not isinstance(generation, int) or generation <= 0:
         raise ValueError("Deployment generation is invalid")
@@ -417,6 +445,7 @@ def wait_rollout(
     github_output: Path | None = None,
     commit: str | None = None,
     *,
+    gitops_root: Path | None = None,
     candidate_only: bool = False,
 ) -> None:
     if not os.environ.get("KUBECONFIG"):
@@ -432,6 +461,13 @@ def wait_rollout(
     ):
         raise ValueError("production web rollout requires the exact GitOps commit")
     expected_revision = commit if environment == "production" else None
+    if environment == "production" and gitops_root is None:
+        raise ValueError("production web rollout requires the GitOps history root")
+    expected_applied_revision = (
+        _last_web_path_change(gitops_root, commit)
+        if environment == "production" and gitops_root is not None and commit is not None
+        else None
+    )
     if candidate_only:
         _, candidate, candidate_hash = resolve_candidate_spec(root, release_id)
     else:
@@ -450,6 +486,11 @@ def wait_rollout(
         expected_container_spec = build_staging_patch(
             candidate, candidate_hash, phase
         )["spec"]["template"]["spec"]["containers"][0]
+    revision_validation = (
+        {"expected_applied_revision": expected_applied_revision}
+        if expected_applied_revision is not None
+        else {}
+    )
     restart_baseline: dict[tuple[str, str], int] = {}
 
     started = time.monotonic()
@@ -474,6 +515,7 @@ def wait_rollout(
                 expected_namespace=namespace,
                 expected_container_spec=expected_container_spec,
                 require_automount_disabled=require_automount_disabled,
+                **revision_validation,
             )
             break
         except ValueError as exc:
@@ -509,6 +551,7 @@ def wait_rollout(
             expected_namespace=namespace,
             expected_container_spec=expected_container_spec,
             require_automount_disabled=require_automount_disabled,
+            **revision_validation,
         )
         # Only the one sealed legacy prior predates release-aware identity.
         # Every candidate and released prior otherwise proves its exact lineage.
@@ -542,6 +585,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--canary-seconds", type=int, choices=[0, 900], required=True)
     parser.add_argument("--github-output", type=Path)
     parser.add_argument("--commit")
+    parser.add_argument("--gitops-root", type=Path)
     parser.add_argument("--candidate-only", action="store_true")
     args = parser.parse_args(argv)
     try:
@@ -553,6 +597,7 @@ def main(argv: list[str] | None = None) -> int:
             args.canary_seconds,
             args.github_output,
             args.commit,
+            gitops_root=args.gitops_root.resolve() if args.gitops_root else None,
             candidate_only=args.candidate_only,
         )
         return 0

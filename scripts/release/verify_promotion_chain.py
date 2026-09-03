@@ -103,6 +103,16 @@ POST_ON_RESUME_FIX_PATHS = (
     "scripts/release/verify_promotion_chain.py",
     "tests/release/test_promotion_chain.py",
 )
+WEB_APPLIED_REVISION_FIX_SUBJECT = "fix(release): bind web applied revision lineage"
+WEB_APPLIED_REVISION_FIX_PATHS = (
+    ".github/workflows/mission-spine-promote.yml",
+    ".github/workflows/mission-spine-rollback.yml",
+    "scripts/release/verify_promotion_chain.py",
+    "scripts/release/wait_web_rollout.py",
+    "tests/release/test_production_workflow_wiring.py",
+    "tests/release/test_promotion_chain.py",
+    "tests/release/test_release_hardening.py",
+)
 
 
 def _git(root: Path, args: list[str], *, binary: bool = False) -> str | bytes:
@@ -641,6 +651,7 @@ def inspect_chain(
                 "service_source_status_fix_commit": "",
                 "canary_runtime_form_fix_commit": "",
                 "post_on_resume_fix_commit": "",
+                "web_applied_revision_fix_commit": "",
                 "services_commit": "",
                 "off_commit": "",
                 "on_commit": "",
@@ -825,6 +836,27 @@ def inspect_chain(
                 **prior,
                 "current_commit": commit,
                 "post_on_resume_fix_commit": commit,
+                "on_commit": commit,
+            }
+        if subject == WEB_APPLIED_REVISION_FIX_SUBJECT:
+            _require_write_actor(root, commit)
+            if (
+                prior["phase"] != "mission-on"
+                or not prior["post_on_resume_fix_commit"]
+                or parent != prior["on_commit"]
+                or prior["web_applied_revision_fix_commit"]
+            ):
+                raise ValueError(
+                    "web applied revision fix must directly follow post-ON resume fix"
+                )
+            _require_delta(root, commit, WEB_APPLIED_REVISION_FIX_PATHS)
+            _require_migration(root, commit, candidate, release_manifest_sha256)
+            _require_services(root, commit, candidate)
+            _require_web(root, commit, candidate, candidate_spec_sha256, "mission-on")
+            return {
+                **prior,
+                "current_commit": commit,
+                "web_applied_revision_fix_commit": commit,
                 "on_commit": commit,
             }
         if subject == services_subject:

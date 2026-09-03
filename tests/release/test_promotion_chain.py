@@ -13,6 +13,15 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts" / "release"
 FIXTURE = ROOT / "tests" / "release" / "fixtures" / "valid-candidate-spec.json"
+WEB_APPLIED_REVISION_FIX_PATHS = (
+    ".github/workflows/mission-spine-promote.yml",
+    ".github/workflows/mission-spine-rollback.yml",
+    "scripts/release/verify_promotion_chain.py",
+    "scripts/release/wait_web_rollout.py",
+    "tests/release/test_production_workflow_wiring.py",
+    "tests/release/test_promotion_chain.py",
+    "tests/release/test_release_hardening.py",
+)
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
@@ -82,6 +91,7 @@ class PromotionChainTest(unittest.TestCase):
             *self.chain.SERVICE_STATUS_IMAGE_FIX_PATHS,
             *self.chain.SERVICE_SOURCE_STATUS_FIX_PATHS,
             *self.chain.CANARY_RUNTIME_FORM_FIX_PATHS,
+            *WEB_APPLIED_REVISION_FIX_PATHS,
         }
         for relative in copied_contract_paths:
             target = self.root / relative
@@ -115,7 +125,7 @@ class PromotionChainTest(unittest.TestCase):
         git(self.root, "init", "-b", "main")
         git(self.root, "config", "user.name", "devpath-gitops-release[bot]")
         git(self.root, "config", "user.email", "test@example.invalid")
-        git(self.root, "add", "apps", "scripts", "tests")
+        git(self.root, "add", ".github", "apps", "scripts", "tests")
         git(self.root, "commit", "-m", "base")
         self.base = git(self.root, "rev-parse", "HEAD")
         self.candidate["gitops"]["base_sha"] = self.base
@@ -267,6 +277,23 @@ class PromotionChainTest(unittest.TestCase):
             )
         git(self.root, "add", *paths)
         git(self.root, "commit", "-m", self.chain.POST_ON_RESUME_FIX_SUBJECT)
+        return git(self.root, "rev-parse", "HEAD")
+
+    def commit_web_applied_revision_fix(self, *, suffix: str = "") -> str:
+        self.assertEqual(
+            WEB_APPLIED_REVISION_FIX_PATHS,
+            self.chain.WEB_APPLIED_REVISION_FIX_PATHS,
+        )
+        for relative in self.chain.WEB_APPLIED_REVISION_FIX_PATHS:
+            path = self.root / relative
+            path.write_text(
+                path.read_text(encoding="utf-8")
+                + f"\n# web-applied-revision-fix{suffix}\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+        git(self.root, "add", *self.chain.WEB_APPLIED_REVISION_FIX_PATHS)
+        git(self.root, "commit", "-m", self.chain.WEB_APPLIED_REVISION_FIX_SUBJECT)
         return git(self.root, "rev-parse", "HEAD")
 
     def set_migration(self):
@@ -895,6 +922,34 @@ class PromotionChainTest(unittest.TestCase):
         self.commit_post_on_resume_fix()
         repeated = self.commit_post_on_resume_fix(suffix="-repeated")
         with self.assertRaisesRegex(ValueError, "directly follow canary runtime form fix"):
+            self.inspect(repeated)
+
+    def test_web_applied_revision_fix_advances_on_identity_and_cannot_repeat(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.set_services()
+        self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        self.set_web("mission-off", "base")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-off")
+        self.set_web("mission-on", "mission-off")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-on")
+        self.commit_canary_runtime_form_fix()
+        resume = self.commit_post_on_resume_fix()
+        applied = self.commit_web_applied_revision_fix()
+
+        state = self.inspect(applied)
+        self.assertEqual("mission-on", state["phase"])
+        self.assertEqual(resume, state["post_on_resume_fix_commit"])
+        self.assertEqual(applied, state["web_applied_revision_fix_commit"])
+        self.assertEqual(applied, state["on_commit"])
+        self.assertEqual(applied, state["current_commit"])
+
+        repeated = self.commit_web_applied_revision_fix(suffix="-repeated")
+        with self.assertRaisesRegex(ValueError, "directly follow post-ON resume fix"):
             self.inspect(repeated)
 
     def test_recognized_commit_from_non_app_actor_is_rejected(self):

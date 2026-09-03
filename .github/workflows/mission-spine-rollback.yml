@@ -280,6 +280,7 @@ jobs:
           set -euo pipefail
           python control/scripts/release/wait_web_rollout.py \
             --root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID" \
+            --gitops-root "$GITHUB_WORKSPACE/gitops-main" \
             --environment production --phase mission-off --canary-seconds 0 \
             --commit "${{ steps.rollback_off.outputs.current_commit }}"
       - name: Create or reuse exact frontend-prior rollback
@@ -365,6 +366,7 @@ jobs:
           set -euo pipefail
           python control/scripts/release/wait_web_rollout.py \
             --root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID" \
+            --gitops-root "$GITHUB_WORKSPACE/gitops-main" \
             --environment production --phase prior --canary-seconds 0 \
             --commit "${{ steps.rollback_prior.outputs.prior_commit }}"
       - name: Recheck Landing prior CAS after web rollback

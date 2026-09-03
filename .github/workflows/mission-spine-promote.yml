@@ -417,6 +417,7 @@ jobs:
           set -euo pipefail
           test -n "${MISSION_SYNTHETIC_PROBE_TOKEN:-}"
           python control/scripts/release/wait_web_rollout.py --root "$GITHUB_WORKSPACE/sealed-release" \
+            --gitops-root "$GITHUB_WORKSPACE/gitops-main" \
             --release-id "$RELEASE_ID" --environment production \
             --phase mission-off --canary-seconds 0 \
             --commit "${{ steps.off_chain.outputs.off_commit }}"
@@ -760,6 +761,7 @@ jobs:
           test -n "${MISSION_SYNTHETIC_PROBE_TOKEN:-}"
           python control/scripts/release/wait_web_rollout.py \
             --root "$GITHUB_WORKSPACE/sealed-release" \
+            --gitops-root "$GITHUB_WORKSPACE/gitops-main" \
             --release-id "$RELEASE_ID" --environment production \
             --phase mission-off --canary-seconds 0 \
             --commit "${{ steps.chain.outputs.off_commit }}"
@@ -822,6 +824,7 @@ jobs:
           set -euo pipefail
           test -n "${MISSION_SYNTHETIC_PROBE_TOKEN:-}"
           python control/scripts/release/wait_web_rollout.py --root "$GITHUB_WORKSPACE/sealed-release" \
+            --gitops-root "$GITHUB_WORKSPACE/gitops-main" \
             --release-id "$RELEASE_ID" --environment production \
             --phase mission-on --canary-seconds 900 --github-output "$GITHUB_OUTPUT" \
             --commit "${{ steps.commit.outputs.on_commit }}"

@@ -279,20 +279,31 @@ class ProductionWorkflowWiringTest(unittest.TestCase):
                     self.assertNotIn("AWS_SECRET_ACCESS_KEY", section)
 
     def test_every_production_web_runtime_binds_the_exact_gitops_commit(self):
-        for filename in ("mission-spine-promote.yml", "mission-spine-rollback.yml"):
+        expected_counts = {
+            "mission-spine-promote.yml": 3,
+            "mission-spine-rollback.yml": 2,
+        }
+        for filename, expected_count in expected_counts.items():
             text = (WORKFLOWS / filename).read_text(encoding="utf-8")
             starts = [
                 match.start()
                 for match in re.finditer(
-                    r"python scripts/release/wait_web_rollout\.py", text
+                    r"python control/scripts/release/wait_web_rollout\.py", text
                 )
             ]
+            blocks = []
             for index, start in enumerate(starts):
                 end = text.find("\n      - name:", start)
                 block = text[start : len(text) if end < 0 else end]
+                if "--environment production" in block:
+                    blocks.append((index, block))
+            self.assertEqual(expected_count, len(blocks), filename)
+            for index, block in blocks:
                 with self.subTest(filename=filename, index=index):
-                    self.assertIn("--environment production", block)
                     self.assertIn("--commit", block)
+                    self.assertIn(
+                        '--gitops-root "$GITHUB_WORKSPACE/gitops-main"', block
+                    )
         rollback = (WORKFLOWS / "mission-spine-rollback.yml").read_text(encoding="utf-8")
         self.assertLess(
             rollback.index("Require exact mission-OFF runtime before prior mutation"),
