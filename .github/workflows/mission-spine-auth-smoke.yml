@@ -1,72 +1,181 @@
-# 봉인 절차 인증 스모크 — devpath-gitops-release App 자격 배선을 릴리스 없이 검증한다.
-#
-# 기본 잡(gitops-release-app): ①환경 비밀의 App id/PEM 으로 설치 토큰 민팅
-# ②설치 신원(slug·설치 대상에 이 레포 포함) ③Administration read 실사용
-# ④Contents write 스코프 보유(민팅의 요청 스코프 강제가 곧 증명).
-#
-# full=true 로 디스패치하면 full-write-authority 잡이 promote 와 동일한
-# verify_gitops_write_authority.py 전체 검증을 돌린다. 이는 봉인 상태
-# (설치 gitops 단독 · mission-spine-main-integrity/governance 룰셋 활성 ·
-# 봉인형 classic 보호)가 전부 갖춰졌을 때만 green 이다 — 실패 지점이 곧
-# 남은 봉인 복원 항목이다.
-name: mission-spine-auth-smoke
+name: prod26r9 ET11 migration runtime fix publisher
+
 on:
   workflow_dispatch:
     inputs:
       full:
-        description: "verify_gitops_write_authority.py 전체 검증까지 실행"
+        description: Publish the exact tested prod26r9 ET11 runtime fix
         type: boolean
+        required: true
         default: false
-permissions: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod26r9-et11-runtime-fix-publish
+  cancel-in-progress: false
+
 jobs:
-  gitops-release-app:
-    runs-on: ubuntu-latest
+  publish:
+    if: >-
+      github.ref == 'refs/heads/chore/prod26r9-et11-runtime-fix-publish' &&
+      inputs.full
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     environment: mission-spine-production-off
+    permissions:
+      contents: read
+      deployments: write
+    env:
+      RELEASE_ID: ms-20260830-prod26r9
+      MIGRATION_SHA: 5bcde50ed982c9b5382f7b87579a4096212c1b1b
+      MAIN_SHA: 6ab7b95a2f981be176469300c1ce4693a5163952
+      TARGET_SHA: 0576f3a52a02b3c434ab8b0931b53cc543e490ae
+      SEALED_SHA: 9ae75a2f0dc9f22f2383775fd2f785d510f93740
+      HELPER_BRANCH: chore/prod26r9-et11-runtime-fix-publish
+      TARGET_BRANCH: fix/prod26r9-shared-migration-approval-contract
+      GITHUB_API_VERSION: "2026-03-10"
+      PYTHONDONTWRITEBYTECODE: "1"
     steps:
-      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        id: app_token
+      - name: Checkout the exact helper branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          app-id: ${{ secrets.GITOPS_RELEASE_APP_ID }}
-          private-key: ${{ secrets.GITOPS_RELEASE_APP_PRIVATE_KEY }}
-          owner: DevPathAi
-          permission-administration: read
-          permission-contents: write
-      - name: Verify installation identity and effective permissions
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+          path: helper
+
+      - name: Prove the exact one-shot helper context
+        working-directory: helper
         env:
-          GH_TOKEN: ${{ steps.app_token.outputs.token }}
-          APP_SLUG: ${{ steps.app_token.outputs.app-slug }}
-          INSTALLATION_ID: ${{ steps.app_token.outputs.installation-id }}
+          INPUT_FULL: ${{ inputs.full }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          test "$APP_SLUG" = "devpath-gitops-release"
-          test -n "$INSTALLATION_ID"
-          repos=$(gh api /installation/repositories --jq '.repositories[].full_name')
-          echo "installation repositories:"; echo "$repos"
-          echo "$repos" | grep -qx "DevPathAi/devpath-gitops"
-          # Administration read 실사용: 보호 설정을 읽을 수 있어야 한다.
-          gh api repos/DevPathAi/devpath-gitops/branches/main/protection \
-            --jq '{admins: .enforce_admins.enabled, linear: .required_linear_history.enabled}'
-          # Contents write 스코프는 별도 확인이 불필요하다 — create-github-app-token 은
-          # permission-contents: write 를 요청하며, App 에 그 권한이 없으면 민팅 자체가
-          # 실패한다(스텝 1이 곧 스코프 증명).
-          echo "auth smoke passed: app=$APP_SLUG installation=$INSTALLATION_ID"
-  full-write-authority:
-    if: inputs.full
-    runs-on: ubuntu-latest
-    environment: mission-spine-production-off
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+          test "$GITHUB_ACTOR" = "VelkaressiaBlutkrone"
+          test "$GITHUB_TRIGGERING_ACTOR" = "VelkaressiaBlutkrone"
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          test "$GITHUB_REF" = "refs/heads/$HELPER_BRANCH"
+          test "$GITHUB_REF_NAME" = "$HELPER_BRANCH"
+          test "$INPUT_FULL" = "true"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^)" = "$MAIN_SHA"
+          mapfile -t helper_paths < <(git diff-tree --no-commit-id --name-only -r HEAD)
+          test "${#helper_paths[@]}" -eq 2
+          test "${helper_paths[0]}" = ".github/workflows/mission-spine-auth-smoke.yml"
+          test "${helper_paths[1]}" = "tests/release/test_prod26r9_et11_runtime_fix_publish.py"
+          current_main="$(
+            gh api -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+              "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha'
+          )"
+          test "$current_main" = "$MAIN_SHA"
+
+      - name: Checkout the exact tested ET11 runtime fix
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 2
           persist-credentials: false
-      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+          path: target
+
+      - name: Test the exact ET11 runtime fix
+        working-directory: target
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse HEAD^)" = "$MAIN_SHA"
+          test "$(git show -s --format=%s HEAD)" = \
+            'fix(release): bind sealed ET11 migration runtime'
+          test "$(git show -s --format=%an HEAD)" = 'devpath-gitops-release[bot]'
+          test "$(git show -s --format=%cn HEAD)" = 'devpath-gitops-release[bot]'
+          mapfile -t target_paths < <(git diff-tree --no-commit-id --name-only -r HEAD)
+          test "${#target_paths[@]}" -eq 10
+          test "${target_paths[0]}" = "apps/devpath-migration/base/job.yaml"
+          test "${target_paths[1]}" = "apps/devpath-migration/base/sandbox-preflight.yaml"
+          test "${target_paths[2]}" = "apps/devpath-sandbox-svc/base/RUNBOOK.md"
+          test "${target_paths[3]}" = "scripts/release/verify_kubernetes_release_runtime.py"
+          test "${target_paths[4]}" = "scripts/release/verify_promotion_chain.py"
+          test "${target_paths[5]}" = "scripts/release/wait_release_rollouts.py"
+          test "${target_paths[6]}" = "scripts/verify-sandbox-hardening.ps1"
+          test "${target_paths[7]}" = "tests/release/test_kubernetes_release_runtime.py"
+          test "${target_paths[8]}" = "tests/release/test_promotion_chain.py"
+          test "${target_paths[9]}" = "tests/release/test_release_contract.py"
+          git diff --check "$MAIN_SHA" "$TARGET_SHA"
+          python3 -m unittest discover -s tests/release
+
+      - name: Checkout the exact sealed release as data
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ env.SEALED_SHA }}
+          fetch-depth: 3
+          persist-credentials: false
+          path: sealed-release
+
+      - name: Mint the production-scoped release App token
         id: app_token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           app-id: ${{ secrets.GITOPS_RELEASE_APP_ID }}
           private-key: ${{ secrets.GITOPS_RELEASE_APP_PRIVATE_KEY }}
           owner: DevPathAi
           permission-administration: read
           permission-contents: write
-      - name: Verify the exact sealed write authority (promote-equivalent)
+
+      - name: Checkout current protected main with release App authority
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          repository: DevPathAi/devpath-gitops
+          ref: main
+          token: ${{ steps.app_token.outputs.token }}
+          fetch-depth: 0
+          persist-credentials: true
+          path: gitops-main
+
+      - name: Authenticate authority, target graph, and live migration evidence
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          APP_ID: ${{ secrets.GITOPS_RELEASE_APP_ID }}
+          APP_SLUG: ${{ steps.app_token.outputs.app-slug }}
+          INSTALLATION_ID: ${{ steps.app_token.outputs.installation-id }}
+          RELEASE_EVIDENCE_TOKEN: ${{ secrets.RELEASE_EVIDENCE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${RELEASE_EVIDENCE_TOKEN:-}"
+          python target/scripts/release/verify_gitops_write_authority.py \
+            --expected-app-id "$APP_ID" --app-slug "$APP_SLUG" \
+            --installation-id "$INSTALLATION_ID"
+          test "$(git -C target rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git -C gitops-main rev-parse HEAD)" = "$MAIN_SHA"
+          git -C gitops-main fetch --no-tags origin \
+            "$TARGET_BRANCH:refs/remotes/origin/$TARGET_BRANCH"
+          test "$(git -C gitops-main rev-parse "refs/remotes/origin/$TARGET_BRANCH")" = "$TARGET_SHA"
+          test "$(git -C gitops-main rev-parse "$TARGET_SHA^")" = "$MAIN_SHA"
+          python target/scripts/release/verify_migration_result.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" \
+            --gitops-root "$GITHUB_WORKSPACE/gitops-main" \
+            --release-id "$RELEASE_ID" >/dev/null
+          before_output="$RUNNER_TEMP/prod26r9-et11-chain-before-publish"
+          test ! -e "$before_output"
+          touch "$before_output"
+          python target/scripts/release/verify_promotion_chain.py \
+            --root "$GITHUB_WORKSPACE/gitops-main" \
+            --release-root "$GITHUB_WORKSPACE/sealed-release" \
+            --release-id "$RELEASE_ID" --current "$TARGET_SHA" \
+            --github-output "$before_output" >/dev/null
+          phase="$(sed -n 's/^phase=//p' "$before_output")"
+          migration_commit="$(sed -n 's/^migration_commit=//p' "$before_output")"
+          approval_fix_commit="$(sed -n 's/^shared_migration_approval_fix_commit=//p' "$before_output")"
+          runtime_fix_commit="$(sed -n 's/^migration_runtime_fix_commit=//p' "$before_output")"
+          current_commit="$(sed -n 's/^current_commit=//p' "$before_output")"
+          test "$phase" = "migration"
+          test "$migration_commit" = "$MIGRATION_SHA"
+          test "$approval_fix_commit" = "$MAIN_SHA"
+          test "$runtime_fix_commit" = "$TARGET_SHA"
+          test "$current_commit" = "$TARGET_SHA"
+
+      - name: Fast-forward protected main to the exact tested ET11 runtime fix
         env:
           GH_TOKEN: ${{ steps.app_token.outputs.token }}
           APP_ID: ${{ secrets.GITOPS_RELEASE_APP_ID }}
@@ -74,6 +183,33 @@ jobs:
           INSTALLATION_ID: ${{ steps.app_token.outputs.installation-id }}
         run: |
           set -euo pipefail
-          python3 scripts/release/verify_gitops_write_authority.py \
+          python target/scripts/release/verify_gitops_write_authority.py \
             --expected-app-id "$APP_ID" --app-slug "$APP_SLUG" \
             --installation-id "$INSTALLATION_ID"
+          git -C gitops-main fetch --no-tags origin main:refs/remotes/origin/main
+          test "$(git -C gitops-main rev-parse origin/main)" = "$MAIN_SHA"
+          git -C gitops-main push origin "$TARGET_SHA:refs/heads/main"
+          git -C gitops-main fetch --no-tags origin main:refs/remotes/origin/main
+          test "$(git -C gitops-main rev-parse origin/main)" = "$TARGET_SHA"
+
+      - name: Re-authenticate the published exact phase
+        run: |
+          set -euo pipefail
+          after_output="$RUNNER_TEMP/prod26r9-et11-chain-after-publish"
+          test ! -e "$after_output"
+          touch "$after_output"
+          python target/scripts/release/verify_promotion_chain.py \
+            --root "$GITHUB_WORKSPACE/gitops-main" \
+            --release-root "$GITHUB_WORKSPACE/sealed-release" \
+            --release-id "$RELEASE_ID" --current refs/remotes/origin/main \
+            --github-output "$after_output" >/dev/null
+          phase="$(sed -n 's/^phase=//p' "$after_output")"
+          migration_commit="$(sed -n 's/^migration_commit=//p' "$after_output")"
+          approval_fix_commit="$(sed -n 's/^shared_migration_approval_fix_commit=//p' "$after_output")"
+          runtime_fix_commit="$(sed -n 's/^migration_runtime_fix_commit=//p' "$after_output")"
+          current_commit="$(sed -n 's/^current_commit=//p' "$after_output")"
+          test "$phase" = "migration"
+          test "$migration_commit" = "$MIGRATION_SHA"
+          test "$approval_fix_commit" = "$MAIN_SHA"
+          test "$runtime_fix_commit" = "$TARGET_SHA"
+          test "$current_commit" = "$TARGET_SHA"
