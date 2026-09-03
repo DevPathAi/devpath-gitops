@@ -21,8 +21,9 @@ class Prod26R9Et11RuntimeFixPublishTest(unittest.TestCase):
             "4544e2c5a8ccd59aa50a6823a0eb803b3aac8bd8",
             "b55dbd48ecd323b2a6d51b4a5319c951928b3c0a",
             "aaef09d39df61f1561f32ce616a498a00585c068",
+            "cc9d0424f7a2dc1d962e4bb7e820248373cc40e4",
             "9ae75a2f0dc9f22f2383775fd2f785d510f93740",
-            "8abf161fb0c327238fc76866a218d6b9f2a32839",
+            "3995d94b72c2a3f3a35717f6d6471487cb31200f",
             "chore/prod26r9-et11-runtime-fix-publish",
             "fix/prod26r9-shared-migration-approval-contract",
         ):
@@ -40,13 +41,12 @@ class Prod26R9Et11RuntimeFixPublishTest(unittest.TestCase):
             'test "$GITHUB_REF" = "refs/heads/$HELPER_BRANCH"',
             'test "$(git rev-parse HEAD^)" = "$HELPER_BASE_SHA"',
             'test "$(git -C gitops-main rev-parse "$TARGET_SHA^")" = "$MAIN_SHA"',
-            "fix(release): accept service status image normalization",
-            'test "${#target_paths[@]}" -eq 5',
+            "fix(release): authenticate service source image status",
+            'test "${#target_paths[@]}" -eq 4',
             "scripts/release/verify_kubernetes_release_runtime.py",
             "scripts/release/verify_promotion_chain.py",
             "tests/release/test_kubernetes_release_runtime.py",
             "tests/release/test_promotion_chain.py",
-            "tests/release/test_service_promotion.py",
         ):
             self.assertIn(fragment, self.workflow)
 
@@ -78,8 +78,9 @@ class Prod26R9Et11RuntimeFixPublishTest(unittest.TestCase):
             'test "$runtime_fix_commit" = "$RUNTIME_FIX_SHA"',
             'test "$admission_fix_commit" = "$ADMISSION_FIX_SHA"',
             'test "$identity_fix_commit" = "$IDENTITY_FIX_SHA"',
-            'test "$services_commit" = "$MAIN_SHA"',
-            'test "$status_image_fix_commit" = "$TARGET_SHA"',
+            'test "$services_commit" = "$SERVICES_SHA"',
+            'test "$status_image_fix_commit" = "$MAIN_SHA"',
+            'test "$source_status_fix_commit" = "$TARGET_SHA"',
             'test "$current_commit" = "$TARGET_SHA"',
         ):
             self.assertIn(fragment, self.workflow)

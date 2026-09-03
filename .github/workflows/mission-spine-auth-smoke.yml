@@ -1,10 +1,10 @@
-name: prod26r9 service status image fix publisher
+name: prod26r9 service source image status fix publisher
 
 on:
   workflow_dispatch:
     inputs:
       full:
-        description: Publish the exact tested prod26r9 service status image fix
+        description: Publish the exact tested prod26r9 service source image status fix
         type: boolean
         required: true
         default: false
@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: prod26r9-service-status-image-fix-publish
+  group: prod26r9-service-source-image-status-fix-publish
   cancel-in-progress: false
 
 jobs:
@@ -34,10 +34,11 @@ jobs:
       RUNTIME_FIX_SHA: 0576f3a52a02b3c434ab8b0931b53cc543e490ae
       ADMISSION_FIX_SHA: 6f3d57e555a92a9ff1941728cc32312feaf03ef3
       IDENTITY_FIX_SHA: 4544e2c5a8ccd59aa50a6823a0eb803b3aac8bd8
-      MAIN_SHA: b55dbd48ecd323b2a6d51b4a5319c951928b3c0a
-      TARGET_SHA: aaef09d39df61f1561f32ce616a498a00585c068
+      SERVICES_SHA: b55dbd48ecd323b2a6d51b4a5319c951928b3c0a
+      MAIN_SHA: aaef09d39df61f1561f32ce616a498a00585c068
+      TARGET_SHA: cc9d0424f7a2dc1d962e4bb7e820248373cc40e4
       SEALED_SHA: 9ae75a2f0dc9f22f2383775fd2f785d510f93740
-      HELPER_BASE_SHA: 8abf161fb0c327238fc76866a218d6b9f2a32839
+      HELPER_BASE_SHA: 3995d94b72c2a3f3a35717f6d6471487cb31200f
       HELPER_BRANCH: chore/prod26r9-et11-runtime-fix-publish
       TARGET_BRANCH: fix/prod26r9-shared-migration-approval-contract
       GITHUB_API_VERSION: "2026-03-10"
@@ -77,7 +78,7 @@ jobs:
           )"
           test "$current_main" = "$MAIN_SHA"
 
-      - name: Checkout the exact tested service status image fix
+      - name: Checkout the exact tested service source image status fix
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ env.TARGET_SHA }}
@@ -85,23 +86,22 @@ jobs:
           persist-credentials: false
           path: target
 
-      - name: Test the exact service status image fix
+      - name: Test the exact service source image status fix
         working-directory: target
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$TARGET_SHA"
           test "$(git rev-parse HEAD^)" = "$MAIN_SHA"
           test "$(git show -s --format=%s HEAD)" = \
-            'fix(release): accept service status image normalization'
+            'fix(release): authenticate service source image status'
           test "$(git show -s --format=%an HEAD)" = 'devpath-gitops-release[bot]'
           test "$(git show -s --format=%cn HEAD)" = 'devpath-gitops-release[bot]'
           mapfile -t target_paths < <(git diff-tree --no-commit-id --name-only -r HEAD)
-          test "${#target_paths[@]}" -eq 5
+          test "${#target_paths[@]}" -eq 4
           test "${target_paths[0]}" = "scripts/release/verify_kubernetes_release_runtime.py"
           test "${target_paths[1]}" = "scripts/release/verify_promotion_chain.py"
           test "${target_paths[2]}" = "tests/release/test_kubernetes_release_runtime.py"
           test "${target_paths[3]}" = "tests/release/test_promotion_chain.py"
-          test "${target_paths[4]}" = "tests/release/test_service_promotion.py"
           git diff --check "$MAIN_SHA" "$TARGET_SHA"
           python3 -m unittest discover -s tests/release
 
@@ -172,6 +172,7 @@ jobs:
           identity_fix_commit="$(sed -n 's/^migration_preflight_identity_fix_commit=//p' "$before_output")"
           services_commit="$(sed -n 's/^services_commit=//p' "$before_output")"
           status_image_fix_commit="$(sed -n 's/^service_status_image_fix_commit=//p' "$before_output")"
+          source_status_fix_commit="$(sed -n 's/^service_source_status_fix_commit=//p' "$before_output")"
           current_commit="$(sed -n 's/^current_commit=//p' "$before_output")"
           test "$phase" = "services"
           test "$migration_commit" = "$MIGRATION_SHA"
@@ -179,11 +180,12 @@ jobs:
           test "$runtime_fix_commit" = "$RUNTIME_FIX_SHA"
           test "$admission_fix_commit" = "$ADMISSION_FIX_SHA"
           test "$identity_fix_commit" = "$IDENTITY_FIX_SHA"
-          test "$services_commit" = "$MAIN_SHA"
-          test "$status_image_fix_commit" = "$TARGET_SHA"
+          test "$services_commit" = "$SERVICES_SHA"
+          test "$status_image_fix_commit" = "$MAIN_SHA"
+          test "$source_status_fix_commit" = "$TARGET_SHA"
           test "$current_commit" = "$TARGET_SHA"
 
-      - name: Fast-forward protected main to the exact tested service status image fix
+      - name: Fast-forward protected main to the exact tested service source image status fix
         env:
           GH_TOKEN: ${{ steps.app_token.outputs.token }}
           APP_ID: ${{ secrets.GITOPS_RELEASE_APP_ID }}
@@ -219,6 +221,7 @@ jobs:
           identity_fix_commit="$(sed -n 's/^migration_preflight_identity_fix_commit=//p' "$after_output")"
           services_commit="$(sed -n 's/^services_commit=//p' "$after_output")"
           status_image_fix_commit="$(sed -n 's/^service_status_image_fix_commit=//p' "$after_output")"
+          source_status_fix_commit="$(sed -n 's/^service_source_status_fix_commit=//p' "$after_output")"
           current_commit="$(sed -n 's/^current_commit=//p' "$after_output")"
           test "$phase" = "services"
           test "$migration_commit" = "$MIGRATION_SHA"
@@ -226,6 +229,7 @@ jobs:
           test "$runtime_fix_commit" = "$RUNTIME_FIX_SHA"
           test "$admission_fix_commit" = "$ADMISSION_FIX_SHA"
           test "$identity_fix_commit" = "$IDENTITY_FIX_SHA"
-          test "$services_commit" = "$MAIN_SHA"
-          test "$status_image_fix_commit" = "$TARGET_SHA"
+          test "$services_commit" = "$SERVICES_SHA"
+          test "$status_image_fix_commit" = "$MAIN_SHA"
+          test "$source_status_fix_commit" = "$TARGET_SHA"
           test "$current_commit" = "$TARGET_SHA"
