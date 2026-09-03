@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -26,8 +27,39 @@ def load_module(filename: str, name: str):
 
 def git(root: Path, *args: str) -> str:
     return subprocess.run(
-        ["git", *args], cwd=root, check=True, capture_output=True, text=True
+        [
+            "git",
+            "-c",
+            "maintenance.auto=false",
+            "-c",
+            "gc.auto=0",
+            *args,
+        ],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
     ).stdout.strip()
+
+
+class GitTestHelperTest(unittest.TestCase):
+    @mock.patch("subprocess.run")
+    def test_transient_repositories_disable_automatic_git_maintenance(self, run):
+        run.return_value.stdout = ""
+
+        git(Path("temporary-repository"), "status")
+
+        self.assertEqual(
+            [
+                "git",
+                "-c",
+                "maintenance.auto=false",
+                "-c",
+                "gc.auto=0",
+                "status",
+            ],
+            run.call_args.args[0],
+        )
 
 
 class PromotionChainTest(unittest.TestCase):
@@ -221,6 +253,20 @@ class PromotionChainTest(unittest.TestCase):
             )
         git(self.root, "add", *paths)
         git(self.root, "commit", "-m", self.chain.CANARY_RUNTIME_FORM_FIX_SUBJECT)
+        return git(self.root, "rev-parse", "HEAD")
+
+    def commit_post_on_resume_fix(self, *, suffix: str = "") -> str:
+        paths = self.chain.POST_ON_RESUME_FIX_PATHS
+        for relative in paths:
+            path = self.root / relative
+            path.write_text(
+                path.read_text(encoding="utf-8")
+                + f"\n# post-on-resume-fix{suffix}\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+        git(self.root, "add", *paths)
+        git(self.root, "commit", "-m", self.chain.POST_ON_RESUME_FIX_SUBJECT)
         return git(self.root, "rev-parse", "HEAD")
 
     def set_migration(self):
@@ -778,7 +824,8 @@ class PromotionChainTest(unittest.TestCase):
 
         state = self.inspect(runtime_form)
         self.assertEqual("mission-on", state["phase"])
-        self.assertEqual(on, state["on_commit"])
+        self.assertNotEqual(on, runtime_form)
+        self.assertEqual(runtime_form, state["on_commit"])
         self.assertEqual(runtime_form, state["canary_runtime_form_fix_commit"])
         self.assertEqual(runtime_form, state["current_commit"])
 
@@ -812,6 +859,43 @@ class PromotionChainTest(unittest.TestCase):
         runtime_form = git(self.root, "rev-parse", "HEAD")
         with self.assertRaisesRegex(ValueError, "path set is not exact"):
             self.inspect(runtime_form)
+
+    def test_post_on_resume_fix_advances_exact_on_identity_and_cannot_repeat(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.set_services()
+        self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        self.set_web("mission-off", "base")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-off")
+        self.set_web("mission-on", "mission-off")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-on")
+        runtime_form = self.commit_canary_runtime_form_fix()
+        resume = self.commit_post_on_resume_fix()
+
+        state = self.inspect(resume)
+        self.assertEqual("mission-on", state["phase"])
+        self.assertEqual(runtime_form, state["canary_runtime_form_fix_commit"])
+        self.assertEqual(resume, state["post_on_resume_fix_commit"])
+        self.assertEqual(resume, state["on_commit"])
+        self.assertEqual(resume, state["current_commit"])
+
+        omitted = self.chain.POST_ON_RESUME_FIX_PATHS[-1]
+        git(self.root, "checkout", "HEAD^", "--", omitted)
+        git(self.root, "add", omitted)
+        git(self.root, "commit", "--amend", "--no-edit")
+        malformed = git(self.root, "rev-parse", "HEAD")
+        with self.assertRaisesRegex(ValueError, "path set is not exact"):
+            self.inspect(malformed)
+
+        git(self.root, "reset", "--hard", runtime_form)
+        self.commit_post_on_resume_fix()
+        repeated = self.commit_post_on_resume_fix(suffix="-repeated")
+        with self.assertRaisesRegex(ValueError, "directly follow canary runtime form fix"):
+            self.inspect(repeated)
 
     def test_recognized_commit_from_non_app_actor_is_rejected(self):
         self.set_migration()
