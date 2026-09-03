@@ -18,8 +18,9 @@ class Prod26R9Et11RuntimeFixPublishTest(unittest.TestCase):
             "6ab7b95a2f981be176469300c1ce4693a5163952",
             "0576f3a52a02b3c434ab8b0931b53cc543e490ae",
             "6f3d57e555a92a9ff1941728cc32312feaf03ef3",
+            "4544e2c5a8ccd59aa50a6823a0eb803b3aac8bd8",
             "9ae75a2f0dc9f22f2383775fd2f785d510f93740",
-            "922d75de516bd79ebd11ab721b4a872201296a3f",
+            "9ca8c9e9dc6d453b35bae93e6719cb6a79f5ae6b",
             "chore/prod26r9-et11-runtime-fix-publish",
             "fix/prod26r9-shared-migration-approval-contract",
         ):
@@ -37,7 +38,7 @@ class Prod26R9Et11RuntimeFixPublishTest(unittest.TestCase):
             'test "$GITHUB_REF" = "refs/heads/$HELPER_BRANCH"',
             'test "$(git rev-parse HEAD^)" = "$HELPER_BASE_SHA"',
             'test "$(git -C gitops-main rev-parse "$TARGET_SHA^")" = "$MAIN_SHA"',
-            "fix(release): accept Kubernetes service account projection",
+            "fix(release): authenticate preflight root image identity",
             'test "${#target_paths[@]}" -eq 4',
             "scripts/release/verify_kubernetes_release_runtime.py",
             "scripts/release/verify_promotion_chain.py",
@@ -71,8 +72,9 @@ class Prod26R9Et11RuntimeFixPublishTest(unittest.TestCase):
             'test "$phase" = "migration"',
             'test "$migration_commit" = "$MIGRATION_SHA"',
             'test "$approval_fix_commit" = "$APPROVAL_FIX_SHA"',
-            'test "$runtime_fix_commit" = "$MAIN_SHA"',
-            'test "$admission_fix_commit" = "$TARGET_SHA"',
+            'test "$runtime_fix_commit" = "$RUNTIME_FIX_SHA"',
+            'test "$admission_fix_commit" = "$MAIN_SHA"',
+            'test "$identity_fix_commit" = "$TARGET_SHA"',
             'test "$current_commit" = "$TARGET_SHA"',
         ):
             self.assertIn(fragment, self.workflow)

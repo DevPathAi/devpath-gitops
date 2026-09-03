@@ -1,10 +1,10 @@
-name: prod26r9 migration runtime admission fix publisher
+name: prod26r9 migration preflight identity fix publisher
 
 on:
   workflow_dispatch:
     inputs:
       full:
-        description: Publish the exact tested prod26r9 runtime admission fix
+        description: Publish the exact tested prod26r9 preflight identity fix
         type: boolean
         required: true
         default: false
@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: prod26r9-runtime-admission-fix-publish
+  group: prod26r9-preflight-identity-fix-publish
   cancel-in-progress: false
 
 jobs:
@@ -31,10 +31,11 @@ jobs:
       RELEASE_ID: ms-20260830-prod26r9
       MIGRATION_SHA: 5bcde50ed982c9b5382f7b87579a4096212c1b1b
       APPROVAL_FIX_SHA: 6ab7b95a2f981be176469300c1ce4693a5163952
-      MAIN_SHA: 0576f3a52a02b3c434ab8b0931b53cc543e490ae
-      TARGET_SHA: 6f3d57e555a92a9ff1941728cc32312feaf03ef3
+      RUNTIME_FIX_SHA: 0576f3a52a02b3c434ab8b0931b53cc543e490ae
+      MAIN_SHA: 6f3d57e555a92a9ff1941728cc32312feaf03ef3
+      TARGET_SHA: 4544e2c5a8ccd59aa50a6823a0eb803b3aac8bd8
       SEALED_SHA: 9ae75a2f0dc9f22f2383775fd2f785d510f93740
-      HELPER_BASE_SHA: 922d75de516bd79ebd11ab721b4a872201296a3f
+      HELPER_BASE_SHA: 9ca8c9e9dc6d453b35bae93e6719cb6a79f5ae6b
       HELPER_BRANCH: chore/prod26r9-et11-runtime-fix-publish
       TARGET_BRANCH: fix/prod26r9-shared-migration-approval-contract
       GITHUB_API_VERSION: "2026-03-10"
@@ -74,7 +75,7 @@ jobs:
           )"
           test "$current_main" = "$MAIN_SHA"
 
-      - name: Checkout the exact tested runtime admission fix
+      - name: Checkout the exact tested preflight identity fix
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ env.TARGET_SHA }}
@@ -82,14 +83,14 @@ jobs:
           persist-credentials: false
           path: target
 
-      - name: Test the exact runtime admission fix
+      - name: Test the exact preflight identity fix
         working-directory: target
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$TARGET_SHA"
           test "$(git rev-parse HEAD^)" = "$MAIN_SHA"
           test "$(git show -s --format=%s HEAD)" = \
-            'fix(release): accept Kubernetes service account projection'
+            'fix(release): authenticate preflight root image identity'
           test "$(git show -s --format=%an HEAD)" = 'devpath-gitops-release[bot]'
           test "$(git show -s --format=%cn HEAD)" = 'devpath-gitops-release[bot]'
           mapfile -t target_paths < <(git diff-tree --no-commit-id --name-only -r HEAD)
@@ -165,15 +166,17 @@ jobs:
           approval_fix_commit="$(sed -n 's/^shared_migration_approval_fix_commit=//p' "$before_output")"
           runtime_fix_commit="$(sed -n 's/^migration_runtime_fix_commit=//p' "$before_output")"
           admission_fix_commit="$(sed -n 's/^migration_runtime_admission_fix_commit=//p' "$before_output")"
+          identity_fix_commit="$(sed -n 's/^migration_preflight_identity_fix_commit=//p' "$before_output")"
           current_commit="$(sed -n 's/^current_commit=//p' "$before_output")"
           test "$phase" = "migration"
           test "$migration_commit" = "$MIGRATION_SHA"
           test "$approval_fix_commit" = "$APPROVAL_FIX_SHA"
-          test "$runtime_fix_commit" = "$MAIN_SHA"
-          test "$admission_fix_commit" = "$TARGET_SHA"
+          test "$runtime_fix_commit" = "$RUNTIME_FIX_SHA"
+          test "$admission_fix_commit" = "$MAIN_SHA"
+          test "$identity_fix_commit" = "$TARGET_SHA"
           test "$current_commit" = "$TARGET_SHA"
 
-      - name: Fast-forward protected main to the exact tested runtime admission fix
+      - name: Fast-forward protected main to the exact tested preflight identity fix
         env:
           GH_TOKEN: ${{ steps.app_token.outputs.token }}
           APP_ID: ${{ secrets.GITOPS_RELEASE_APP_ID }}
@@ -206,10 +209,12 @@ jobs:
           approval_fix_commit="$(sed -n 's/^shared_migration_approval_fix_commit=//p' "$after_output")"
           runtime_fix_commit="$(sed -n 's/^migration_runtime_fix_commit=//p' "$after_output")"
           admission_fix_commit="$(sed -n 's/^migration_runtime_admission_fix_commit=//p' "$after_output")"
+          identity_fix_commit="$(sed -n 's/^migration_preflight_identity_fix_commit=//p' "$after_output")"
           current_commit="$(sed -n 's/^current_commit=//p' "$after_output")"
           test "$phase" = "migration"
           test "$migration_commit" = "$MIGRATION_SHA"
           test "$approval_fix_commit" = "$APPROVAL_FIX_SHA"
-          test "$runtime_fix_commit" = "$MAIN_SHA"
-          test "$admission_fix_commit" = "$TARGET_SHA"
+          test "$runtime_fix_commit" = "$RUNTIME_FIX_SHA"
+          test "$admission_fix_commit" = "$MAIN_SHA"
+          test "$identity_fix_commit" = "$TARGET_SHA"
           test "$current_commit" = "$TARGET_SHA"
