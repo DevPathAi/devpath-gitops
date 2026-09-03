@@ -75,6 +75,13 @@ MIGRATION_PREFLIGHT_IDENTITY_FIX_SUBJECT = (
     "fix(release): authenticate preflight root image identity"
 )
 MIGRATION_PREFLIGHT_IDENTITY_FIX_PATHS = MIGRATION_RUNTIME_ADMISSION_FIX_PATHS
+SERVICE_STATUS_IMAGE_FIX_SUBJECT = (
+    "fix(release): accept service status image normalization"
+)
+SERVICE_STATUS_IMAGE_FIX_PATHS = (
+    *MIGRATION_RUNTIME_ADMISSION_FIX_PATHS,
+    "tests/release/test_service_promotion.py",
+)
 
 
 def _git(root: Path, args: list[str], *, binary: bool = False) -> str | bytes:
@@ -609,6 +616,7 @@ def inspect_chain(
                 "migration_runtime_fix_commit": "",
                 "migration_runtime_admission_fix_commit": "",
                 "migration_preflight_identity_fix_commit": "",
+                "service_status_image_fix_commit": "",
                 "services_commit": "",
                 "off_commit": "",
                 "on_commit": "",
@@ -712,6 +720,26 @@ def inspect_chain(
                 **prior,
                 "current_commit": commit,
                 "migration_preflight_identity_fix_commit": commit,
+            }
+        if subject == SERVICE_STATUS_IMAGE_FIX_SUBJECT:
+            _require_write_actor(root, commit)
+            if (
+                prior["phase"] != "services"
+                or not prior["services_commit"]
+                or parent != prior["services_commit"]
+                or prior["service_status_image_fix_commit"]
+            ):
+                raise ValueError(
+                    "service status image fix must directly follow services"
+                )
+            _require_delta(root, commit, SERVICE_STATUS_IMAGE_FIX_PATHS)
+            _require_migration(root, commit, candidate, release_manifest_sha256)
+            _require_services(root, commit, candidate)
+            _require_web(root, commit, candidate, candidate_spec_sha256, "base")
+            return {
+                **prior,
+                "current_commit": commit,
+                "service_status_image_fix_commit": commit,
             }
         if subject == services_subject:
             _require_write_actor(root, commit)

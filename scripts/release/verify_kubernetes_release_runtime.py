@@ -428,13 +428,22 @@ def validate_service_runtime(
         )
         state = runtime.get("state")
         if (
-            runtime.get("image") != expected_image
-            or runtime.get("ready") is not True
+            runtime.get("ready") is not True
             or runtime.get("restartCount") != 0
             or not isinstance(state, dict)
             or set(state) != {"running"}
         ):
             raise ValueError("Pod target container is not a clean running instance")
+        _authenticated_status_image(
+            runtime.get("image"),
+            expected_image,
+            {
+                trust["root_digest"],
+                trust["manifest_digest"],
+                trust["config_digest"],
+            },
+            "service Pod runtime image",
+        )
         runtime_id = normalize_runtime_image_id(runtime.get("imageID"), trust)
         sanitized.append(
             {

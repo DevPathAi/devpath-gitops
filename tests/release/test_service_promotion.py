@@ -31,6 +31,18 @@ class ServicePromotionTest(unittest.TestCase):
         cls.promoter = load_module("promote_service_digests.py", "service_promoter")
         cls.candidate = json.loads(FIXTURE.read_text(encoding="utf-8"))
 
+    def tag_source(self, name: str) -> str:
+        source = (ROOT / self.promoter.SERVICE_PATHS[name]).read_text(
+            encoding="utf-8"
+        )
+        return re.sub(
+            r"^  (?:newTag|digest): [^\n]+$",
+            "  newTag: main",
+            source,
+            count=1,
+            flags=re.MULTILINE,
+        )
+
     def test_exact_nine_service_allowlist_is_frozen(self):
         expected = (
             "devpath-admin",
@@ -51,7 +63,7 @@ class ServicePromotionTest(unittest.TestCase):
 
     def test_each_tag_selector_becomes_only_its_candidate_digest(self):
         for name in self.promoter.SERVICE_NAMES:
-            source = (ROOT / self.promoter.SERVICE_PATHS[name]).read_text(encoding="utf-8")
+            source = self.tag_source(name)
             rendered = self.promoter.render_kustomization(source, self.candidate, name)
             service = self.candidate["services"][name]
             self.assertEqual(rendered.count(f"digest: {service['image_digest']}"), 1)
@@ -60,7 +72,7 @@ class ServicePromotionTest(unittest.TestCase):
 
     def test_prior_digest_selector_is_exactly_replaced_for_the_next_release(self):
         name = "devpath-admin"
-        source = (ROOT / self.promoter.SERVICE_PATHS[name]).read_text(encoding="utf-8")
+        source = self.tag_source(name)
         prior = "sha256:" + "9" * 64
         selector = next(line for line in source.splitlines() if line.startswith("  newTag: "))
         source = source.replace(selector + "\n", f"  digest: {prior}\n")
@@ -80,7 +92,7 @@ class ServicePromotionTest(unittest.TestCase):
 
     def test_selector_rejects_wrong_duplicate_or_malformed_base(self):
         name = "devpath-admin"
-        source = (ROOT / self.promoter.SERVICE_PATHS[name]).read_text(encoding="utf-8")
+        source = self.tag_source(name)
         mutations = (
             source.replace("- name: ghcr.io/devpathai/devpath-admin", "- name: evil/admin"),
             source.replace(
@@ -99,7 +111,7 @@ class ServicePromotionTest(unittest.TestCase):
 
     def test_image_entry_count_is_scoped_to_the_images_section(self):
         name = "devpath-admin"
-        source = (ROOT / self.promoter.SERVICE_PATHS[name]).read_text(encoding="utf-8")
+        source = self.tag_source(name)
         with_generator = (
             "configMapGenerator:\n"
             "- name: unrelated-runtime-config\n"

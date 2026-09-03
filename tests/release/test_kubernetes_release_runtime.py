@@ -223,6 +223,23 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
             {"linux-amd64-manifest", "config"},
         )
 
+        k3s_normalized_pods = copy.deepcopy(self.pods)
+        for pod in k3s_normalized_pods["items"]:
+            pod["status"]["containerStatuses"][0]["image"] = self.trust[
+                "config_digest"
+            ]
+        normalized_result = self.runtime.validate_service_runtime(
+            self.app,
+            self.deployment,
+            self.replicasets,
+            k3s_normalized_pods,
+            self.name,
+            self.commit,
+            self.commit,
+            self.trust,
+        )
+        self.assertEqual(len(normalized_result["pods"]), 2)
+
     def test_monorepo_application_binds_current_and_last_applied_revisions(self):
         observed = "c" * 40
         applied = self.commit
@@ -314,6 +331,21 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "runtime imageID"):
             self.runtime.validate_service_runtime(
                 self.app, self.deployment, self.replicasets, pods, self.name, self.commit, self.commit, self.trust
+            )
+        pods = copy.deepcopy(self.pods)
+        pods["items"][0]["status"]["containerStatuses"][0]["image"] = (
+            "sha256:" + "0" * 64
+        )
+        with self.assertRaisesRegex(ValueError, "runtime image"):
+            self.runtime.validate_service_runtime(
+                self.app,
+                self.deployment,
+                self.replicasets,
+                pods,
+                self.name,
+                self.commit,
+                self.commit,
+                self.trust,
             )
         deployment = copy.deepcopy(self.deployment)
         deployment["status"]["availableReplicas"] = 1
