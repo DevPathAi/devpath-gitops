@@ -281,6 +281,24 @@ def normalize_runtime_image_id(image_id: str, trust: Mapping[str, Any]) -> dict[
     raise ValueError("runtime imageID is not the authenticated manifest/config")
 
 
+def runtime_image_matches(
+    digest: Any, form: Any, trust: Mapping[str, Any]
+) -> bool:
+    """Match runtime evidence against the canonical OCI identity form contract."""
+    key = {
+        "linux-amd64-manifest": "manifest_digest",
+        "config": "config_digest",
+    }.get(form)
+    if key is None or not isinstance(digest, str) or DIGEST.fullmatch(digest) is None:
+        return False
+    expected = trust.get(key)
+    return (
+        isinstance(expected, str)
+        and DIGEST.fullmatch(expected) is not None
+        and digest == expected
+    )
+
+
 class _RejectRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
         return None

@@ -86,6 +86,18 @@ SERVICE_SOURCE_STATUS_FIX_SUBJECT = (
     "fix(release): authenticate service source image status"
 )
 SERVICE_SOURCE_STATUS_FIX_PATHS = MIGRATION_RUNTIME_ADMISSION_FIX_PATHS
+CANARY_RUNTIME_FORM_FIX_SUBJECT = "fix(release): align canary runtime image forms"
+CANARY_RUNTIME_FORM_FIX_PATHS = (
+    "scripts/release/build_production_canary.py",
+    "scripts/release/verify_oci_images.py",
+    "scripts/release/verify_promotion_chain.py",
+    "scripts/release/verify_promotion_evidence.py",
+    "tests/release/test_oci_image_trust.py",
+    "tests/release/test_production_canary.py",
+    "tests/release/test_promotion_chain.py",
+    "tests/release/test_promotion_evidence.py",
+    "tests/release/test_release_contract.py",
+)
 
 
 def _git(root: Path, args: list[str], *, binary: bool = False) -> str | bytes:
@@ -622,6 +634,7 @@ def inspect_chain(
                 "migration_preflight_identity_fix_commit": "",
                 "service_status_image_fix_commit": "",
                 "service_source_status_fix_commit": "",
+                "canary_runtime_form_fix_commit": "",
                 "services_commit": "",
                 "off_commit": "",
                 "on_commit": "",
@@ -765,6 +778,26 @@ def inspect_chain(
                 **prior,
                 "current_commit": commit,
                 "service_source_status_fix_commit": commit,
+            }
+        if subject == CANARY_RUNTIME_FORM_FIX_SUBJECT:
+            _require_write_actor(root, commit)
+            if (
+                prior["phase"] != "mission-on"
+                or not prior["on_commit"]
+                or parent != prior["on_commit"]
+                or prior["canary_runtime_form_fix_commit"]
+            ):
+                raise ValueError(
+                    "canary runtime form fix must directly follow mission-ON"
+                )
+            _require_delta(root, commit, CANARY_RUNTIME_FORM_FIX_PATHS)
+            _require_migration(root, commit, candidate, release_manifest_sha256)
+            _require_services(root, commit, candidate)
+            _require_web(root, commit, candidate, candidate_spec_sha256, "mission-on")
+            return {
+                **prior,
+                "current_commit": commit,
+                "canary_runtime_form_fix_commit": commit,
             }
         if subject == services_subject:
             _require_write_actor(root, commit)

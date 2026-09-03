@@ -49,21 +49,44 @@ class PromotionChainTest(unittest.TestCase):
             *self.chain.MIGRATION_PREFLIGHT_IDENTITY_FIX_PATHS,
             *self.chain.SERVICE_STATUS_IMAGE_FIX_PATHS,
             *self.chain.SERVICE_SOURCE_STATUS_FIX_PATHS,
+            *self.chain.CANARY_RUNTIME_FORM_FIX_PATHS,
         }
         for relative in copied_contract_paths:
             target = self.root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / relative, target)
+        self.candidate = copy.deepcopy(self.fixture)
+        self.candidate_hash = "c" * 64
+        self.release_hash = "a" * 64
+        web_path = self.root / "apps/devpath-web/base/kustomization.yaml"
+        prior = self.candidate["frontend"]["rollback"]["prior_identity"]
+        web_source = (
+            "apiVersion: kustomize.config.k8s.io/v1beta1\n"
+            "kind: Kustomization\n"
+            "resources:\n"
+            "- deployment.yaml\n"
+            "- service.yaml\n"
+            "- ingress.yaml\n"
+            "configMapGenerator:\n"
+            "- name: devpath-web-release-identity\n"
+            "  literals:\n"
+            f"  - MISSION_RELEASE_READY={'true' if prior['ready'] else 'false'}\n"
+            f"  - MISSION_RELEASE_ID={prior['release_id']}\n"
+            f"  - MISSION_CANDIDATE_SPEC_SHA256={prior['candidate_spec_sha256']}\n"
+            f"  - MISSION_IMAGE_DIGEST={prior['image_digest']}\n"
+            "images:\n"
+            "- name: ghcr.io/devpathai/devpath-web\n"
+            "  newName: ghcr.io/devpathai/devpath-web\n"
+            f"  newTag: {self.candidate['gitops']['base_web_tag']}\n"
+        )
+        web_path.write_text(web_source, encoding="utf-8", newline="\n")
         git(self.root, "init", "-b", "main")
         git(self.root, "config", "user.name", "devpath-gitops-release[bot]")
         git(self.root, "config", "user.email", "test@example.invalid")
         git(self.root, "add", "apps", "scripts", "tests")
         git(self.root, "commit", "-m", "base")
         self.base = git(self.root, "rev-parse", "HEAD")
-        self.candidate = copy.deepcopy(self.fixture)
         self.candidate["gitops"]["base_sha"] = self.base
-        self.candidate_hash = "c" * 64
-        self.release_hash = "a" * 64
 
     def tearDown(self):
         self.temp.cleanup()
@@ -184,6 +207,20 @@ class PromotionChainTest(unittest.TestCase):
             )
         git(self.root, "add", *paths)
         git(self.root, "commit", "-m", self.chain.SERVICE_SOURCE_STATUS_FIX_SUBJECT)
+        return git(self.root, "rev-parse", "HEAD")
+
+    def commit_canary_runtime_form_fix(self, *, suffix: str = "") -> str:
+        paths = self.chain.CANARY_RUNTIME_FORM_FIX_PATHS
+        for relative in paths:
+            path = self.root / relative
+            path.write_text(
+                path.read_text(encoding="utf-8")
+                + f"\n# canary-runtime-form-fix{suffix}\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+        git(self.root, "add", *paths)
+        git(self.root, "commit", "-m", self.chain.CANARY_RUNTIME_FORM_FIX_SUBJECT)
         return git(self.root, "rev-parse", "HEAD")
 
     def set_migration(self):
@@ -721,6 +758,60 @@ class PromotionChainTest(unittest.TestCase):
         source_status = git(self.root, "rev-parse", "HEAD")
         with self.assertRaisesRegex(ValueError, "path set is not exact"):
             self.inspect(source_status)
+
+    def test_exact_canary_runtime_form_fix_is_on_transparent_and_cannot_repeat(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.set_services()
+        self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        self.set_web("mission-off", "base")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-off")
+        self.set_web("mission-on", "mission-off")
+        on = self.commit(
+            f"release(web): promote {self.candidate['release_id']} mission-on"
+        )
+        runtime_form = self.commit_canary_runtime_form_fix()
+
+        state = self.inspect(runtime_form)
+        self.assertEqual("mission-on", state["phase"])
+        self.assertEqual(on, state["on_commit"])
+        self.assertEqual(runtime_form, state["canary_runtime_form_fix_commit"])
+        self.assertEqual(runtime_form, state["current_commit"])
+
+        repeated = self.commit_canary_runtime_form_fix(suffix="-repeated")
+        with self.assertRaisesRegex(ValueError, "directly follow mission-ON"):
+            self.inspect(repeated)
+
+    def test_canary_runtime_form_fix_requires_on_and_exact_paths(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.set_services()
+        self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        self.set_web("mission-off", "base")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-off")
+        runtime_form = self.commit_canary_runtime_form_fix()
+        with self.assertRaisesRegex(ValueError, "directly follow mission-ON"):
+            self.inspect(runtime_form)
+
+        git(self.root, "reset", "--hard", "HEAD^")
+        self.set_web("mission-on", "mission-off")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-on")
+        omitted = self.chain.CANARY_RUNTIME_FORM_FIX_PATHS[-1]
+        self.commit_canary_runtime_form_fix()
+        git(self.root, "checkout", "HEAD^", "--", omitted)
+        git(self.root, "add", omitted)
+        git(self.root, "commit", "--amend", "--no-edit")
+        runtime_form = git(self.root, "rev-parse", "HEAD")
+        with self.assertRaisesRegex(ValueError, "path set is not exact"):
+            self.inspect(runtime_form)
 
     def test_recognized_commit_from_non_app_actor_is_rejected(self):
         self.set_migration()

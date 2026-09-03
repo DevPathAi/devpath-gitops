@@ -128,6 +128,20 @@ class OciImageTrustTest(unittest.TestCase):
             ],
             "config",
         )
+        self.assertTrue(
+            self.oci.runtime_image_matches(
+                self.child_digest, "linux-amd64-manifest", result
+            )
+        )
+        self.assertTrue(
+            self.oci.runtime_image_matches(self.config_digest, "config", result)
+        )
+        self.assertFalse(
+            self.oci.runtime_image_matches(self.child_digest, "manifest", result)
+        )
+        self.assertFalse(
+            self.oci.runtime_image_matches(self.config_digest, "linux-amd64-manifest", result)
+        )
 
     def test_duplicate_amd64_or_other_platform_child_is_rejected(self):
         index = copy.deepcopy(self.index_document)

@@ -52,6 +52,31 @@ class ReleaseManifestContractTest(unittest.TestCase):
         release = copy.deepcopy(self.release if release is None else release)
         return self.validator.validate_release_manifest(release, candidate, self.candidate_sha, FIXTURE)
 
+    def write_candidate_base_web(self, base: Path) -> None:
+        prior = self.candidate["frontend"]["rollback"]["prior_identity"]
+        source = (
+            "apiVersion: kustomize.config.k8s.io/v1beta1\n"
+            "kind: Kustomization\n"
+            "resources:\n"
+            "- deployment.yaml\n"
+            "- service.yaml\n"
+            "- ingress.yaml\n"
+            "configMapGenerator:\n"
+            "- name: devpath-web-release-identity\n"
+            "  literals:\n"
+            f"  - MISSION_RELEASE_READY={'true' if prior['ready'] else 'false'}\n"
+            f"  - MISSION_RELEASE_ID={prior['release_id']}\n"
+            f"  - MISSION_CANDIDATE_SPEC_SHA256={prior['candidate_spec_sha256']}\n"
+            f"  - MISSION_IMAGE_DIGEST={prior['image_digest']}\n"
+            "images:\n"
+            "- name: ghcr.io/devpathai/devpath-web\n"
+            "  newName: ghcr.io/devpathai/devpath-web\n"
+            f"  newTag: {self.candidate['gitops']['base_web_tag']}\n"
+        )
+        (base / "kustomization.yaml").write_text(
+            source, encoding="utf-8", newline="\n"
+        )
+
     def test_valid_fixture_and_schema_pass(self):
         self.validator.validate_candidate_spec(copy.deepcopy(self.candidate), CANDIDATE_FIXTURE)
         self.validate_bundle()
@@ -526,12 +551,16 @@ images:
         binary = shutil.which("kubectl")
         if binary is None:
             self.skipTest("kubectl is unavailable")
-        rendered = subprocess.run(
-            [binary, "kustomize", str(ROOT / "apps/devpath-web/base")],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory) / "base"
+            shutil.copytree(ROOT / "apps/devpath-web/base", base)
+            self.write_candidate_base_web(base)
+            rendered = subprocess.run(
+                [binary, "kustomize", str(base)],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout
         documents = list(yaml.safe_load_all(rendered))
         config_map = next(item for item in documents if item["kind"] == "ConfigMap")
         deployment = next(item for item in documents if item["kind"] == "Deployment")
@@ -571,6 +600,7 @@ images:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             shutil.copytree(ROOT / "apps", root / "apps")
+            self.write_candidate_base_web(root / "apps/devpath-web/base")
             candidate_dir = root / "release-manifests" / "candidates"
             candidate_dir.mkdir(parents=True)
             candidate_path = candidate_dir / f"{self.candidate['release_id']}.candidate-spec.json"
@@ -600,6 +630,7 @@ images:
         with tempfile.TemporaryDirectory() as td:
             base = Path(td) / "base"
             shutil.copytree(ROOT / "apps" / "devpath-web" / "base", base)
+            self.write_candidate_base_web(base)
             kustomization = base / "kustomization.yaml"
             rendered = self.promoter.render_kustomization(
                 kustomization.read_text(encoding="utf-8"),

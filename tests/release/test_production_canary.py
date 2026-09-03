@@ -39,6 +39,22 @@ class ProductionCanaryTest(unittest.TestCase):
                     attempt,
                 )
 
+    def test_runtime_image_form_uses_canonical_oci_contract(self):
+        manifest = "sha256:" + "1" * 64
+        config = "sha256:" + "2" * 64
+        authenticated = {"manifest_digest": manifest, "config_digest": config}
+        self.assertTrue(
+            self.canary.runtime_image_matches(
+                manifest, "linux-amd64-manifest", authenticated
+            )
+        )
+        self.assertTrue(
+            self.canary.runtime_image_matches(config, "config", authenticated)
+        )
+        self.assertFalse(
+            self.canary.runtime_image_matches(manifest, "manifest", authenticated)
+        )
+
     def test_output_is_exclusive_and_never_follows_a_symlink(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
