@@ -26,10 +26,11 @@ class Prod26R9Et11RuntimeFixPublishTest(unittest.TestCase):
             "e4408b007d2104a6a2743a1237ce2b9bd62a50ee",
             "1988b373d80d056f51e074fa25b3434c9b300efc",
             "f9b717ef71bbf3daf5b3313474405755417c18c3",
+            "6f23f73184a6e379439ba3758795cf40f70ab41a",
             "9ae75a2f0dc9f22f2383775fd2f785d510f93740",
-            "f19401f3793d5330365bb6186dac3740b427464f",
+            "0f755bfbd7ce8ac899c576d87e8c9a211d07c66d",
             "chore/prod26r9-et11-runtime-fix-publish",
-            "fix/prod26r9-web-applied-revision-lineage",
+            "fix/prod26r9-staging-context-auth-chain",
         ):
             self.assertIn(value, self.workflow)
 
@@ -45,15 +46,12 @@ class Prod26R9Et11RuntimeFixPublishTest(unittest.TestCase):
             'test "$GITHUB_REF" = "refs/heads/$HELPER_BRANCH"',
             'test "$(git rev-parse HEAD^)" = "$HELPER_BASE_SHA"',
             'test "$(git -C gitops-main rev-parse "$TARGET_SHA^")" = "$MAIN_SHA"',
-            "fix(release): bind web applied revision lineage",
-            'test "${#target_paths[@]}" -eq 7',
+            "fix(release): authenticate staging rebaseline context",
+            'test "${#target_paths[@]}" -eq 4',
             ".github/workflows/mission-spine-promote.yml",
-            ".github/workflows/mission-spine-rollback.yml",
             "scripts/release/verify_promotion_chain.py",
-            "scripts/release/wait_web_rollout.py",
             "tests/release/test_production_workflow_wiring.py",
             "tests/release/test_promotion_chain.py",
-            "tests/release/test_release_hardening.py",
         ):
             self.assertIn(fragment, self.workflow)
 
@@ -91,8 +89,9 @@ class Prod26R9Et11RuntimeFixPublishTest(unittest.TestCase):
             'test "$off_commit" = "$OFF_SHA"',
             'test "$on_commit" = "$TARGET_SHA"',
             'test "$canary_form_fix_commit" = "$CANARY_FIX_SHA"',
-            'test "$post_on_resume_fix_commit" = "$MAIN_SHA"',
-            'test "$web_applied_revision_fix_commit" = "$TARGET_SHA"',
+            'test "$post_on_resume_fix_commit" = "$POST_ON_RESUME_FIX_SHA"',
+            'test "$web_applied_revision_fix_commit" = "$MAIN_SHA"',
+            'test "$staging_context_auth_fix_commit" = "$TARGET_SHA"',
             'test "$current_commit" = "$TARGET_SHA"',
         ):
             self.assertIn(fragment, self.workflow)

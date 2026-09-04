@@ -1,10 +1,10 @@
-name: prod26r9 web applied revision lineage publisher
+name: prod26r9 staging rebaseline context auth publisher
 
 on:
   workflow_dispatch:
     inputs:
       full:
-        description: Publish the exact tested prod26r9 web applied revision lineage fix
+        description: Publish the exact tested prod26r9 staging rebaseline context auth fix
         type: boolean
         required: true
         default: false
@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: prod26r9-web-applied-revision-lineage-fix-publish
+  group: prod26r9-staging-rebaseline-context-auth-fix-publish
   cancel-in-progress: false
 
 jobs:
@@ -39,12 +39,13 @@ jobs:
       SOURCE_STATUS_FIX_SHA: cc9d0424f7a2dc1d962e4bb7e820248373cc40e4
       OFF_SHA: 711273896cd3e6c8130ba8fab4b1683e08340260
       CANARY_FIX_SHA: e4408b007d2104a6a2743a1237ce2b9bd62a50ee
-      MAIN_SHA: 1988b373d80d056f51e074fa25b3434c9b300efc
-      TARGET_SHA: f9b717ef71bbf3daf5b3313474405755417c18c3
+      POST_ON_RESUME_FIX_SHA: 1988b373d80d056f51e074fa25b3434c9b300efc
+      MAIN_SHA: f9b717ef71bbf3daf5b3313474405755417c18c3
+      TARGET_SHA: 6f23f73184a6e379439ba3758795cf40f70ab41a
       SEALED_SHA: 9ae75a2f0dc9f22f2383775fd2f785d510f93740
-      HELPER_BASE_SHA: f19401f3793d5330365bb6186dac3740b427464f
+      HELPER_BASE_SHA: 0f755bfbd7ce8ac899c576d87e8c9a211d07c66d
       HELPER_BRANCH: chore/prod26r9-et11-runtime-fix-publish
-      TARGET_BRANCH: fix/prod26r9-web-applied-revision-lineage
+      TARGET_BRANCH: fix/prod26r9-staging-context-auth-chain
       GITHUB_API_VERSION: "2026-03-10"
       PYTHONDONTWRITEBYTECODE: "1"
       GIT_CONFIG_COUNT: "2"
@@ -87,7 +88,7 @@ jobs:
           )"
           test "$current_main" = "$MAIN_SHA"
 
-      - name: Checkout the exact tested web applied revision lineage fix
+      - name: Checkout the exact tested staging rebaseline context auth fix
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ env.TARGET_SHA }}
@@ -95,25 +96,22 @@ jobs:
           persist-credentials: false
           path: target
 
-      - name: Test the exact web applied revision lineage fix
+      - name: Test the exact staging rebaseline context auth fix
         working-directory: target
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$TARGET_SHA"
           test "$(git rev-parse HEAD^)" = "$MAIN_SHA"
           test "$(git show -s --format=%s HEAD)" = \
-            'fix(release): bind web applied revision lineage'
+            'fix(release): authenticate staging rebaseline context'
           test "$(git show -s --format=%an HEAD)" = 'devpath-gitops-release[bot]'
           test "$(git show -s --format=%cn HEAD)" = 'devpath-gitops-release[bot]'
           mapfile -t target_paths < <(git diff-tree --no-commit-id --name-only -r HEAD)
-          test "${#target_paths[@]}" -eq 7
+          test "${#target_paths[@]}" -eq 4
           test "${target_paths[0]}" = ".github/workflows/mission-spine-promote.yml"
-          test "${target_paths[1]}" = ".github/workflows/mission-spine-rollback.yml"
-          test "${target_paths[2]}" = "scripts/release/verify_promotion_chain.py"
-          test "${target_paths[3]}" = "scripts/release/wait_web_rollout.py"
-          test "${target_paths[4]}" = "tests/release/test_production_workflow_wiring.py"
-          test "${target_paths[5]}" = "tests/release/test_promotion_chain.py"
-          test "${target_paths[6]}" = "tests/release/test_release_hardening.py"
+          test "${target_paths[1]}" = "scripts/release/verify_promotion_chain.py"
+          test "${target_paths[2]}" = "tests/release/test_production_workflow_wiring.py"
+          test "${target_paths[3]}" = "tests/release/test_promotion_chain.py"
           git diff --check "$MAIN_SHA" "$TARGET_SHA"
           python3 -m unittest discover -s tests/release
 
@@ -190,6 +188,7 @@ jobs:
           canary_form_fix_commit="$(sed -n 's/^canary_runtime_form_fix_commit=//p' "$before_output")"
           post_on_resume_fix_commit="$(sed -n 's/^post_on_resume_fix_commit=//p' "$before_output")"
           web_applied_revision_fix_commit="$(sed -n 's/^web_applied_revision_fix_commit=//p' "$before_output")"
+          staging_context_auth_fix_commit="$(sed -n 's/^staging_context_auth_fix_commit=//p' "$before_output")"
           current_commit="$(sed -n 's/^current_commit=//p' "$before_output")"
           test "$phase" = "mission-on"
           test "$migration_commit" = "$MIGRATION_SHA"
@@ -203,11 +202,12 @@ jobs:
           test "$off_commit" = "$OFF_SHA"
           test "$on_commit" = "$TARGET_SHA"
           test "$canary_form_fix_commit" = "$CANARY_FIX_SHA"
-          test "$post_on_resume_fix_commit" = "$MAIN_SHA"
-          test "$web_applied_revision_fix_commit" = "$TARGET_SHA"
+          test "$post_on_resume_fix_commit" = "$POST_ON_RESUME_FIX_SHA"
+          test "$web_applied_revision_fix_commit" = "$MAIN_SHA"
+          test "$staging_context_auth_fix_commit" = "$TARGET_SHA"
           test "$current_commit" = "$TARGET_SHA"
 
-      - name: Fast-forward protected main to the exact tested web applied revision lineage fix
+      - name: Fast-forward protected main to the exact tested staging rebaseline context auth fix
         env:
           GH_TOKEN: ${{ steps.app_token.outputs.token }}
           APP_ID: ${{ secrets.GITOPS_RELEASE_APP_ID }}
@@ -249,6 +249,7 @@ jobs:
           canary_form_fix_commit="$(sed -n 's/^canary_runtime_form_fix_commit=//p' "$after_output")"
           post_on_resume_fix_commit="$(sed -n 's/^post_on_resume_fix_commit=//p' "$after_output")"
           web_applied_revision_fix_commit="$(sed -n 's/^web_applied_revision_fix_commit=//p' "$after_output")"
+          staging_context_auth_fix_commit="$(sed -n 's/^staging_context_auth_fix_commit=//p' "$after_output")"
           current_commit="$(sed -n 's/^current_commit=//p' "$after_output")"
           test "$phase" = "mission-on"
           test "$migration_commit" = "$MIGRATION_SHA"
@@ -262,6 +263,7 @@ jobs:
           test "$off_commit" = "$OFF_SHA"
           test "$on_commit" = "$TARGET_SHA"
           test "$canary_form_fix_commit" = "$CANARY_FIX_SHA"
-          test "$post_on_resume_fix_commit" = "$MAIN_SHA"
-          test "$web_applied_revision_fix_commit" = "$TARGET_SHA"
+          test "$post_on_resume_fix_commit" = "$POST_ON_RESUME_FIX_SHA"
+          test "$web_applied_revision_fix_commit" = "$MAIN_SHA"
+          test "$staging_context_auth_fix_commit" = "$TARGET_SHA"
           test "$current_commit" = "$TARGET_SHA"
