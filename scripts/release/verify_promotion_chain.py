@@ -113,6 +113,15 @@ WEB_APPLIED_REVISION_FIX_PATHS = (
     "tests/release/test_promotion_chain.py",
     "tests/release/test_release_hardening.py",
 )
+STAGING_CONTEXT_AUTH_FIX_SUBJECT = (
+    "fix(release): authenticate staging rebaseline context"
+)
+STAGING_CONTEXT_AUTH_FIX_PATHS = (
+    ".github/workflows/mission-spine-promote.yml",
+    "scripts/release/verify_promotion_chain.py",
+    "tests/release/test_production_workflow_wiring.py",
+    "tests/release/test_promotion_chain.py",
+)
 
 
 def _git(root: Path, args: list[str], *, binary: bool = False) -> str | bytes:
@@ -652,6 +661,7 @@ def inspect_chain(
                 "canary_runtime_form_fix_commit": "",
                 "post_on_resume_fix_commit": "",
                 "web_applied_revision_fix_commit": "",
+                "staging_context_auth_fix_commit": "",
                 "services_commit": "",
                 "off_commit": "",
                 "on_commit": "",
@@ -857,6 +867,27 @@ def inspect_chain(
                 **prior,
                 "current_commit": commit,
                 "web_applied_revision_fix_commit": commit,
+                "on_commit": commit,
+            }
+        if subject == STAGING_CONTEXT_AUTH_FIX_SUBJECT:
+            _require_write_actor(root, commit)
+            if (
+                prior["phase"] != "mission-on"
+                or not prior["web_applied_revision_fix_commit"]
+                or parent != prior["on_commit"]
+                or prior["staging_context_auth_fix_commit"]
+            ):
+                raise ValueError(
+                    "staging context auth fix must directly follow web applied revision fix"
+                )
+            _require_delta(root, commit, STAGING_CONTEXT_AUTH_FIX_PATHS)
+            _require_migration(root, commit, candidate, release_manifest_sha256)
+            _require_services(root, commit, candidate)
+            _require_web(root, commit, candidate, candidate_spec_sha256, "mission-on")
+            return {
+                **prior,
+                "current_commit": commit,
+                "staging_context_auth_fix_commit": commit,
                 "on_commit": commit,
             }
         if subject == services_subject:

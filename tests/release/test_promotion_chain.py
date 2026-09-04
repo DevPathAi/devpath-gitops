@@ -296,6 +296,19 @@ class PromotionChainTest(unittest.TestCase):
         git(self.root, "commit", "-m", self.chain.WEB_APPLIED_REVISION_FIX_SUBJECT)
         return git(self.root, "rev-parse", "HEAD")
 
+    def commit_staging_context_auth_fix(self, *, suffix: str = "") -> str:
+        for relative in self.chain.STAGING_CONTEXT_AUTH_FIX_PATHS:
+            path = self.root / relative
+            path.write_text(
+                path.read_text(encoding="utf-8")
+                + f"\n# staging-context-auth-fix{suffix}\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+        git(self.root, "add", *self.chain.STAGING_CONTEXT_AUTH_FIX_PATHS)
+        git(self.root, "commit", "-m", self.chain.STAGING_CONTEXT_AUTH_FIX_SUBJECT)
+        return git(self.root, "rev-parse", "HEAD")
+
     def set_migration(self):
         path = self.root / "apps/devpath-migration/base/kustomization.yaml"
         digest = self.candidate["shared_migration"]["image_digest"]
@@ -950,6 +963,35 @@ class PromotionChainTest(unittest.TestCase):
 
         repeated = self.commit_web_applied_revision_fix(suffix="-repeated")
         with self.assertRaisesRegex(ValueError, "directly follow post-ON resume fix"):
+            self.inspect(repeated)
+
+    def test_staging_context_auth_fix_advances_on_identity_and_cannot_repeat(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.set_services()
+        self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        self.set_web("mission-off", "base")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-off")
+        self.set_web("mission-on", "mission-off")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-on")
+        self.commit_canary_runtime_form_fix()
+        self.commit_post_on_resume_fix()
+        applied = self.commit_web_applied_revision_fix()
+        auth = self.commit_staging_context_auth_fix()
+
+        state = self.inspect(auth)
+        self.assertEqual("mission-on", state["phase"])
+        self.assertEqual(applied, state["web_applied_revision_fix_commit"])
+        self.assertEqual(auth, state["staging_context_auth_fix_commit"])
+        self.assertEqual(auth, state["on_commit"])
+        self.assertEqual(auth, state["current_commit"])
+
+        repeated = self.commit_staging_context_auth_fix(suffix="-repeated")
+        with self.assertRaisesRegex(ValueError, "directly follow web applied revision fix"):
             self.inspect(repeated)
 
     def test_recognized_commit_from_non_app_actor_is_rejected(self):
