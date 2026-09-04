@@ -231,6 +231,12 @@ class ProductionWorkflowWiringTest(unittest.TestCase):
             section,
         )
         self.assertIn("--expected-phase mission-on", section)
+        configure_start = section.index(
+            "      - name: Configure approved staging cluster"
+        )
+        configure_end = section.index("\n      - name:", configure_start + 1)
+        configure_block = section[configure_start:configure_end]
+        self.assertIn("GH_TOKEN: ${{ github.token }}", configure_block)
         self.assertLess(
             section.index("verify_post_promotion_staging_context.py"),
             section.index("secrets.STAGING_KUBECONFIG_B64"),
