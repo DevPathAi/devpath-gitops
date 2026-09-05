@@ -48,6 +48,32 @@ spec:
               value: "5"
             - name: AI_SVC_URI
               value: "http://devpath-ai-svc.devpath.svc:8080"
+            # 초대 메일은 mock이 아닌 실제 SMTP로만 운영한다. 자격증명 Secret이 없으면
+            # pod를 띄우지 않아 성공으로 보이는 무발송 상태를 막는다.
+            - name: MAIL_PROVIDER
+              value: "smtp"
+            - name: MAIL_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: notification-mail
+                  key: host
+            - name: MAIL_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: notification-mail
+                  key: port
+            - name: MAIL_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: notification-mail
+                  key: username
+            - name: MAIL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: notification-mail
+                  key: password
+            - name: MAIL_FROM
+              value: "no-reply@leva.ai.kr"
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness

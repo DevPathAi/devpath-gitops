@@ -83,6 +83,25 @@ spec:
               value: "true"
             - name: BETA_ADMIN_EMAILS
               value: "deepestdark@outlook.kr"
+            # 멘토 코드 원문은 저장하지 않고 이 키로 HMAC만 저장한다. Secret 미설정 시
+            # pod를 띄우지 않아 테스트 기본키가 운영에 사용되는 것을 막는다.
+            - name: MENTOR_INVITE_CODE_HMAC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: mentor-access
+                  key: invite-code-hmac-secret
+            # 매일 10:00 KST 한 번 선점한다. 다중 pod에서도 DB의 batch_date UNIQUE가
+            # 중복 실행을 막고, 한 실행당 최대 100명을 25명씩 잠근다.
+            - name: MENTOR_INVITE_BATCH_ENABLED
+              value: "true"
+            - name: MENTOR_INVITE_BATCH_CRON
+              value: "0 0 10 * * *"
+            - name: MENTOR_INVITE_BATCH_ZONE
+              value: "Asia/Seoul"
+            - name: MENTOR_INVITE_BATCH_CHUNK_SIZE
+              value: "25"
+            - name: MENTOR_INVITE_BATCH_DAILY_CAP
+              value: "100"
             # 프록시(Traefik→gateway) 뒤에서 X-Forwarded-*로 baseUrl 생성 — OAuth redirect_uri가
             # 내부 svc DNS로 만들어져 GitHub 콜백 불일치(404) 나던 문제의 해소
             - name: SERVER_FORWARD_HEADERS_STRATEGY
