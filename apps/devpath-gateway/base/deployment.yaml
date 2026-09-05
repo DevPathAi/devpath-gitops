@@ -40,7 +40,7 @@ spec:
             - name: SPRING_CLOUD_GATEWAY_SERVER_WEBFLUX_TRUSTED_PROXIES
               value: "10\\..*|127\\.0\\.0\\.1"
             - name: CORS_ALLOWED_ORIGINS
-              value: "https://app.leva.ai.kr,https://admin.leva.ai.kr"
+              value: "https://leva.ai.kr,https://app.leva.ai.kr,https://admin.leva.ai.kr"
             - name: PLATFORM_URI
               value: "http://devpath-platform-svc.devpath.svc:8080"
             - name: LEARNING_URI
