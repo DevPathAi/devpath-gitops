@@ -6,6 +6,7 @@ resources:
 - sealedsecret-db.yaml
 - sealedsecret-jwt.yaml
 - sealedsecret-oauth.yaml
+- sealedsecret-turnstile.yaml
 images:
 - name: ghcr.io/devpathai/devpath-platform-svc
   newName: ghcr.io/devpathai/devpath-platform-svc
