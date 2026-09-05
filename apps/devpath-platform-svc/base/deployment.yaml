@@ -69,6 +69,13 @@ spec:
                 secretKeyRef:
                   name: devpath-jwt
                   key: jwt-secret
+            - name: TURNSTILE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: platform-turnstile
+                  key: turnstile-secret
+            - name: TURNSTILE_HOSTNAMES
+              value: "leva.ai.kr"
             - name: KAFKA_BOOTSTRAP
               value: "devpath-kafka-bootstrap.kafka.svc:9092"
             - name: REDIS_HOST
