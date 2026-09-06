@@ -35,6 +35,37 @@ class PublicSupportSecurityTest(unittest.TestCase):
         self.assertEqual(ref["key"], "rate-limit-hmac-secret")
         self.assertNotIn("optional", ref)
 
+    def test_platform_turnstile_secret_and_origin_are_fail_closed(self):
+        base = ROOT / "apps" / "devpath-platform-svc" / "base"
+        kustomization = yaml.safe_load(
+            (base / "kustomization.yaml").read_text(encoding="utf-8")
+        )
+        self.assertIn("sealedsecret-turnstile.yaml", kustomization["resources"])
+
+        sealed = yaml.safe_load(
+            (base / "sealedsecret-turnstile.yaml").read_text(encoding="utf-8")
+        )
+        self.assertEqual(sealed["metadata"]["name"], "platform-turnstile")
+        self.assertEqual(sealed["metadata"]["namespace"], "devpath")
+        self.assertNotIn("data", sealed)
+        self.assertNotIn("stringData", sealed)
+        encrypted = sealed["spec"]["encryptedData"]
+        self.assertEqual(set(encrypted), {"turnstile-secret"})
+        self.assertRegex(encrypted["turnstile-secret"], r"^Ag[A-Za-z0-9+/=]+$")
+
+        deployment = yaml.safe_load(
+            (base / "deployment.yaml").read_text(encoding="utf-8")
+        )
+        env = {
+            entry["name"]: entry
+            for entry in deployment["spec"]["template"]["spec"]["containers"][0]["env"]
+        }
+        self.assertEqual(
+            env["TURNSTILE_SECRET"]["valueFrom"]["secretKeyRef"],
+            {"name": "platform-turnstile", "key": "turnstile-secret"},
+        )
+        self.assertEqual(env["TURNSTILE_HOSTNAMES"]["value"], "leva.ai.kr")
+
     def test_homepage_origin_is_not_globally_credentialed(self):
         deployment = yaml.safe_load(
             (ROOT / "apps" / "devpath-gateway" / "base" / "deployment.yaml").read_text(
