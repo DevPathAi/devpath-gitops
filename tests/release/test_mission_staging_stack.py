@@ -159,6 +159,23 @@ class MissionStagingStackTest(unittest.TestCase):
             self.assertIn("HeaderRegexp(`X-Release-Run-Key`", rule["match"])
             self.assertGreaterEqual(rule["priority"], 1000)
             self.assertEqual(rule["services"][0]["name"], service)
+    def test_gateway_cors_accepts_both_canonical_browser_origins_once(self):
+        gateway = env_map("gateway.yaml")
+        self.assertEqual(
+            gateway["CORS_ALLOWED_ORIGINS"]["value"],
+            "https://app.leva.ai.kr",
+        )
+        self.assertEqual(
+            gateway["PUBLIC_CORS_ALLOWED_ORIGINS"]["value"],
+            "https://leva.ai.kr",
+        )
+        self.assertEqual(
+            gateway[
+                "SPRING_CLOUD_GATEWAY_SERVER_WEBFLUX_DEFAULT_FILTERS_1"
+            ]["value"],
+            "DedupeResponseHeader=Access-Control-Allow-Credentials "
+            "Access-Control-Allow-Origin",
+        )
 
     def test_control_oauth_and_analytics_hosts_are_exact(self):
         ingress = load(STACK / "release-hosts-ingress.yaml")
