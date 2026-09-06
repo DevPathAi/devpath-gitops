@@ -53,9 +53,10 @@ Required order:
 
 1. Preserve the exact ET8 `devpath-shared` checkpoint
    `2b03c38934fdd19332da59107e4330a3af92d078` through `V202608161008`, then
-   publish the exact final lineage
-   `58c78bfe35e99e618863b53f689c216b40295826` and run its migration image
-   through `V202608201002`. Do not edit the already exercised
+   preserve the prior final lineage
+   `58c78bfe35e99e618863b53f689c216b40295826` through `V202608201002`, then
+   publish `2fda29d38bc94345aa91bb6ea5823aef8125b0dc` and run its migration image
+   through `V202609051004`. Do not edit the already exercised
    `V202608161001__sandbox_execution_leases.sql` bytes; the deployment preflight
    fails unless both immutable checkpoints are named exactly.
 2. Create `sandbox-migration-gate` only for the approved maintenance window:
@@ -69,21 +70,30 @@ Required order:
      maintenance-approved: "true"
      # Set from the reviewed production table-size preflight, never by guessing.
      max-sandbox-sessions-bytes: "<approved integer>"
+     # Re-measure immediately before approval. 2026-09-06 reference: 0 rows,
+     # 24,576 total bytes, zero relation locks, zero non-idle client sessions.
+     max-support-requests-rows: "<approved integer>"
+     max-support-requests-bytes: "<approved integer>"
    ```
 
    Scale Sandbox writers down first. The migration Job fails closed unless
    duplicate active users are zero, `pg_stat_activity` has no other active
-   client traffic, the table is within the approved size bound, and an
-   `ACCESS EXCLUSIVE NOWAIT` lock rehearsal succeeds under 2-second lock and
-   30-second statement timeouts. V202608161001 performs a data scan in the same
-   transaction as its first `ALTER TABLE`, so this maintenance gate mitigates
-   but does not make that historical migration low-lock.
+   client traffic, both affected tables are within their approved row/size
+   bounds, and `ACCESS EXCLUSIVE NOWAIT` lock rehearsals for `sandbox_sessions`
+   and `support_requests` succeed under 2-second lock and 30-second statement
+   timeouts. V202608161001 performs a data scan in the same transaction as its
+   first `ALTER TABLE`; V202609051001 validates existing support rows while its
+   ALTER is held. The maintenance gate bounds both risks but does not make
+   either migration low-lock.
 3. Verify the final schema before any application rollout:
 
    ```sql
    SELECT version, success
    FROM flyway_schema_history
-   WHERE version IN ('202608161008', '202608201002')
+   WHERE version IN (
+     '202608161008', '202608201002',
+     '202609051001', '202609051002', '202609051003', '202609051004'
+   )
    ORDER BY version;
 
    SELECT column_name

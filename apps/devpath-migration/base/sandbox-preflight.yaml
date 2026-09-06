@@ -8,9 +8,9 @@ data:
     set -eu
 
     required_et8_commit="2b03c38934fdd19332da59107e4330a3af92d078"
-    required_commit="58c78bfe35e99e618863b53f689c216b40295826"
+    required_commit="2fda29d38bc94345aa91bb6ea5823aef8125b0dc"
     required_et8_target="202608161008"
-    required_target="202608201002"
+    required_target="202609051004"
     [ "${EXPECTED_ET8_SHARED_COMMIT:-}" = "$required_et8_commit" ] || {
       echo "exact ET8 shared checkpoint is not approved" >&2
       exit 1
@@ -34,6 +34,18 @@ data:
     case "${MAX_SANDBOX_SESSIONS_BYTES:-}" in
       ''|*[!0-9]*)
         echo "MAX_SANDBOX_SESSIONS_BYTES must be an explicitly approved integer" >&2
+        exit 1
+        ;;
+    esac
+    case "${MAX_SUPPORT_REQUESTS_ROWS:-}" in
+      ''|*[!0-9]*)
+        echo "MAX_SUPPORT_REQUESTS_ROWS must be an explicitly approved integer" >&2
+        exit 1
+        ;;
+    esac
+    case "${MAX_SUPPORT_REQUESTS_BYTES:-}" in
+      ''|*[!0-9]*)
+        echo "MAX_SUPPORT_REQUESTS_BYTES must be an explicitly approved integer" >&2
         exit 1
         ;;
     esac
@@ -66,6 +78,20 @@ data:
       exit 1
     }
 
+    support_requests_rows="$(psql "$postgres_url" -v ON_ERROR_STOP=1 -Atc \
+      "SELECT count(*) FROM support_requests")"
+    [ "$support_requests_rows" -le "$MAX_SUPPORT_REQUESTS_ROWS" ] || {
+      echo "support_requests_rows=$support_requests_rows exceeds approved bound" >&2
+      exit 1
+    }
+
+    support_requests_bytes="$(psql "$postgres_url" -v ON_ERROR_STOP=1 -Atc \
+      "SELECT pg_total_relation_size('support_requests')")"
+    [ "$support_requests_bytes" -le "$MAX_SUPPORT_REQUESTS_BYTES" ] || {
+      echo "support_requests_bytes=$support_requests_bytes exceeds approved bound" >&2
+      exit 1
+    }
+
     active_database_sessions="$(psql "$postgres_url" -v ON_ERROR_STOP=1 -Atc "
       SELECT count(*)
       FROM pg_stat_activity
@@ -82,7 +108,8 @@ data:
     psql "$postgres_url" -v ON_ERROR_STOP=1 <<'SQL'
     BEGIN;
     LOCK TABLE sandbox_sessions IN ACCESS EXCLUSIVE MODE NOWAIT;
+    LOCK TABLE support_requests IN ACCESS EXCLUSIVE MODE NOWAIT;
     ROLLBACK;
     SQL
 
-    echo "Sandbox V202608161001 lock preflight passed for ET8 V202608161008 -> final V202608201002; historical SQL remains immutable"
+    echo "Sandbox and support_requests lock preflight passed for ET8 V202608161008 -> final V202609051004; historical SQL remains immutable"

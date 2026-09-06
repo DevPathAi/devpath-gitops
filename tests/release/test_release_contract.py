@@ -359,6 +359,7 @@ class ReleaseManifestContractTest(unittest.TestCase):
 
     def test_migration_job_base_is_inert_and_emits_only_the_validated_target_marker(self):
         job = (ROOT / "apps/devpath-migration/base/job.yaml").read_text(encoding="utf-8")
+        source_sha = "2fda29d38bc94345aa91bb6ea5823aef8125b0dc"
         self.assertIn("metadata:\n  name: devpath-flyway-migrate\n", job)
         self.assertNotIn("argocd.argoproj.io/sync-options", job)
         self.assertNotIn("Force=true", job)
@@ -381,6 +382,42 @@ class ReleaseManifestContractTest(unittest.TestCase):
             'flyway -locations="$migration_locations" validate',
             job,
             "validate 는 migrate 와 같은 target 을 받아야 한다",
+        )
+        self.assertEqual(job.count(f'value: "{source_sha}"'), 2)
+        self.assertEqual(
+            job.count(f'test "$EXPECTED_SHARED_COMMIT" = "{source_sha}"'),
+            1,
+        )
+        self.assertEqual(job.count('value: "202609051004"'), 2)
+        self.assertEqual(
+            job.count('test "$TARGET_FLYWAY_VERSION" = "202609051004"'),
+            1,
+        )
+        for migration in (
+            "V202609051001__public_support_requests.sql",
+            "V202609051002__mentor_access.sql",
+            "V202609051003__mentor_invite_codes.sql",
+            "V202609051004__mentor_invite_batches.sql",
+        ):
+            self.assertEqual(job.count(f"test -f /flyway/sql/{migration}"), 1)
+
+        kustomization = (
+            ROOT / "apps/devpath-migration/base/kustomization.yaml"
+        ).read_text(encoding="utf-8")
+        self.assertIn(f"newTag: {source_sha}", kustomization)
+
+        preflight = (
+            ROOT / "apps/devpath-migration/base/sandbox-preflight.yaml"
+        ).read_text(encoding="utf-8")
+        self.assertIn(f'required_commit="{source_sha}"', preflight)
+        self.assertIn('required_target="202609051004"', preflight)
+        self.assertIn("MAX_SUPPORT_REQUESTS_ROWS", preflight)
+        self.assertIn("MAX_SUPPORT_REQUESTS_BYTES", preflight)
+        self.assertIn("support_requests_rows", preflight)
+        self.assertIn("pg_total_relation_size('support_requests')", preflight)
+        self.assertIn(
+            "LOCK TABLE support_requests IN ACCESS EXCLUSIVE MODE NOWAIT",
+            preflight,
         )
 
     def test_journey_harness_uses_canonical_production_origins_and_exact_dns_overrides(self):

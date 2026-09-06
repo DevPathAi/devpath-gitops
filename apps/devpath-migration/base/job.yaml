@@ -39,11 +39,11 @@ spec:
             - name: EXPECTED_ET8_SHARED_COMMIT
               value: "2b03c38934fdd19332da59107e4330a3af92d078"
             - name: EXPECTED_SHARED_COMMIT
-              value: "58c78bfe35e99e618863b53f689c216b40295826"
+              value: "2fda29d38bc94345aa91bb6ea5823aef8125b0dc"
             - name: ET8_FLYWAY_VERSION
               value: "202608161008"
             - name: TARGET_FLYWAY_VERSION
-              value: "202608201002"
+              value: "202609051004"
             - name: MAINTENANCE_APPROVED
               valueFrom:
                 configMapKeyRef:
@@ -54,6 +54,16 @@ spec:
                 configMapKeyRef:
                   name: sandbox-migration-gate
                   key: max-sandbox-sessions-bytes
+            - name: MAX_SUPPORT_REQUESTS_ROWS
+              valueFrom:
+                configMapKeyRef:
+                  name: sandbox-migration-gate
+                  key: max-support-requests-rows
+            - name: MAX_SUPPORT_REQUESTS_BYTES
+              valueFrom:
+                configMapKeyRef:
+                  name: sandbox-migration-gate
+                  key: max-support-requests-bytes
             - name: LOCK_TIMEOUT_MS
               value: "2000"
             - name: STATEMENT_TIMEOUT_MS
@@ -98,20 +108,24 @@ spec:
             - name: EXPECTED_ET8_SHARED_COMMIT
               value: "2b03c38934fdd19332da59107e4330a3af92d078"
             - name: EXPECTED_SHARED_COMMIT
-              value: "58c78bfe35e99e618863b53f689c216b40295826"
+              value: "2fda29d38bc94345aa91bb6ea5823aef8125b0dc"
             - name: ET8_FLYWAY_VERSION
               value: "202608161008"
             - name: TARGET_FLYWAY_VERSION
-              value: "202608201002"
+              value: "202609051004"
           command: ["/bin/sh", "-ec"]
           args:
             - |
               test "$EXPECTED_ET8_SHARED_COMMIT" = "2b03c38934fdd19332da59107e4330a3af92d078"
-              test "$EXPECTED_SHARED_COMMIT" = "58c78bfe35e99e618863b53f689c216b40295826"
+              test "$EXPECTED_SHARED_COMMIT" = "2fda29d38bc94345aa91bb6ea5823aef8125b0dc"
               test "$ET8_FLYWAY_VERSION" = "202608161008"
-              test "$TARGET_FLYWAY_VERSION" = "202608201002"
+              test "$TARGET_FLYWAY_VERSION" = "202609051004"
               test -f /flyway/sql/V202608161008__validate_sandbox_terminal_reconciliation_fence.sql
               test -f /flyway/sql/V202608201002__validate_community_content_soft_delete.sql
+              test -f /flyway/sql/V202609051001__public_support_requests.sql
+              test -f /flyway/sql/V202609051002__mentor_access.sql
+              test -f /flyway/sql/V202609051003__mentor_invite_codes.sql
+              test -f /flyway/sql/V202609051004__mentor_invite_batches.sql
               runner_jar="$(find /flyway/drivers -maxdepth 1 -type f -name '*-migration-runner.jar' -print -quit)"
               test -n "$runner_jar"
               migration_locations="filesystem:/flyway/sql,classpath:db/migration"
