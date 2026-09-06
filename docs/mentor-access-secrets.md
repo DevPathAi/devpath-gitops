@@ -20,7 +20,8 @@ $inviteKey = [Convert]::ToBase64String($inviteKeyBytes)
 kubectl -n devpath create secret generic mentor-access `
   --from-literal=invite-code-hmac-secret=$inviteKey `
   --dry-run=client -o json |
-  kubeseal --controller-namespace sealed-secrets --format yaml `
+  kubeseal --controller-namespace kube-system `
+    --controller-name sealed-secrets-controller --format yaml `
   > apps/devpath-platform-svc/base/sealedsecret-mentor-access.yaml
 ```
 
