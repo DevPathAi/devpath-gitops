@@ -47,7 +47,7 @@ class MentorAccessSecretTest(unittest.TestCase):
             "name": "mentor-access",
             "key": "invite-code-hmac-secret",
         })
-        self.assertEqual(env["MENTOR_INVITE_BATCH_ENABLED"]["value"], "true")
+        self.assertEqual(env["MENTOR_INVITE_BATCH_ENABLED"]["value"], "false")
         self.assertEqual(env["MENTOR_INVITE_BATCH_CRON"]["value"], "0 0 10 * * *")
         self.assertEqual(env["MENTOR_INVITE_BATCH_ZONE"]["value"], "Asia/Seoul")
         self.assertEqual(env["MENTOR_INVITE_BATCH_CHUNK_SIZE"]["value"], "25")
