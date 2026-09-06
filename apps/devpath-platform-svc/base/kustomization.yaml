@@ -8,6 +8,7 @@ resources:
 - sealedsecret-oauth.yaml
 - sealedsecret-mentor-access.yaml
 - sealedsecret-turnstile.yaml
+- sealedsecret-public-support.yaml
 images:
 - name: ghcr.io/devpathai/devpath-platform-svc
   newName: ghcr.io/devpathai/devpath-platform-svc

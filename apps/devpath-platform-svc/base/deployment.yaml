@@ -76,6 +76,11 @@ spec:
                   key: turnstile-secret
             - name: TURNSTILE_HOSTNAMES
               value: "leva.ai.kr"
+            - name: PUBLIC_SUPPORT_RATE_LIMIT_HMAC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: platform-public-support
+                  key: rate-limit-hmac-secret
             - name: KAFKA_BOOTSTRAP
               value: "devpath-kafka-bootstrap.kafka.svc:9092"
             - name: REDIS_HOST

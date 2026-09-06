@@ -165,7 +165,11 @@ class MissionStagingStackTest(unittest.TestCase):
         gateway = env_map("gateway.yaml")
         self.assertEqual(
             gateway["CORS_ALLOWED_ORIGINS"]["value"],
-            "https://app.leva.ai.kr,https://leva.ai.kr",
+            "https://app.leva.ai.kr",
+        )
+        self.assertEqual(
+            gateway["PUBLIC_CORS_ALLOWED_ORIGINS"]["value"],
+            "https://leva.ai.kr",
         )
         self.assertEqual(
             gateway[
