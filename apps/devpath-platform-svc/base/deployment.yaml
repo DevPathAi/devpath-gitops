@@ -102,10 +102,10 @@ spec:
                 secretKeyRef:
                   name: mentor-access
                   key: invite-code-hmac-secret
-            # 매일 10:00 KST 한 번 선점한다. 다중 pod에서도 DB의 batch_date UNIQUE가
-            # 중복 실행을 막고, 한 실행당 최대 100명을 25명씩 잠근다.
+            # 메일 발송 consumer와 provider 성공 감사가 배포되기 전에는 대기 사용자를
+            # 무통보 활성화하지 않는다. 후속 릴리스에서 전달 경로 검증 후에만 켠다.
             - name: MENTOR_INVITE_BATCH_ENABLED
-              value: "true"
+              value: "false"
             - name: MENTOR_INVITE_BATCH_CRON
               value: "0 0 10 * * *"
             - name: MENTOR_INVITE_BATCH_ZONE
