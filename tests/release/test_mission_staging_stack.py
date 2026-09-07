@@ -245,6 +245,26 @@ class MissionStagingStackTest(unittest.TestCase):
                 script,
             )
 
+    def test_provisioning_creates_required_platform_runtime_secrets(self):
+        script = (ROOT / "scripts" / "release" / "provision_mission_staging.sh").read_text(
+            encoding="utf-8"
+        )
+        expected = {
+            "platform-turnstile": "turnstile-secret",
+            "platform-public-support": "rate-limit-hmac-secret",
+            "mentor-access": "invite-code-hmac-secret",
+        }
+        for secret, key in expected.items():
+            self.assertIn(f"get secret {secret}", script)
+            self.assertIn(f"create secret generic {secret}", script)
+            self.assertIn(f"--from-file={key}=\"$scratch/{key}\"", script)
+        self.assertIn("disabled-mission-staging-turnstile", script)
+        for key in ("rate-limit-hmac-secret", "invite-code-hmac-secret"):
+            self.assertIn(
+                f"openssl rand -base64 48 | tr -d '\\n' > \"$scratch/{key}\"",
+                script,
+            )
+
     def test_ci_explicitly_allows_the_cross_tree_staging_composition(self):
         workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
         self.assertIn('if [ "$dir" = "staging/mission-spine/" ]; then', workflow)

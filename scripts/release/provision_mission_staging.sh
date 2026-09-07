@@ -152,6 +152,27 @@ if ! k -n "$namespace" get secret devpath-jwt >/dev/null 2>&1; then
     --dry-run=client -o yaml | k apply -f - >/dev/null
 fi
 
+if ! k -n "$namespace" get secret platform-turnstile >/dev/null 2>&1; then
+  printf 'disabled-mission-staging-turnstile' > "$scratch/turnstile-secret"
+  k -n "$namespace" create secret generic platform-turnstile \
+    --from-file=turnstile-secret="$scratch/turnstile-secret" \
+    --dry-run=client -o yaml | k apply -f - >/dev/null
+fi
+
+if ! k -n "$namespace" get secret platform-public-support >/dev/null 2>&1; then
+  openssl rand -base64 48 | tr -d '\n' > "$scratch/rate-limit-hmac-secret"
+  k -n "$namespace" create secret generic platform-public-support \
+    --from-file=rate-limit-hmac-secret="$scratch/rate-limit-hmac-secret" \
+    --dry-run=client -o yaml | k apply -f - >/dev/null
+fi
+
+if ! k -n "$namespace" get secret mentor-access >/dev/null 2>&1; then
+  openssl rand -base64 48 | tr -d '\n' > "$scratch/invite-code-hmac-secret"
+  k -n "$namespace" create secret generic mentor-access \
+    --from-file=invite-code-hmac-secret="$scratch/invite-code-hmac-secret" \
+    --dry-run=client -o yaml | k apply -f - >/dev/null
+fi
+
 if ! k -n "$namespace" get secret ai-claude >/dev/null 2>&1; then
   printf 'disabled-staging-mock' > "$scratch/anthropic-api-key"
   k -n "$namespace" create secret generic ai-claude \
@@ -198,6 +219,7 @@ copy_tls_secret devpath-web-tls
 copy_tls_secret devpath-gateway-tls
 
 k -n "$namespace" get secret \
-  platform-db mission-spine-release-control devpath-jwt ai-claude \
+  platform-db mission-spine-release-control devpath-jwt \
+  platform-turnstile platform-public-support mentor-access ai-claude \
   sandbox-runner-server-tls sandbox-runner-mtls devpath-web-tls devpath-gateway-tls \
   -o custom-columns='NAME:.metadata.name,TYPE:.type' --no-headers
