@@ -76,7 +76,7 @@ Required order:
      max-support-requests-bytes: "<approved integer>"
    ```
 
-   Scale Sandbox writers down first. The migration Job fails closed unless
+   Scale Sandbox and Platform writers down first. The migration Job fails closed unless
    duplicate active users are zero, `pg_stat_activity` has no other active
    client traffic, both affected tables are within their approved row/size
    bounds, and `ACCESS EXCLUSIVE NOWAIT` lock rehearsals for `sandbox_sessions`
@@ -85,6 +85,15 @@ Required order:
    first `ALTER TABLE`; V202609051001 validates existing support rows while its
    ALTER is held. The maintenance gate bounds both risks but does not make
    either migration low-lock.
+
+   **Known production blocker:** the init-container preflight is a point-in-time
+   check. Its rehearsal transaction releases both locks before Flyway starts, so
+   an existing Platform replica can accept an authenticated `support_requests`
+   write in that gap even when migration is released before the new services.
+   Keep both writer Deployments at zero and their pods terminated for the whole
+   preflight-through-Flyway window. This scale-down is operational mitigation,
+   not a transactional guarantee; production rollout remains blocked until a
+   tested Kubernetes or database fence spans that entire window.
 3. Verify the final schema before any application rollout:
 
    ```sql
