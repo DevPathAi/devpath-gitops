@@ -1,8 +1,12 @@
-# 시크릿 파일 준비 가이드 — WS-D 실배포 6종
+# 시크릿 파일 준비 가이드 — WS-D 실배포 기본 6종
 
 > 실배포(leva.ai.kr)에 필요한 시크릿 6종을 **로컬 JSON 파일 1개**로 준비하는 방법.
 > 이 파일은 봉인(SealedSecret) 입력으로만 쓰이고 **봉인 직후 삭제**한다. 절대 커밋하지 않는다.
 > 봉인 절차 자체는 [sealed-secrets-oauth.md](./sealed-secrets-oauth.md), 클러스터 전반은 [runbook-k3s-bootstrap.md](./runbook-k3s-bootstrap.md) 참조.
+>
+> 이 문서는 2026-07-27 WS-D 기본 6종만 다룬다. 현재 Platform 배포에는
+> `platform-turnstile`, `platform-public-support`, `mentor-access`도 필수다. 세 Secret의
+> 범위와 아직 이관된 live Turnstile 자격정보는 [공개 지원·멘토 접근 운영 Secret](./mentor-access-secrets.md)을 따른다.
 
 ## 1. 파일 형식
 
