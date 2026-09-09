@@ -30,7 +30,13 @@ def load_module(path: Path, name: str):
     return module
 
 
-def rendered_ai_config(**overrides: str) -> bytes:
+def rendered_ai_config(
+    image: str = (
+        "ghcr.io/devpathai/devpath-ai-svc:"
+        "76ad759877f5900c4e11daaf413868c830d75879"
+    ),
+    **overrides: str,
+) -> bytes:
     values = {
         "MENTOR_PROVIDER": "ollama",
         "MENTOR_FALLBACK": "claude",
@@ -53,8 +59,7 @@ def rendered_ai_config(**overrides: str) -> bytes:
         "      containers:\n"
         "      - env:\n"
         f"{environment}"
-        "        image: ghcr.io/devpathai/devpath-ai-svc:"
-        "76ad759877f5900c4e11daaf413868c830d75879\n"
+        f"        image: {image}\n"
         "        name: devpath-ai-svc\n"
     ).encode()
 
@@ -542,6 +547,36 @@ class AiReleaseEvalTrustTest(unittest.TestCase):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 self.verifier.validate_ai_rendered_config_bytes(
                     raw, hashlib.sha256(raw).hexdigest()
+                )
+
+    def test_gitops_rendered_image_requires_immutable_tag_or_digest(self):
+        immutable_images = (
+            "ghcr.io/devpathai/devpath-ai-svc:"
+            "76ad759877f5900c4e11daaf413868c830d75879",
+            "ghcr.io/devpathai/devpath-ai-svc@sha256:"
+            "862c5f57fd60617f075c400840781970bd41a5579a10c71cdbe82695ee309d70",
+        )
+        for image in immutable_images:
+            with self.subTest(image=image):
+                rendered = rendered_ai_config(image=image)
+                self.verifier.validate_ai_rendered_config_bytes(
+                    rendered, hashlib.sha256(rendered).hexdigest()
+                )
+
+        invalid_images = (
+            "ghcr.io/devpathai/devpath-ai-svc:latest",
+            "ghcr.io/devpathai/devpath-ai-svc:v1.2.3",
+            "ghcr.io/devpathai/devpath-ai-svc@sha256:862c5f57",
+            "ghcr.io/other/devpath-ai-svc:"
+            "76ad759877f5900c4e11daaf413868c830d75879",
+        )
+        for image in invalid_images:
+            with self.subTest(image=image), self.assertRaisesRegex(
+                ValueError, "image identity is invalid"
+            ):
+                rendered = rendered_ai_config(image=image)
+                self.verifier.validate_ai_rendered_config_bytes(
+                    rendered, hashlib.sha256(rendered).hexdigest()
                 )
 
 

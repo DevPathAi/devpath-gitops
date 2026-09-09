@@ -3120,7 +3120,9 @@ def validate_ai_rendered_runtime(raw: bytes) -> None:
         if line.startswith("        image: ")
     ]
     if len(images) != 1 or re.fullmatch(
-        r"ghcr\.io/devpathai/devpath-ai-svc:[0-9a-f]{40}", images[0]
+        r"ghcr\.io/devpathai/devpath-ai-svc"
+        r"(?::[0-9a-f]{40}|@sha256:[0-9a-f]{64})",
+        images[0],
     ) is None:
         raise ValueError(
             "ai-release-eval: rendered AI container image identity is invalid"
