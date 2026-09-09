@@ -8,7 +8,7 @@ data:
     set -eu
 
     required_et8_commit="2b03c38934fdd19332da59107e4330a3af92d078"
-    required_commit="2fda29d38bc94345aa91bb6ea5823aef8125b0dc"
+    required_commit="9793b8f92f92cca1ef57e28d2db6fb7d911741a3"
     required_et8_target="202608161008"
     required_target="202609051004"
     [ "${EXPECTED_ET8_SHARED_COMMIT:-}" = "$required_et8_commit" ] || {

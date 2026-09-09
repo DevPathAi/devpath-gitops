@@ -122,9 +122,9 @@ Assert-Contains $migration "name:\s+sandbox-migration-preflight" `
   "migration Job must render the fail-closed Sandbox preflight"
 Assert-Contains $migration "EXPECTED_ET8_SHARED_COMMIT[\s\S]*2b03c38934fdd19332da59107e4330a3af92d078" `
   "migration preflight must preserve the exact ET8 shared checkpoint"
-Assert-Contains $migration "EXPECTED_SHARED_COMMIT[\s\S]*2fda29d38bc94345aa91bb6ea5823aef8125b0dc" `
+Assert-Contains $migration "EXPECTED_SHARED_COMMIT[\s\S]*9793b8f92f92cca1ef57e28d2db6fb7d911741a3" `
   "migration preflight must name the exact final shared lineage"
-Assert-Contains $migration "ghcr\.io/devpathai/devpath-migration:2fda29d38bc94345aa91bb6ea5823aef8125b0dc" `
+Assert-Contains $migration "ghcr\.io/devpathai/devpath-migration:9793b8f92f92cca1ef57e28d2db6fb7d911741a3" `
   "migration Job image must be the exact final shared commit"
 Assert-Contains $migration "filesystem:/flyway/sql,classpath:db/migration" `
   "migration Job must discover both SQL and nontransactional Java migrations"
@@ -164,7 +164,7 @@ Assert-Contains $runbook "V202609051004" `
   "Sandbox runbook must require the mentor access migration target"
 Assert-Contains $runbook "2b03c38934fdd19332da59107e4330a3af92d078" `
   "Sandbox runbook must name the exact ET8 shared checkpoint"
-Assert-Contains $runbook "2fda29d38bc94345aa91bb6ea5823aef8125b0dc" `
+Assert-Contains $runbook "9793b8f92f92cca1ef57e28d2db6fb7d911741a3" `
   "Sandbox runbook must name the exact final shared lineage"
 Assert-Contains $runbook "sandbox\.runs\.expired_active" `
   "Sandbox runbook must define the sustained expired-lease alert"

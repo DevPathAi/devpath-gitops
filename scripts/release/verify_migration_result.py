@@ -70,7 +70,7 @@ GITOPS_KEYS = (
     "write_app_id",
     "write_app_installation_id",
     "branch",
-    "sole_changed_path",
+    "changed_paths",
     "rendered_job_name",
     "commit_subject",
     "commit_author_name",
@@ -143,7 +143,7 @@ def validate_migration_result_payload(
         raise ValueError("migration result bytes are not canonical compact UTF-8 JSON+LF")
     release_id = candidate.get("release_id")
     if (
-        top["schema_version"] != 1
+        top["schema_version"] != 2
         or top["document_type"] != "mission-spine-migration-result"
         or RELEASE_ID.fullmatch(str(release_id)) is None
         or top["release_id"] != release_id
@@ -197,8 +197,12 @@ def validate_migration_result_payload(
         or SHA40.fullmatch(str(gitops["migration_commit_sha"])) is None
         or SHA40.fullmatch(str(gitops["migration_tree_sha"])) is None
         or gitops["branch"] != "main"
-        or gitops["sole_changed_path"]
-        != "apps/devpath-migration/base/kustomization.yaml"
+        or gitops["changed_paths"]
+        != [
+            "apps/devpath-migration/base/kustomization.yaml",
+            "apps/devpath-platform-svc/base/kustomization.yaml",
+            "apps/devpath-sandbox-svc/base/kustomization.yaml",
+        ]
     ):
         raise ValueError("migration result GitOps commit coordinates are invalid")
     migration_commit = gitops["migration_commit_sha"]
@@ -353,7 +357,7 @@ def validate_git_coordinates(
         chain_root,
         ["diff-tree", "--no-commit-id", "--name-only", "-r", migration_commit],
     ).splitlines()
-    if changed != [gitops["sole_changed_path"]]:
+    if changed != gitops["changed_paths"]:
         raise ValueError("migration result commit changed paths are not exact")
     state = inspect_chain(
         chain_root, candidate, candidate_hash, release_hash, migration_commit

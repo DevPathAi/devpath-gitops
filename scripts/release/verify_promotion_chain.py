@@ -18,9 +18,12 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from promote_service_digests import (
     SAFE_TAG,
+    REPLICA_OVERRIDE,
     SERVICE_NAMES,
     SERVICE_PATHS,
+    WRITER_SERVICE_NAMES,
     render_kustomization as render_service_kustomization,
+    render_writer_fence_kustomization,
     validate_image_selector,
 )
 from set_web_digest import (
@@ -32,6 +35,9 @@ from validate_release_manifest import resolve_release_bundle, validate_candidate
 
 SHA40 = re.compile(r"[0-9a-f]{40}")
 MIGRATION_PATH = "apps/devpath-migration/base/kustomization.yaml"
+MIGRATION_PATHS = tuple(
+    sorted((MIGRATION_PATH, *(SERVICE_PATHS[name] for name in WRITER_SERVICE_NAMES)))
+)
 MIGRATION_JOB_PATH = "apps/devpath-migration/base/job.yaml"
 MIGRATION_PREFLIGHT_PATH = "apps/devpath-migration/base/sandbox-preflight.yaml"
 WEB_PATH = "apps/devpath-web/base/kustomization.yaml"
@@ -493,10 +499,22 @@ def _require_service_base_selectors(
     root: Path, base: str, candidate: dict[str, Any]
 ) -> None:
     for name in SERVICE_NAMES:
+        source = _blob(root, base, SERVICE_PATHS[name])
+        if name in WRITER_SERVICE_NAMES and REPLICA_OVERRIDE.search(source) is not None:
+            raise ValueError(f"{name}: sealed base must not retain a writer fence")
         # Rendering performs the exact one-entry/tag-or-digest structural check.
         render_service_kustomization(
-            _blob(root, base, SERVICE_PATHS[name]), candidate, name
+            source, candidate, name
         )
+
+
+def _require_writer_fences(root: Path, commit: str, base: str) -> None:
+    for name in WRITER_SERVICE_NAMES:
+        expected = render_writer_fence_kustomization(
+            _blob(root, base, SERVICE_PATHS[name]), name
+        )
+        if _blob(root, commit, SERVICE_PATHS[name]) != expected:
+            raise ValueError(f"{name}: migration commit writer fence is not exact")
 
 
 def _require_services(
@@ -509,6 +527,8 @@ def _require_services(
     for name in SERVICE_NAMES:
         service = candidate["services"][name]
         actual = _blob(root, commit, SERVICE_PATHS[name])
+        if name in WRITER_SERVICE_NAMES and REPLICA_OVERRIDE.search(actual) is not None:
+            raise ValueError(f"{name}: service phase retained the writer fence")
         if transformed_from is not None:
             expected = render_service_kustomization(
                 _blob(root, transformed_from, SERVICE_PATHS[name]), candidate, name
@@ -679,8 +699,9 @@ def inspect_chain(
             _require_write_actor(root, commit)
             if prior["phase"] != "base" or parent != base:
                 raise ValueError("migration commit must be the sole child of sealed base")
-            _require_delta(root, commit, (MIGRATION_PATH,))
+            _require_delta(root, commit, MIGRATION_PATHS)
             _require_migration(root, commit, candidate, release_manifest_sha256)
+            _require_writer_fences(root, commit, base)
             return {
                 **prior,
                 "phase": "migration",

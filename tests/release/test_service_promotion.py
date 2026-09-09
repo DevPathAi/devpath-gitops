@@ -1,6 +1,7 @@
 import copy
 import importlib.util
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -89,6 +90,42 @@ class ServicePromotionTest(unittest.TestCase):
         ):
             with self.subTest(mutation=mutation[-120:]), self.assertRaises(ValueError):
                 self.promoter.render_kustomization(mutation, self.candidate, name)
+
+    def test_writer_fence_is_removed_while_candidate_digest_is_selected(self):
+        for name in ("devpath-platform-svc", "devpath-sandbox-svc"):
+            source = (ROOT / self.promoter.SERVICE_PATHS[name]).read_text(
+                encoding="utf-8"
+            )
+            fenced = (
+                source
+                + "replicas:\n"
+                + f"- name: {name}\n"
+                + "  count: 0\n"
+            )
+
+            rendered = self.promoter.render_kustomization(
+                fenced, self.candidate, name
+            )
+
+            self.assertNotIn("replicas:\n", rendered)
+            self.assertNotIn("  count: 0\n", rendered)
+            self.assertEqual(
+                rendered.count(
+                    f"  digest: {self.candidate['services'][name]['image_digest']}\n"
+                ),
+                1,
+            )
+
+    def test_writer_fence_rejects_any_preexisting_replica_override(self):
+        name = "devpath-platform-svc"
+        source = (ROOT / self.promoter.SERVICE_PATHS[name]).read_text(
+            encoding="utf-8"
+        )
+
+        with self.assertRaisesRegex(ValueError, "replica override"):
+            self.promoter.render_writer_fence_kustomization(
+                source + "replicas: []\n", name
+            )
 
     def test_selector_rejects_wrong_duplicate_or_malformed_base(self):
         name = "devpath-admin"
@@ -186,9 +223,13 @@ class ServicePromotionTest(unittest.TestCase):
                 )
 
     def test_real_kustomize_renders_exact_candidate_digest_for_all_nine(self):
-        binary = shutil.which("kubectl")
+        binary = os.environ.get("KUSTOMIZE_BIN") or shutil.which("kustomize")
+        build_arguments: tuple[str, ...] = ("build",)
         if binary is None:
-            self.skipTest("kubectl is unavailable")
+            binary = shutil.which("kubectl")
+            build_arguments = ("kustomize",)
+        if binary is None:
+            self.skipTest("kustomize and kubectl are unavailable")
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             shutil.copytree(ROOT / "apps", root / "apps")
@@ -196,7 +237,7 @@ class ServicePromotionTest(unittest.TestCase):
                 root,
                 self.candidate,
                 Path(binary),
-                build_arguments=("kustomize",),
+                build_arguments=build_arguments,
             )
 
 
