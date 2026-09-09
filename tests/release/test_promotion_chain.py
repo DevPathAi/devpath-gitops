@@ -587,6 +587,24 @@ class PromotionChainTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.inspect(drift)
 
+    def test_new_migration_commit_cannot_use_the_legacy_unfenced_path_set(self):
+        path = self.root / self.chain.MIGRATION_PATH
+        path.write_text(
+            self.chain.render_migration_kustomization(
+                path.read_text(encoding="utf-8"),
+                self.candidate["shared_migration"]["image_digest"],
+                self.release_hash,
+            ),
+            encoding="utf-8",
+            newline="\n",
+        )
+        migration = self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+
+        with self.assertRaisesRegex(ValueError, "path set is not exact"):
+            self.inspect(migration)
+
     def test_single_exact_shared_migration_approval_fix_is_phase_transparent(self):
         self.set_migration()
         migration = self.commit(
@@ -638,6 +656,31 @@ class PromotionChainTest(unittest.TestCase):
         repeated = self.commit_migration_runtime_fix(suffix="-repeated")
         with self.assertRaisesRegex(ValueError, "directly follow approval fix"):
             self.inspect(repeated)
+
+    def test_migration_runtime_fix_rebinds_only_the_prior_target_sql_assertion(self):
+        source = (self.root / self.chain.MIGRATION_JOB_PATH).read_text(
+            encoding="utf-8"
+        )
+        migration = self.candidate["shared_migration"]
+
+        rendered = self.chain.render_migration_runtime_job(
+            source,
+            source_sha=migration["source_sha"],
+            flyway_target=migration["flyway_target"],
+            required_migration=migration["required_migration"],
+        )
+
+        self.assertIn(
+            f"test -f /flyway/sql/{migration['required_migration']}", rendered
+        )
+        self.assertNotIn(
+            "test -f /flyway/sql/V202609051004__mentor_invite_batches.sql",
+            rendered,
+        )
+        self.assertIn(
+            "test -f /flyway/sql/V202609051003__mentor_invite_codes.sql",
+            rendered,
+        )
 
     def test_migration_runtime_fix_requires_the_approval_fix_and_exact_paths(self):
         self.set_migration()

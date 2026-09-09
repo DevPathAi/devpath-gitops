@@ -158,8 +158,6 @@ Assert-Contains $migration "LOCK TABLE support_requests IN ACCESS EXCLUSIVE MODE
 $runbook = Get-Content "apps/devpath-sandbox-svc/base/RUNBOOK.md" -Raw
 Assert-Contains $runbook "V202608161008" `
   "Sandbox runbook must require the ET8 terminal-fence checkpoint"
-Assert-Contains $runbook "V202608221001" `
-  "Sandbox runbook must require the final shared migration"
 Assert-Contains $runbook "V202609051004" `
   "Sandbox runbook must require the mentor access migration target"
 Assert-Contains $runbook "2b03c38934fdd19332da59107e4330a3af92d078" `

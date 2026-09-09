@@ -46,6 +46,13 @@ WEB_IMAGE = "ghcr.io/devpathai/devpath-web"
 MAX_CHAIN_COMMITS = 32
 MIGRATION_JOB_PREFIX = "devpath-flyway-migrate-"
 WRITE_ACTOR = "devpath-gitops-release[bot]"
+LEGACY_UNFENCED_MIGRATION_COMMITS = frozenset(
+    {
+        # ms-20260830-prod26r9 predates the mandatory writer-fence grammar.
+        # The immutable commit identity bounds this exception to that deployed M.
+        "5bcde50ed982c9b5382f7b87579a4096212c1b1b",
+    }
+)
 SHARED_MIGRATION_APPROVAL_FIX_SUBJECT = (
     "fix(release): authenticate shared migration approval"
 )
@@ -219,6 +226,14 @@ def render_migration_runtime_job(
         or not source.endswith("\n")
     ):
         raise ValueError("migration runtime binding is invalid")
+    prior_targets = re.findall(
+        r'- name: TARGET_FLYWAY_VERSION\n\s+value: "([0-9]{12})"$',
+        source,
+        flags=re.MULTILINE,
+    )
+    if len(prior_targets) != 2 or len(set(prior_targets)) != 1:
+        raise ValueError("migration prior Flyway target is not unique")
+    prior_target = prior_targets[0]
     rendered = _replace_exact(
         source,
         r'(- name: EXPECTED_SHARED_COMMIT\n\s+value: ")[0-9a-f]{40}("$)',
@@ -249,10 +264,10 @@ def render_migration_runtime_job(
     )
     rendered = _replace_exact(
         rendered,
-        r"^              test -f /flyway/sql/(?!V202608161008__validate_sandbox_terminal_reconciliation_fence\.sql$)V[0-9]{12}__[a-z0-9_]+\.sql$",
+        rf"^              test -f /flyway/sql/V{prior_target}__[a-z0-9_]+\.sql$",
         f"              test -f /flyway/sql/{required_migration}",
         1,
-        "migration required SQL assertion",
+        "migration prior-target SQL assertion",
     )
     return rendered
 
@@ -517,6 +532,22 @@ def _require_writer_fences(root: Path, commit: str, base: str) -> None:
             raise ValueError(f"{name}: migration commit writer fence is not exact")
 
 
+def _require_migration_service_state(
+    root: Path,
+    commit: str,
+    base: str,
+    candidate: dict[str, Any],
+    writer_fence_active: str,
+) -> None:
+    if writer_fence_active == "true":
+        _require_writer_fences(root, commit, base)
+        return
+    if writer_fence_active == "false":
+        _require_service_base_selectors(root, commit, candidate)
+        return
+    raise ValueError("migration writer-fence state is invalid")
+
+
 def _require_services(
     root: Path,
     commit: str,
@@ -671,6 +702,7 @@ def inspect_chain(
                 "web_phase": "base",
                 "current_commit": commit,
                 "base_commit": base,
+                "writer_fence_active": "false",
                 "migration_commit": "",
                 "shared_migration_approval_fix_commit": "",
                 "migration_runtime_fix_commit": "",
@@ -699,13 +731,20 @@ def inspect_chain(
             _require_write_actor(root, commit)
             if prior["phase"] != "base" or parent != base:
                 raise ValueError("migration commit must be the sole child of sealed base")
-            _require_delta(root, commit, MIGRATION_PATHS)
             _require_migration(root, commit, candidate, release_manifest_sha256)
-            _require_writer_fences(root, commit, base)
+            if commit in LEGACY_UNFENCED_MIGRATION_COMMITS:
+                _require_delta(root, commit, (MIGRATION_PATH,))
+                _require_service_base_selectors(root, commit, candidate)
+                writer_fence_active = "false"
+            else:
+                _require_delta(root, commit, MIGRATION_PATHS)
+                _require_writer_fences(root, commit, base)
+                writer_fence_active = "true"
             return {
                 **prior,
                 "phase": "migration",
                 "current_commit": commit,
+                "writer_fence_active": writer_fence_active,
                 "migration_commit": commit,
             }
         if subject == SHARED_MIGRATION_APPROVAL_FIX_SUBJECT:
@@ -719,7 +758,9 @@ def inspect_chain(
                 )
             _require_delta(root, commit, SHARED_MIGRATION_APPROVAL_FIX_PATHS)
             _require_migration(root, commit, candidate, release_manifest_sha256)
-            _require_service_base_selectors(root, commit, candidate)
+            _require_migration_service_state(
+                root, commit, base, candidate, prior["writer_fence_active"]
+            )
             _require_web(root, commit, candidate, candidate_spec_sha256, "base")
             return {
                 **prior,
@@ -740,7 +781,9 @@ def inspect_chain(
             _require_delta(root, commit, MIGRATION_RUNTIME_FIX_PATHS)
             _require_migration_runtime_fix(root, commit, parent, candidate)
             _require_migration(root, commit, candidate, release_manifest_sha256)
-            _require_service_base_selectors(root, commit, candidate)
+            _require_migration_service_state(
+                root, commit, base, candidate, prior["writer_fence_active"]
+            )
             _require_web(root, commit, candidate, candidate_spec_sha256, "base")
             return {
                 **prior,
@@ -760,7 +803,9 @@ def inspect_chain(
                 )
             _require_delta(root, commit, MIGRATION_RUNTIME_ADMISSION_FIX_PATHS)
             _require_migration(root, commit, candidate, release_manifest_sha256)
-            _require_service_base_selectors(root, commit, candidate)
+            _require_migration_service_state(
+                root, commit, base, candidate, prior["writer_fence_active"]
+            )
             _require_web(root, commit, candidate, candidate_spec_sha256, "base")
             return {
                 **prior,
@@ -780,7 +825,9 @@ def inspect_chain(
                 )
             _require_delta(root, commit, MIGRATION_PREFLIGHT_IDENTITY_FIX_PATHS)
             _require_migration(root, commit, candidate, release_manifest_sha256)
-            _require_service_base_selectors(root, commit, candidate)
+            _require_migration_service_state(
+                root, commit, base, candidate, prior["writer_fence_active"]
+            )
             _require_web(root, commit, candidate, candidate_spec_sha256, "base")
             return {
                 **prior,
@@ -924,6 +971,7 @@ def inspect_chain(
                 "phase": "services",
                 "web_phase": "base",
                 "current_commit": commit,
+                "writer_fence_active": "false",
                 "services_commit": commit,
             }
         if subject == off_subject:
