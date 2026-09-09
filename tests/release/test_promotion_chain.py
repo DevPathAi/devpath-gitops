@@ -99,6 +99,30 @@ class PromotionChainTest(unittest.TestCase):
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / relative, target)
         self.candidate = copy.deepcopy(self.fixture)
+        historical_migration = {
+            "source_sha": "c4d468a70e8870e8f60f25539e91599def75f0f2",
+            "flyway_target": "202608221001",
+            "required_migration": "V202608221001__correct_question_bank_accuracy.sql",
+        }
+        job_path = self.root / self.chain.MIGRATION_JOB_PATH
+        job_path.write_text(
+            self.chain.render_migration_runtime_job(
+                job_path.read_text(encoding="utf-8"),
+                **historical_migration,
+            ),
+            encoding="utf-8",
+            newline="\n",
+        )
+        preflight_path = self.root / self.chain.MIGRATION_PREFLIGHT_PATH
+        preflight_path.write_text(
+            self.chain.render_migration_preflight(
+                preflight_path.read_text(encoding="utf-8"),
+                source_sha=historical_migration["source_sha"],
+                flyway_target=historical_migration["flyway_target"],
+            ),
+            encoding="utf-8",
+            newline="\n",
+        )
         self.candidate_hash = "c" * 64
         self.release_hash = "a" * 64
         web_path = self.root / "apps/devpath-web/base/kustomization.yaml"
@@ -674,7 +698,7 @@ class PromotionChainTest(unittest.TestCase):
             f"test -f /flyway/sql/{migration['required_migration']}", rendered
         )
         self.assertNotIn(
-            "test -f /flyway/sql/V202609051004__mentor_invite_batches.sql",
+            "test -f /flyway/sql/V202608221001__correct_question_bank_accuracy.sql",
             rendered,
         )
         self.assertIn(
