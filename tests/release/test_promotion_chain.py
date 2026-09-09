@@ -1,6 +1,7 @@
 import copy
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -319,16 +320,29 @@ class PromotionChainTest(unittest.TestCase):
             encoding="utf-8",
             newline="\n",
         )
+        for name in self.chain.WRITER_SERVICE_NAMES:
+            writer = self.root / self.services.SERVICE_PATHS[name]
+            writer.write_text(
+                self.chain.render_writer_fence_kustomization(
+                    writer.read_text(encoding="utf-8"), name
+                ),
+                encoding="utf-8",
+                newline="\n",
+            )
 
     def set_services(self):
-        binary = shutil.which("kubectl")
+        binary = os.environ.get("KUSTOMIZE_BIN") or shutil.which("kustomize")
+        build_arguments: tuple[str, ...] = ("build",)
         if binary is None:
-            self.skipTest("kubectl is unavailable")
+            binary = shutil.which("kubectl")
+            build_arguments = ("kustomize",)
+        if binary is None:
+            self.skipTest("kustomize and kubectl are unavailable")
         self.services.apply_service_digests(
             self.root,
             self.candidate,
             Path(binary),
-            build_arguments=("kustomize",),
+            build_arguments=build_arguments,
         )
 
     def set_web(self, target: str, expected: str):
@@ -507,11 +521,16 @@ class PromotionChainTest(unittest.TestCase):
             self.chain.migration_job_name(digest, first_release_hash), first_source
         )
 
+        self.set_services()
+        first_services = self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+
         prior_identity = self.current_web_identity()
         base_web_digest = self.candidate["gitops"]["base_web_digest"]
-        self.set_next_release_candidate(first, base_web_digest, prior_identity)
+        self.set_next_release_candidate(first_services, base_web_digest, prior_identity)
         self.candidate["shared_migration"]["image_digest"] = digest
-        self.assertEqual(self.inspect(first)["phase"], "base")
+        self.assertEqual(self.inspect(first_services)["phase"], "base")
         self.set_migration()
         second_source = (
             self.root / "apps/devpath-migration/base/kustomization.yaml"
@@ -568,6 +587,24 @@ class PromotionChainTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.inspect(drift)
 
+    def test_new_migration_commit_cannot_use_the_legacy_unfenced_path_set(self):
+        path = self.root / self.chain.MIGRATION_PATH
+        path.write_text(
+            self.chain.render_migration_kustomization(
+                path.read_text(encoding="utf-8"),
+                self.candidate["shared_migration"]["image_digest"],
+                self.release_hash,
+            ),
+            encoding="utf-8",
+            newline="\n",
+        )
+        migration = self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+
+        with self.assertRaisesRegex(ValueError, "path set is not exact"):
+            self.inspect(migration)
+
     def test_single_exact_shared_migration_approval_fix_is_phase_transparent(self):
         self.set_migration()
         migration = self.commit(
@@ -619,6 +656,31 @@ class PromotionChainTest(unittest.TestCase):
         repeated = self.commit_migration_runtime_fix(suffix="-repeated")
         with self.assertRaisesRegex(ValueError, "directly follow approval fix"):
             self.inspect(repeated)
+
+    def test_migration_runtime_fix_rebinds_only_the_prior_target_sql_assertion(self):
+        source = (self.root / self.chain.MIGRATION_JOB_PATH).read_text(
+            encoding="utf-8"
+        )
+        migration = self.candidate["shared_migration"]
+
+        rendered = self.chain.render_migration_runtime_job(
+            source,
+            source_sha=migration["source_sha"],
+            flyway_target=migration["flyway_target"],
+            required_migration=migration["required_migration"],
+        )
+
+        self.assertIn(
+            f"test -f /flyway/sql/{migration['required_migration']}", rendered
+        )
+        self.assertNotIn(
+            "test -f /flyway/sql/V202609051004__mentor_invite_batches.sql",
+            rendered,
+        )
+        self.assertIn(
+            "test -f /flyway/sql/V202609051003__mentor_invite_codes.sql",
+            rendered,
+        )
 
     def test_migration_runtime_fix_requires_the_approval_fix_and_exact_paths(self):
         self.set_migration()
@@ -1021,6 +1083,27 @@ class PromotionChainTest(unittest.TestCase):
             f"release(services): promote {self.candidate['release_id']} additive-services"
         )
         with self.assertRaises(ValueError):
+            self.inspect(commit)
+
+    def test_services_commit_must_remove_both_writer_fences(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.set_services()
+        name = "devpath-platform-svc"
+        target = self.root / self.services.SERVICE_PATHS[name]
+        target.write_text(
+            self.chain.render_writer_fence_kustomization(
+                target.read_text(encoding="utf-8"), name
+            ),
+            encoding="utf-8",
+            newline="\n",
+        )
+        commit = self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        with self.assertRaisesRegex(ValueError, "writer fence"):
             self.inspect(commit)
 
     def test_services_commit_accepts_only_the_exact_changed_subset_or_empty_noop(self):

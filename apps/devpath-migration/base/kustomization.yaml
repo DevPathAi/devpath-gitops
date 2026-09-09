@@ -3,20 +3,8 @@ kind: Kustomization
 resources:
 - job.yaml
 - sandbox-preflight.yaml
+- writer-fence-rbac.yaml
 images:
 - name: ghcr.io/devpathai/devpath-migration
   newName: ghcr.io/devpathai/devpath-migration
-  digest: sha256:e9194edf3400d7164b0a063fc8b6f73d83c96e99f23d5334e67833ad2e4b3d03
-patches:
-- target:
-    group: batch
-    version: v1
-    kind: Job
-    name: devpath-flyway-migrate
-  patch: |-
-    - op: replace
-      path: /metadata/name
-      value: devpath-flyway-migrate-e9194edf3400-fb563a971d59474d4fc4ce14
-    - op: replace
-      path: /spec/suspend
-      value: false
+  newTag: 9793b8f92f92cca1ef57e28d2db6fb7d911741a3

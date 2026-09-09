@@ -122,10 +122,10 @@ Assert-Contains $migration "name:\s+sandbox-migration-preflight" `
   "migration Job must render the fail-closed Sandbox preflight"
 Assert-Contains $migration "EXPECTED_ET8_SHARED_COMMIT[\s\S]*2b03c38934fdd19332da59107e4330a3af92d078" `
   "migration preflight must preserve the exact ET8 shared checkpoint"
-Assert-Contains $migration "EXPECTED_SHARED_COMMIT[\s\S]*b6b8c6ba79818af4d338f2875352ecd07f455068" `
+Assert-Contains $migration "EXPECTED_SHARED_COMMIT[\s\S]*9793b8f92f92cca1ef57e28d2db6fb7d911741a3" `
   "migration preflight must name the exact final shared lineage"
-Assert-Contains $migration "ghcr\.io/devpathai/devpath-migration@sha256:e9194edf3400d7164b0a063fc8b6f73d83c96e99f23d5334e67833ad2e4b3d03" `
-  "migration Job image must be the sealed ET11 root digest"
+Assert-Contains $migration "ghcr\.io/devpathai/devpath-migration:9793b8f92f92cca1ef57e28d2db6fb7d911741a3" `
+  "migration Job image must be the exact final shared commit"
 Assert-Contains $migration "filesystem:/flyway/sql,classpath:db/migration" `
   "migration Job must discover both SQL and nontransactional Java migrations"
 Assert-Contains $migration "migration-runner\.jar" `
@@ -134,27 +134,35 @@ Assert-Contains $migration "postgres:17-alpine@sha256:979c4379dd698aba0b890599a6
   "migration preflight client image must be pinned by digest"
 Assert-Contains $migration "ET8_FLYWAY_VERSION[\s\S]*202608161008" `
   "migration Job must retain the final ET8 Flyway checkpoint"
-Assert-Contains $migration "TARGET_FLYWAY_VERSION[\s\S]*202608221001" `
+Assert-Contains $migration "TARGET_FLYWAY_VERSION[\s\S]*202609051004" `
   "migration Job must target the final shared Flyway version"
 Assert-Contains $migration "MAINTENANCE_APPROVED[\s\S]*sandbox-migration-gate" `
   "migration preflight must require external maintenance approval"
 Assert-Contains $migration "duplicate_active_users" `
   "migration preflight must reject duplicate active Sandbox rows"
 Assert-Contains $migration "pg_total_relation_size" `
-  "migration preflight must enforce an approved Sandbox table-size bound"
+  "migration preflight must enforce approved table-size bounds"
+Assert-Contains $migration "MAX_SUPPORT_REQUESTS_ROWS[\s\S]*max-support-requests-rows" `
+  "migration preflight must require an approved support row bound"
+Assert-Contains $migration "MAX_SUPPORT_REQUESTS_BYTES[\s\S]*max-support-requests-bytes" `
+  "migration preflight must require an approved support size bound"
+Assert-Contains $migration "support_requests_rows" `
+  "migration preflight must measure support rows before V202609051001"
 Assert-Contains $migration "pg_stat_activity" `
   "migration preflight must reject active database traffic"
 Assert-Contains $migration "LOCK TABLE sandbox_sessions IN ACCESS EXCLUSIVE MODE NOWAIT" `
   "migration preflight must rehearse the historical DDL lock fail closed"
+Assert-Contains $migration "LOCK TABLE support_requests IN ACCESS EXCLUSIVE MODE NOWAIT" `
+  "migration preflight must rehearse the V202609051001 DDL lock fail closed"
 
 $runbook = Get-Content "apps/devpath-sandbox-svc/base/RUNBOOK.md" -Raw
 Assert-Contains $runbook "V202608161008" `
   "Sandbox runbook must require the ET8 terminal-fence checkpoint"
-Assert-Contains $runbook "V202608221001" `
-  "Sandbox runbook must require the final shared migration"
+Assert-Contains $runbook "V202609051004" `
+  "Sandbox runbook must require the mentor access migration target"
 Assert-Contains $runbook "2b03c38934fdd19332da59107e4330a3af92d078" `
   "Sandbox runbook must name the exact ET8 shared checkpoint"
-Assert-Contains $runbook "b6b8c6ba79818af4d338f2875352ecd07f455068" `
+Assert-Contains $runbook "9793b8f92f92cca1ef57e28d2db6fb7d911741a3" `
   "Sandbox runbook must name the exact final shared lineage"
 Assert-Contains $runbook "sandbox\.runs\.expired_active" `
   "Sandbox runbook must define the sustained expired-lease alert"

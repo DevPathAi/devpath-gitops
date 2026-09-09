@@ -45,7 +45,7 @@ class MigrationResultTrustTest(unittest.TestCase):
             },
         }
         self.payload = {
-            "schema_version": 1,
+            "schema_version": 2,
             "document_type": "mission-spine-migration-result",
             "release_id": self.release_id,
             "candidate_spec_sha256": self.candidate_hash,
@@ -83,7 +83,11 @@ class MigrationResultTrustTest(unittest.TestCase):
                 "write_app_id": 1001,
                 "write_app_installation_id": 1002,
                 "branch": "main",
-                "sole_changed_path": "apps/devpath-migration/base/kustomization.yaml",
+                "changed_paths": [
+                    "apps/devpath-migration/base/kustomization.yaml",
+                    "apps/devpath-platform-svc/base/kustomization.yaml",
+                    "apps/devpath-sandbox-svc/base/kustomization.yaml",
+                ],
                 "rendered_job_name": "devpath-flyway-migrate-" + "f" * 12 + "-" + "b" * 24,
                 "commit_subject": f"deploy(devpath-migration): {self.release_id} sealed {self.release_hash}",
                 "commit_author_name": "devpath-gitops-release[bot]",
@@ -150,6 +154,13 @@ class MigrationResultTrustTest(unittest.TestCase):
             mutate(payload)
             with self.assertRaisesRegex(ValueError, message):
                 self.validate(payload)
+
+        payload = copy.deepcopy(self.payload)
+        payload["gitops"]["changed_paths"] = [
+            "apps/devpath-migration/base/kustomization.yaml"
+        ]
+        with self.assertRaisesRegex(ValueError, "GitOps commit coordinates"):
+            self.validate(payload)
 
     def test_attempt_approval_app_and_publish_mode_rules_are_exact(self):
         payload = copy.deepcopy(self.payload)

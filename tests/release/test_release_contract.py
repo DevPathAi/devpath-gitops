@@ -384,20 +384,7 @@ class ReleaseManifestContractTest(unittest.TestCase):
 
     def test_migration_job_base_is_inert_and_emits_only_the_validated_target_marker(self):
         job = (ROOT / "apps/devpath-migration/base/job.yaml").read_text(encoding="utf-8")
-        preflight = (ROOT / "apps/devpath-migration/base/sandbox-preflight.yaml").read_text(
-            encoding="utf-8"
-        )
-        runbook = (ROOT / "apps/devpath-sandbox-svc/base/RUNBOOK.md").read_text(
-            encoding="utf-8"
-        )
-        hardening = (ROOT / "scripts/verify-sandbox-hardening.ps1").read_text(
-            encoding="utf-8"
-        )
-        migration = self.candidate["shared_migration"]
-        production_source_sha = "b6b8c6ba79818af4d338f2875352ecd07f455068"
-        production_image_digest = (
-            "sha256:e9194edf3400d7164b0a063fc8b6f73d83c96e99f23d5334e67833ad2e4b3d03"
-        )
+        source_sha = "9793b8f92f92cca1ef57e28d2db6fb7d911741a3"
         self.assertIn("metadata:\n  name: devpath-flyway-migrate\n", job)
         self.assertNotIn("argocd.argoproj.io/sync-options", job)
         self.assertNotIn("Force=true", job)
@@ -412,22 +399,6 @@ class ReleaseManifestContractTest(unittest.TestCase):
         )
         self.assertIn(marker, job)
         self.assertIn(validate, job)
-        self.assertEqual(
-            job.count(f'value: "{migration["flyway_target"]}"'),
-            2,
-            "Job init and Flyway containers must bind the schema-approved target",
-        )
-        self.assertIn(f'test "$TARGET_FLYWAY_VERSION" = "{migration["flyway_target"]}"', job)
-        self.assertIn(f'test -f /flyway/sql/{migration["required_migration"]}', job)
-        self.assertEqual(job.count(f'value: "{production_source_sha}"'), 2)
-        self.assertIn(f'test "$EXPECTED_SHARED_COMMIT" = "{production_source_sha}"', job)
-        self.assertIn(f'required_commit="{production_source_sha}"', preflight)
-        self.assertIn(f'required_target="{migration["flyway_target"]}"', preflight)
-        self.assertIn(production_source_sha, runbook)
-        self.assertIn(f'V{migration["flyway_target"]}', runbook)
-        self.assertIn(production_source_sha, hardening)
-        self.assertIn(production_image_digest, hardening)
-        self.assertNotIn("ghcr.io/devpathai/devpath-migration:58c78bfe", hardening)
         self.assertLess(job.index(validate), job.index(marker))
         # validate 가 target 을 잃으면 승인 범위 밖의 마이그레이션(이미지에는 있으나 아직
         # 적용하지 않기로 한 것)을 "적용 안 됨" 오류로 잡아 set -e 아래에서 Job 을 죽인다.
@@ -437,6 +408,148 @@ class ReleaseManifestContractTest(unittest.TestCase):
             job,
             "validate 는 migrate 와 같은 target 을 받아야 한다",
         )
+        self.assertEqual(job.count(f'value: "{source_sha}"'), 2)
+        self.assertEqual(
+            job.count(f'test "$EXPECTED_SHARED_COMMIT" = "{source_sha}"'),
+            1,
+        )
+        self.assertEqual(job.count('value: "202609051004"'), 2)
+        self.assertEqual(
+            job.count('test "$TARGET_FLYWAY_VERSION" = "202609051004"'),
+            1,
+        )
+        for migration in (
+            "V202609051001__public_support_requests.sql",
+            "V202609051002__mentor_access.sql",
+            "V202609051003__mentor_invite_codes.sql",
+            "V202609051004__mentor_invite_batches.sql",
+        ):
+            self.assertEqual(job.count(f"test -f /flyway/sql/{migration}"), 1)
+
+        kustomization = (
+            ROOT / "apps/devpath-migration/base/kustomization.yaml"
+        ).read_text(encoding="utf-8")
+        self.assertIn(f"newTag: {source_sha}", kustomization)
+
+        preflight = (
+            ROOT / "apps/devpath-migration/base/sandbox-preflight.yaml"
+        ).read_text(encoding="utf-8")
+        self.assertIn(f'required_commit="{source_sha}"', preflight)
+        self.assertIn('required_target="202609051004"', preflight)
+        self.assertIn("MAX_SUPPORT_REQUESTS_ROWS", preflight)
+        self.assertIn("MAX_SUPPORT_REQUESTS_BYTES", preflight)
+        self.assertIn("support_requests_rows", preflight)
+        self.assertIn("pg_total_relation_size('support_requests')", preflight)
+        self.assertIn(
+            "LOCK TABLE support_requests IN ACCESS EXCLUSIVE MODE NOWAIT",
+            preflight,
+        )
+
+    def test_migration_job_waits_for_the_exact_writer_fence_before_db_preflight(self):
+        job = yaml.safe_load(
+            (ROOT / "apps/devpath-migration/base/job.yaml").read_text(
+                encoding="utf-8"
+            )
+        )
+        pod = job["spec"]["template"]["spec"]
+        self.assertEqual(pod["serviceAccountName"], "devpath-migration-fence")
+        self.assertFalse(pod["automountServiceAccountToken"])
+        init = pod["initContainers"]
+        self.assertEqual(
+            [container["name"] for container in init],
+            [
+                "wait-for-writer-deployments",
+                "wait-for-platform-pods",
+                "wait-for-sandbox-pods",
+                "sandbox-low-lock-preflight",
+            ],
+        )
+        kubectl_image = (
+            "registry.k8s.io/kubectl@sha256:"
+            "b0d792e0d8dfb9bb1b922b78b23137e2a34bb6f9667640353a9d2aadd1fd7761"
+        )
+        for container in init[:3]:
+            self.assertEqual(container["image"], kubectl_image)
+            self.assertTrue(container["securityContext"]["runAsNonRoot"])
+            self.assertEqual(container["securityContext"]["runAsUser"], 65532)
+            self.assertTrue(container["securityContext"]["readOnlyRootFilesystem"])
+            self.assertEqual(
+                container["volumeMounts"],
+                [
+                    {
+                        "name": "writer-fence-kube-api",
+                        "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                        "readOnly": True,
+                    }
+                ],
+            )
+        self.assertEqual(
+            init[0]["args"],
+            [
+                "wait",
+                "--for=jsonpath={.spec.replicas}=0",
+                "deployment/devpath-platform-svc",
+                "deployment/devpath-sandbox-svc",
+                "--timeout=10m",
+            ],
+        )
+        self.assertEqual(
+            init[1]["args"],
+            [
+                "wait",
+                "--for=delete",
+                "pod",
+                "--selector=app=devpath-platform-svc",
+                "--timeout=10m",
+            ],
+        )
+        self.assertEqual(
+            init[2]["args"],
+            [
+                "wait",
+                "--for=delete",
+                "pod",
+                "--selector=app=devpath-sandbox-svc",
+                "--timeout=10m",
+            ],
+        )
+
+        rbac = list(
+            yaml.safe_load_all(
+                (ROOT / "apps/devpath-migration/base/writer-fence-rbac.yaml").read_text(
+                    encoding="utf-8"
+                )
+            )
+        )
+        self.assertEqual(
+            [(document["kind"], document["metadata"]["name"]) for document in rbac],
+            [
+                ("ServiceAccount", "devpath-migration-fence"),
+                ("Role", "devpath-migration-fence-reader"),
+                ("RoleBinding", "devpath-migration-fence-reader"),
+            ],
+        )
+        self.assertEqual(
+            rbac[1]["rules"],
+            [
+                {
+                    "apiGroups": ["apps"],
+                    "resources": ["deployments"],
+                    "verbs": ["get", "list", "watch"],
+                },
+                {
+                    "apiGroups": [""],
+                    "resources": ["pods"],
+                    "verbs": ["get", "list", "watch"],
+                },
+            ],
+        )
+        kustomization = yaml.safe_load(
+            (ROOT / "apps/devpath-migration/base/kustomization.yaml").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertIn("writer-fence-rbac.yaml", kustomization["resources"])
 
     def test_journey_harness_uses_canonical_production_origins_and_exact_dns_overrides(self):
         invalid = copy.deepcopy(self.candidate)
