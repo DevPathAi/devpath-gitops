@@ -1116,20 +1116,20 @@ def validate_candidate_spec(data: Any, source: Path | None = None) -> dict[str, 
     if migration["repository"] != "DevPathAi/devpath-shared":
         _fail("$.shared_migration.repository", "must be DevPathAi/devpath-shared")
     _string(migration["source_sha"], "$.shared_migration.source_sha", SHA40)
-    if migration["shared_version"] != "0.0.1-et11.20260822":
-        _fail("$.shared_migration.shared_version", "must bind the immutable ET11 Shared version")
+    if migration["shared_version"] != "0.0.1-rm.20260907":
+        _fail("$.shared_migration.shared_version", "must bind the immutable mentor Shared version")
     shared_jar_hash = _string(
         migration["shared_jar_sha256"], "$.shared_migration.shared_jar_sha256", SHA64
     )
-    if shared_jar_hash != "eaab3aa3ad891f7dfeafb084e63d89645978d7716eb0c90a0dda42e0c40dac2e":
+    if shared_jar_hash != "3a64de1a1773f1aa05ccd801a88f01ef2cead887e44930554074230fd01f2996":
         _fail("$.shared_migration.shared_jar_sha256", "must bind the verified immutable Shared jar")
     if migration["image_repository"] != "ghcr.io/devpathai/devpath-migration":
         _fail("$.shared_migration.image_repository", "must be ghcr.io/devpathai/devpath-migration")
     _string(migration["image_digest"], "$.shared_migration.image_digest", DIGEST)
-    if migration["flyway_target"] != "202608221001":
-        _fail("$.shared_migration.flyway_target", "must bind V202608221001")
-    if migration["required_migration"] != "V202608221001__correct_question_bank_accuracy.sql":
-        _fail("$.shared_migration.required_migration", "must bind V202608221001 correction")
+    if migration["flyway_target"] != "202609051004":
+        _fail("$.shared_migration.flyway_target", "must bind V202609051004")
+    if migration["required_migration"] != "V202609051004__mentor_invite_batches.sql":
+        _fail("$.shared_migration.required_migration", "must bind V202609051004 mentor migration")
     if migration["rollback_policy"] != "additive-retained":
         _fail("$.shared_migration.rollback_policy", "must retain additive schema")
 
