@@ -55,7 +55,7 @@ Required order:
    `2b03c38934fdd19332da59107e4330a3af92d078` through `V202608161008`, then
    preserve the prior final lineage
    `58c78bfe35e99e618863b53f689c216b40295826` through `V202608201002`, then
-   publish `2fda29d38bc94345aa91bb6ea5823aef8125b0dc` and run its migration image
+   publish `9793b8f92f92cca1ef57e28d2db6fb7d911741a3` and run its migration image
    through `V202609051004`. Do not edit the already exercised
    `V202608161001__sandbox_execution_leases.sql` bytes; the deployment preflight
    fails unless both immutable checkpoints are named exactly.
@@ -76,24 +76,25 @@ Required order:
      max-support-requests-bytes: "<approved integer>"
    ```
 
-   Scale Sandbox and Platform writers down first. The migration Job fails closed unless
-   duplicate active users are zero, `pg_stat_activity` has no other active
-   client traffic, both affected tables are within their approved row/size
-   bounds, and `ACCESS EXCLUSIVE NOWAIT` lock rehearsals for `sandbox_sessions`
-   and `support_requests` succeed under 2-second lock and 30-second statement
-   timeouts. V202608161001 performs a data scan in the same transaction as its
-   first `ALTER TABLE`; V202609051001 validates existing support rows while its
-   ALTER is held. The maintenance gate bounds both risks but does not make
-   either migration low-lock.
+   The approved migration (M) commit atomically adds exact `replicas: 0`
+   Kustomize overrides for the Sandbox and Platform Deployments. Read-only,
+   least-privilege init containers then wait until both Deployment specs report
+   zero replicas and every selected writer pod is deleted before the database
+   preflight or Flyway can start. The service-promotion (S) commit removes both
+   exact overrides while selecting the approved service digests, restoring each
+   base Deployment to one replica only after successful migration evidence.
 
-   **Known production blocker:** the init-container preflight is a point-in-time
-   check. Its rehearsal transaction releases both locks before Flyway starts, so
-   an existing Platform replica can accept an authenticated `support_requests`
-   write in that gap even when migration is released before the new services.
-   Keep both writer Deployments at zero and their pods terminated for the whole
-   preflight-through-Flyway window. This scale-down is operational mitigation,
-   not a transactional guarantee; production rollout remains blocked until a
-   tested Kubernetes or database fence spans that entire window.
+   The migration Job also fails closed unless duplicate active users are zero,
+   `pg_stat_activity` has no other active client traffic, both affected tables
+   are within their approved row/size bounds, and `ACCESS EXCLUSIVE NOWAIT` lock
+   rehearsals for `sandbox_sessions` and `support_requests` succeed under
+   2-second lock and 30-second statement timeouts. V202608161001 performs a data
+   scan in the same transaction as its first `ALTER TABLE`; V202609051001
+   validates existing support rows while its ALTER is held. The maintenance
+   gate bounds both risks but does not make either migration low-lock. If the
+   Job or evidence gate fails, the writer fence remains in Git until the failed
+   release is investigated; do not restore replicas independently of the sealed
+   S commit.
 3. Verify the final schema before any application rollout:
 
    ```sql

@@ -32,7 +32,42 @@ SERVICE_NAMES = (
 SERVICE_PATHS = {
     name: f"apps/{name}/base/kustomization.yaml" for name in SERVICE_NAMES
 }
+WRITER_SERVICE_NAMES = (
+    "devpath-platform-svc",
+    "devpath-sandbox-svc",
+)
+REPLICA_OVERRIDE = re.compile(r"(?m)^replicas\s*:")
 SAFE_TAG = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+
+
+def _writer_fence_block(service_name: str) -> str:
+    if service_name not in WRITER_SERVICE_NAMES:
+        raise ValueError("writer fence service is not allowlisted")
+    return f"replicas:\n- name: {service_name}\n  count: 0\n"
+
+
+def render_writer_fence_kustomization(source: str, service_name: str) -> str:
+    """Append the only permitted M-phase writer fence to a sealed base."""
+    if not source or "\r" in source or not source.endswith("\n"):
+        raise ValueError(f"{service_name}: kustomization must be canonical LF text")
+    if REPLICA_OVERRIDE.search(source) is not None:
+        raise ValueError(f"{service_name}: sealed base already contains a replica override")
+    return source + _writer_fence_block(service_name)
+
+
+def _remove_writer_fence(source: str, service_name: str) -> str:
+    if service_name not in WRITER_SERVICE_NAMES:
+        return source
+    matches = list(REPLICA_OVERRIDE.finditer(source))
+    if not matches:
+        return source
+    block = _writer_fence_block(service_name)
+    if len(matches) != 1 or not source.endswith(block):
+        raise ValueError(f"{service_name}: writer fence is not the exact M-phase override")
+    base = source[: -len(block)]
+    if REPLICA_OVERRIDE.search(base) is not None:
+        raise ValueError(f"{service_name}: writer fence is duplicated")
+    return base
 
 
 def _image_block(source: str, image: str, label: str) -> tuple[list[str], int, int, int]:
@@ -110,6 +145,7 @@ def render_kustomization(
     service = candidate["services"][service_name]
     image = service["image_repository"]
     digest = service["image_digest"]
+    source = _remove_writer_fence(source, service_name)
     lines, start, end, indent = _image_block(source, image, service_name)
     block = [line for line in lines[start:end] if line.strip()]
     if len(block) != 3:
@@ -258,6 +294,10 @@ def validate_rendered_output(
     ]
     if repository_images != [expected]:
         raise ValueError(f"{service_name}: target image appears outside the exact container")
+    if service_name in WRITER_SERVICE_NAMES:
+        replicas = re.findall(r"(?m)^  replicas:\s*([0-9]+)\s*$", rendered)
+        if replicas != ["1"]:
+            raise ValueError(f"{service_name}: service phase must restore exactly one replica")
 
 
 def _target_path(root: Path, relative: str) -> Path:

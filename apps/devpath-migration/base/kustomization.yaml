@@ -3,7 +3,8 @@ kind: Kustomization
 resources:
 - job.yaml
 - sandbox-preflight.yaml
+- writer-fence-rbac.yaml
 images:
 - name: ghcr.io/devpathai/devpath-migration
   newName: ghcr.io/devpathai/devpath-migration
-  newTag: 2fda29d38bc94345aa91bb6ea5823aef8125b0dc
+  newTag: 9793b8f92f92cca1ef57e28d2db6fb7d911741a3

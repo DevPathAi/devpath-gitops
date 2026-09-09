@@ -9,8 +9,70 @@ spec:
   backoffLimit: 3
   template:
     spec:
+      serviceAccountName: devpath-migration-fence
+      automountServiceAccountToken: false
       restartPolicy: Never
       initContainers:
+        - name: wait-for-writer-deployments
+          image: registry.k8s.io/kubectl@sha256:b0d792e0d8dfb9bb1b922b78b23137e2a34bb6f9667640353a9d2aadd1fd7761
+          args:
+            - wait
+            - --for=jsonpath={.spec.replicas}=0
+            - deployment/devpath-platform-svc
+            - deployment/devpath-sandbox-svc
+            - --timeout=10m
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: writer-fence-kube-api
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
+        - name: wait-for-platform-pods
+          image: registry.k8s.io/kubectl@sha256:b0d792e0d8dfb9bb1b922b78b23137e2a34bb6f9667640353a9d2aadd1fd7761
+          args:
+            - wait
+            - --for=delete
+            - pod
+            - --selector=app=devpath-platform-svc
+            - --timeout=10m
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: writer-fence-kube-api
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
+        - name: wait-for-sandbox-pods
+          image: registry.k8s.io/kubectl@sha256:b0d792e0d8dfb9bb1b922b78b23137e2a34bb6f9667640353a9d2aadd1fd7761
+          args:
+            - wait
+            - --for=delete
+            - pod
+            - --selector=app=devpath-sandbox-svc
+            - --timeout=10m
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: writer-fence-kube-api
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
         - name: sandbox-low-lock-preflight
           image: postgres:17-alpine@sha256:979c4379dd698aba0b890599a6104e082035f98ef31d9b9291ec22f2b13059ca
           command: ["/bin/sh", "/opt/devpath/preflight.sh"]
@@ -39,7 +101,7 @@ spec:
             - name: EXPECTED_ET8_SHARED_COMMIT
               value: "2b03c38934fdd19332da59107e4330a3af92d078"
             - name: EXPECTED_SHARED_COMMIT
-              value: "2fda29d38bc94345aa91bb6ea5823aef8125b0dc"
+              value: "9793b8f92f92cca1ef57e28d2db6fb7d911741a3"
             - name: ET8_FLYWAY_VERSION
               value: "202608161008"
             - name: TARGET_FLYWAY_VERSION
@@ -108,7 +170,7 @@ spec:
             - name: EXPECTED_ET8_SHARED_COMMIT
               value: "2b03c38934fdd19332da59107e4330a3af92d078"
             - name: EXPECTED_SHARED_COMMIT
-              value: "2fda29d38bc94345aa91bb6ea5823aef8125b0dc"
+              value: "9793b8f92f92cca1ef57e28d2db6fb7d911741a3"
             - name: ET8_FLYWAY_VERSION
               value: "202608161008"
             - name: TARGET_FLYWAY_VERSION
@@ -117,7 +179,7 @@ spec:
           args:
             - |
               test "$EXPECTED_ET8_SHARED_COMMIT" = "2b03c38934fdd19332da59107e4330a3af92d078"
-              test "$EXPECTED_SHARED_COMMIT" = "2fda29d38bc94345aa91bb6ea5823aef8125b0dc"
+              test "$EXPECTED_SHARED_COMMIT" = "9793b8f92f92cca1ef57e28d2db6fb7d911741a3"
               test "$ET8_FLYWAY_VERSION" = "202608161008"
               test "$TARGET_FLYWAY_VERSION" = "202609051004"
               test -f /flyway/sql/V202608161008__validate_sandbox_terminal_reconciliation_fence.sql
@@ -139,6 +201,24 @@ spec:
               flyway -locations="$migration_locations" -target="$TARGET_FLYWAY_VERSION" validate
               printf 'mission-spine-flyway-target=%s status=validated\n' "$TARGET_FLYWAY_VERSION"
       volumes:
+        - name: writer-fence-kube-api
+          projected:
+            defaultMode: 420
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3600
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
+              - downwardAPI:
+                  items:
+                    - path: namespace
+                      fieldRef:
+                        apiVersion: v1
+                        fieldPath: metadata.namespace
         - name: sandbox-migration-preflight
           configMap:
             name: sandbox-migration-preflight
