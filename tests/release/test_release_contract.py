@@ -208,7 +208,7 @@ class ReleaseManifestContractTest(unittest.TestCase):
             ):
                 schema_validator.validate(invalid)
 
-    def test_all_application_services_and_et11_migration_are_bound(self):
+    def test_all_application_services_and_mentor_migration_are_bound(self):
         invalid = copy.deepcopy(self.candidate)
         del invalid["services"]["devpath-lcs-svc"]
         with self.assertRaisesRegex(ValueError, "services"):
@@ -219,29 +219,38 @@ class ReleaseManifestContractTest(unittest.TestCase):
             self.validator.validate_candidate_spec(invalid, CANDIDATE_FIXTURE)
         invalid = copy.deepcopy(self.candidate)
         invalid["shared_migration"]["flyway_target"] = "202608161010"
-        with self.assertRaisesRegex(ValueError, "202608221001"):
+        with self.assertRaisesRegex(ValueError, "202609051004"):
             self.validator.validate_candidate_spec(invalid, CANDIDATE_FIXTURE)
 
-    def test_candidate_accepts_exact_et11_shared_release_contract(self):
+    def test_candidate_accepts_exact_mentor_shared_release_contract(self):
         candidate = copy.deepcopy(self.candidate)
         candidate["shared_migration"].update(
             {
-                "source_sha": "c4d468a70e8870e8f60f25539e91599def75f0f2",
-                "shared_version": "0.0.1-et11.20260822",
+                "source_sha": "9793b8f92f92cca1ef57e28d2db6fb7d911741a3",
+                "shared_version": "0.0.1-rm.20260907",
                 "shared_jar_sha256": (
-                    "eaab3aa3ad891f7dfeafb084e63d89645978d7716eb0c90a0dda42e0c40dac2e"
+                    "3a64de1a1773f1aa05ccd801a88f01ef2cead887e44930554074230fd01f2996"
                 ),
                 "image_digest": (
-                    "sha256:f1ac7dac56643c2adf3dc62ace83628758826d3ebae710a13c788bfeb73e0fc6"
+                    "sha256:81029e190726c7967a6c840caee1735586da3a694081982b29261b2a54436e2b"
                 ),
-                "flyway_target": "202608221001",
+                "flyway_target": "202609051004",
                 "required_migration": (
-                    "V202608221001__correct_question_bank_accuracy.sql"
+                    "V202609051004__mentor_invite_batches.sql"
                 ),
             }
         )
 
         self.validator.validate_candidate_spec(candidate, CANDIDATE_FIXTURE)
+        schema = json.loads(
+            (ROOT / "release-manifests" / "schema-v1.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        jsonschema.Draft202012Validator(
+            schema,
+            format_checker=jsonschema.FormatChecker(),
+        ).validate(candidate)
 
     def test_evidence_and_ai_release_gate_fail_closed(self):
         invalid = copy.deepcopy(self.release)
