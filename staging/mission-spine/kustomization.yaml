@@ -35,8 +35,8 @@ patches:
 images:
   - name: ghcr.io/devpathai/devpath-gateway
     newName: ghcr.io/devpathai/devpath-gateway
-    newTag: 44f22a3a684d6c81ffcfd8327cfc47adb8613729
-    digest: sha256:a5bdfbaf56aa8add46f3f8ca1f982252e2b06d13402d7e3c3c0e60669a5fd94a
+    newTag: a886215711890519731c8a4e7b3bda32978015a7
+    digest: sha256:7d46fa8714c2fb1d94107a29a9eb5f046991b752c33d51ac2809e02cb918b2af
   - name: ghcr.io/devpathai/devpath-platform-svc
     newName: ghcr.io/devpathai/devpath-platform-svc
     newTag: cd4c1317f328c52e481cefc219a467d2227ae968
