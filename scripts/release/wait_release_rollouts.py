@@ -34,6 +34,7 @@ KUBECTL_VERSION = "v1.36.2"
 SHA40 = re.compile(r"[0-9a-f]{40}")
 SAFE_NAME = re.compile(r"[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?")
 MAX_KUBECTL_BYTES = 4 * 1024 * 1024
+MIGRATION_APPLICATION_PATH = "apps/devpath-migration/base"
 
 
 def _kubectl_binary() -> str:
@@ -105,6 +106,7 @@ def _commit_time(root: Path, commit: str) -> str:
 def _last_path_change(root: Path, observed_commit: str, path: str) -> str:
     if SHA40.fullmatch(observed_commit) is None or path not in {
         MIGRATION_PATH,
+        MIGRATION_APPLICATION_PATH,
         *SERVICE_PATHS.values(),
     }:
         raise ValueError("rollout applied-revision lookup is invalid")
@@ -171,11 +173,14 @@ def wait_migration(
         raise ValueError("observed chain does not retain the exact migration commit")
     if _last_path_change(root, observed_commit, MIGRATION_PATH) != migration_commit:
         raise ValueError("migration applied revision is not the exact migration commit")
+    application_applied_commit = _last_path_change(
+        root, observed_commit, MIGRATION_APPLICATION_PATH
+    )
     registry = _registry()
     trust = _trust(registry, candidate["shared_migration"])
     name = migration_job_name(trust["root_digest"], release_manifest_sha256)
     binary = _kubectl_binary()
-    not_before = _commit_time(root, migration_commit)
+    not_before = _commit_time(root, application_applied_commit)
     deadline = time.monotonic() + timeout_seconds
     last = "migration runtime is not yet observable"
     while True:
@@ -211,6 +216,7 @@ def wait_migration(
                 candidate["shared_migration"]["required_migration"],
                 not_before,
                 observed_commit=observed_commit,
+                application_applied_commit=application_applied_commit,
             )
             _write(evidence_out, result)
             return

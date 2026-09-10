@@ -259,6 +259,54 @@ class ReleaseHardeningTest(unittest.TestCase):
                     app, dep, rss, pod_set, "devpath-web", {image}, image, {}, commit
                 )
 
+    def test_rollout_distinguishes_observed_control_head_from_applied_web_revision(self):
+        application, deployment, replicasets, pods, image, observed = self.healthy_snapshot()
+        applied = "a" * 40
+        application["status"]["operationState"]["syncResult"]["revision"] = applied
+
+        self.rollout.validate_rollout_snapshot(
+            application,
+            deployment,
+            replicasets,
+            pods,
+            "devpath-web",
+            {image},
+            image,
+            {},
+            observed,
+            expected_applied_revision=applied,
+        )
+
+        application["status"]["operationState"]["syncResult"]["revision"] = observed
+        with self.assertRaisesRegex(ValueError, "Argo Application revision"):
+            self.rollout.validate_rollout_snapshot(
+                application,
+                deployment,
+                replicasets,
+                pods,
+                "devpath-web",
+                {image},
+                image,
+                {},
+                observed,
+                expected_applied_revision=applied,
+            )
+
+    def test_last_web_path_change_is_resolved_from_exact_control_history(self):
+        observed = "b" * 40
+        applied = "a" * 40
+        completed = mock.Mock(returncode=0, stdout=applied + "\n")
+        with mock.patch.object(self.rollout.subprocess, "run", return_value=completed) as run:
+            self.assertEqual(
+                applied,
+                self.rollout._last_web_path_change(Path("gitops-main"), observed),
+            )
+        self.assertEqual(
+            ["git", "log", "-1", "--format=%H", observed, "--", "apps/devpath-web/base"],
+            run.call_args.args[0],
+        )
+        self.assertEqual(Path("gitops-main"), run.call_args.kwargs["cwd"])
+
     def test_rollout_accepts_candidate_bound_staging_deployment_identity(self):
         application, deployment, replicasets, pods, image, _ = self.healthy_snapshot()
         expected_container = self.stager.build_patch(
@@ -329,8 +377,12 @@ class ReleaseHardeningTest(unittest.TestCase):
         snapshot = ({}, {}, {}, {})
         with mock.patch.dict("os.environ", {"KUBECONFIG": "test"}, clear=True), mock.patch.object(
             self.rollout,
+            "resolve_candidate_spec",
+            return_value=(None, candidate, self.candidate_hash),
+        ), mock.patch.object(
+            self.rollout,
             "resolve_release_bundle",
-            return_value=(None, None, None, candidate, self.candidate_hash),
+            side_effect=AssertionError("candidate-only rollout requested final manifest"),
         ), mock.patch.object(
             self.rollout, "_snapshot", return_value=snapshot
         ), mock.patch.object(
@@ -339,7 +391,12 @@ class ReleaseHardeningTest(unittest.TestCase):
             self.rollout.time, "monotonic", side_effect=(0, 1, 1, 1)
         ):
             self.rollout.wait_rollout(
-                ROOT, candidate["release_id"], "staging", "prior", 0
+                ROOT,
+                candidate["release_id"],
+                "staging",
+                "prior",
+                0,
+                candidate_only=True,
             )
         self.assertEqual(validate.call_count, 2)
         expected_container = self.stager.build_patch(
@@ -355,6 +412,63 @@ class ReleaseHardeningTest(unittest.TestCase):
                     "require_automount_disabled": True,
                 },
             )
+
+    def test_candidate_only_rollout_is_rejected_outside_staging(self):
+        with mock.patch.dict("os.environ", {"KUBECONFIG": "test"}, clear=True), self.assertRaisesRegex(
+            ValueError, "candidate-only rollout is restricted to staging"
+        ):
+            self.rollout.wait_rollout(
+                ROOT,
+                self.candidate["release_id"],
+                "production",
+                "prior",
+                0,
+                commit="c" * 40,
+                candidate_only=True,
+            )
+
+    def test_candidate_only_stage_never_requires_a_final_release_manifest(self):
+        candidate = copy.deepcopy(self.candidate)
+        candidate["environments"]["staging"].update(
+            {
+                "kubernetes_context": "devpath-staging",
+                "namespace": "devpath-staging",
+                "web_deployment": "devpath-web-staging",
+                "web_container": "devpath-web",
+                "web_origin": "https://staging-app.13-124-153-105.nip.io",
+            }
+        )
+        current = self.stager.build_patch(candidate, self.candidate_hash, "prior")
+        current["metadata"] = {
+            "name": "devpath-web-staging",
+            "namespace": "devpath-staging",
+            "resourceVersion": "271828",
+        }
+        completed = [
+            mock.Mock(returncode=0, stdout=json.dumps(current)),
+            mock.Mock(returncode=0, stdout="patched"),
+        ]
+        with mock.patch.dict("os.environ", {"KUBECONFIG": "test"}, clear=True), mock.patch.object(
+            self.stager.shutil, "which", return_value="kubectl"
+        ), mock.patch.object(
+            self.stager,
+            "resolve_candidate_spec",
+            return_value=(None, candidate, self.candidate_hash),
+        ), mock.patch.object(
+            self.stager,
+            "resolve_release_bundle",
+            side_effect=AssertionError("candidate-only staging requested final manifest"),
+        ), mock.patch.object(
+            self.stager.subprocess, "run", side_effect=completed
+        ) as run:
+            self.stager.stage(
+                ROOT,
+                candidate["release_id"],
+                "mission-off",
+                "prior",
+                candidate_only=True,
+            )
+        self.assertEqual(run.call_count, 2)
 
     def test_synthetic_probe_identity_is_exact_and_release_specific(self):
         digest = self.candidate["frontend"]["selected_on_digest"]

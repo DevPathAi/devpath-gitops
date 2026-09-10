@@ -20,6 +20,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from promote_service_digests import SERVICE_NAMES, SERVICE_PATHS
 from validate_release_manifest import resolve_release_bundle
+from verify_oci_images import runtime_image_matches
 from verify_promotion_chain import inspect_chain
 
 
@@ -196,13 +197,11 @@ def build_canary(
                     r"sha256:[0-9a-f]{64}", str(pod["runtime_image_digest"])
                 )
                 is None
-                or pod["runtime_image_form"] not in {"manifest", "config"}
-                or pod["runtime_image_digest"]
-                != authenticated[
-                    "manifest_digest"
-                    if pod["runtime_image_form"] == "manifest"
-                    else "config_digest"
-                ]
+                or not runtime_image_matches(
+                    pod["runtime_image_digest"],
+                    pod["runtime_image_form"],
+                    authenticated,
+                )
             ):
                 raise ValueError(f"production canary {name} Pod runtime evidence is invalid")
             seen_pods.add(pod["pod_uid"])

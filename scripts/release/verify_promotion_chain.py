@@ -39,12 +39,102 @@ MIGRATION_PATHS = tuple(
     sorted((MIGRATION_PATH, *(SERVICE_PATHS[name] for name in WRITER_SERVICE_NAMES)))
 )
 MIGRATION_JOB_PATH = "apps/devpath-migration/base/job.yaml"
+MIGRATION_PREFLIGHT_PATH = "apps/devpath-migration/base/sandbox-preflight.yaml"
 WEB_PATH = "apps/devpath-web/base/kustomization.yaml"
 MIGRATION_IMAGE = "ghcr.io/devpathai/devpath-migration"
 WEB_IMAGE = "ghcr.io/devpathai/devpath-web"
 MAX_CHAIN_COMMITS = 32
 MIGRATION_JOB_PREFIX = "devpath-flyway-migrate-"
 WRITE_ACTOR = "devpath-gitops-release[bot]"
+LEGACY_UNFENCED_MIGRATION_COMMITS = frozenset(
+    {
+        # ms-20260830-prod26r9 predates the mandatory writer-fence grammar.
+        # The immutable commit identity bounds this exception to that deployed M.
+        "5bcde50ed982c9b5382f7b87579a4096212c1b1b",
+    }
+)
+SHARED_MIGRATION_APPROVAL_FIX_SUBJECT = (
+    "fix(release): authenticate shared migration approval"
+)
+SHARED_MIGRATION_APPROVAL_FIX_PATHS = (
+    "scripts/release/verify_promotion_chain.py",
+    "scripts/release/verify_release_artifacts.py",
+    "tests/release/test_migration_result_trust.py",
+    "tests/release/test_promotion_chain.py",
+)
+MIGRATION_RUNTIME_FIX_SUBJECT = "fix(release): bind sealed ET11 migration runtime"
+MIGRATION_RUNTIME_FIX_PATHS = (
+    "apps/devpath-migration/base/job.yaml",
+    "apps/devpath-migration/base/sandbox-preflight.yaml",
+    "apps/devpath-sandbox-svc/base/RUNBOOK.md",
+    "scripts/release/verify_kubernetes_release_runtime.py",
+    "scripts/release/verify_promotion_chain.py",
+    "scripts/release/wait_release_rollouts.py",
+    "scripts/verify-sandbox-hardening.ps1",
+    "tests/release/test_kubernetes_release_runtime.py",
+    "tests/release/test_promotion_chain.py",
+    "tests/release/test_release_contract.py",
+)
+MIGRATION_RUNTIME_ADMISSION_FIX_SUBJECT = (
+    "fix(release): accept Kubernetes service account projection"
+)
+MIGRATION_RUNTIME_ADMISSION_FIX_PATHS = (
+    "scripts/release/verify_kubernetes_release_runtime.py",
+    "scripts/release/verify_promotion_chain.py",
+    "tests/release/test_kubernetes_release_runtime.py",
+    "tests/release/test_promotion_chain.py",
+)
+MIGRATION_PREFLIGHT_IDENTITY_FIX_SUBJECT = (
+    "fix(release): authenticate preflight root image identity"
+)
+MIGRATION_PREFLIGHT_IDENTITY_FIX_PATHS = MIGRATION_RUNTIME_ADMISSION_FIX_PATHS
+SERVICE_STATUS_IMAGE_FIX_SUBJECT = (
+    "fix(release): accept service status image normalization"
+)
+SERVICE_STATUS_IMAGE_FIX_PATHS = (
+    *MIGRATION_RUNTIME_ADMISSION_FIX_PATHS,
+    "tests/release/test_service_promotion.py",
+)
+SERVICE_SOURCE_STATUS_FIX_SUBJECT = (
+    "fix(release): authenticate service source image status"
+)
+SERVICE_SOURCE_STATUS_FIX_PATHS = MIGRATION_RUNTIME_ADMISSION_FIX_PATHS
+CANARY_RUNTIME_FORM_FIX_SUBJECT = "fix(release): align canary runtime image forms"
+CANARY_RUNTIME_FORM_FIX_PATHS = (
+    "scripts/release/build_production_canary.py",
+    "scripts/release/verify_oci_images.py",
+    "scripts/release/verify_promotion_chain.py",
+    "scripts/release/verify_promotion_evidence.py",
+    "tests/release/test_oci_image_trust.py",
+    "tests/release/test_production_canary.py",
+    "tests/release/test_promotion_chain.py",
+    "tests/release/test_promotion_evidence.py",
+    "tests/release/test_release_contract.py",
+)
+POST_ON_RESUME_FIX_SUBJECT = "fix(release): restore post-ON resume identity"
+POST_ON_RESUME_FIX_PATHS = (
+    "scripts/release/verify_promotion_chain.py",
+    "tests/release/test_promotion_chain.py",
+)
+WEB_APPLIED_REVISION_FIX_SUBJECT = "fix(release): bind web applied revision lineage"
+WEB_APPLIED_REVISION_FIX_PATHS = (
+    ".github/workflows/mission-spine-promote.yml",
+    ".github/workflows/mission-spine-rollback.yml",
+    "scripts/release/verify_promotion_chain.py",
+    "scripts/release/wait_web_rollout.py",
+    "tests/release/test_production_workflow_wiring.py",
+    "tests/release/test_promotion_chain.py",
+    "tests/release/test_release_hardening.py",
+)
+STAGING_CONTEXT_AUTH_FIX_SUBJECT = (
+    "fix(release): authenticate staging rebaseline context"
+)
+STAGING_CONTEXT_AUTH_FIX_PATHS = (
+    ".github/workflows/mission-spine-promote.yml",
+    "scripts/release/verify_promotion_chain.py",
+    "tests/release/test_production_workflow_wiring.py",
+    "tests/release/test_promotion_chain.py",
+)
 
 
 def _git(root: Path, args: list[str], *, binary: bool = False) -> str | bytes:
@@ -106,6 +196,141 @@ def _blob(root: Path, commit: str, path: str) -> str:
     if "\r" in source or not source.endswith("\n"):
         raise ValueError("promotion chain kustomization is not canonical LF text")
     return source
+
+
+def _replace_exact(
+    source: str,
+    pattern: str,
+    replacement: str,
+    expected_count: int,
+    label: str,
+) -> str:
+    rendered, count = re.subn(pattern, replacement, source, flags=re.MULTILINE)
+    if count != expected_count:
+        raise ValueError(f"{label} is not uniquely replaceable")
+    return rendered
+
+
+def render_migration_runtime_job(
+    source: str,
+    *,
+    source_sha: str,
+    flyway_target: str,
+    required_migration: str,
+) -> str:
+    if (
+        SHA40.fullmatch(source_sha) is None
+        or re.fullmatch(r"[0-9]{12}", flyway_target) is None
+        or re.fullmatch(r"V[0-9]{12}__[a-z0-9_]+\.sql", required_migration) is None
+        or "\r" in source
+        or not source.endswith("\n")
+    ):
+        raise ValueError("migration runtime binding is invalid")
+    prior_targets = re.findall(
+        r'- name: TARGET_FLYWAY_VERSION\n\s+value: "([0-9]{12})"$',
+        source,
+        flags=re.MULTILINE,
+    )
+    if len(prior_targets) != 2 or len(set(prior_targets)) != 1:
+        raise ValueError("migration prior Flyway target is not unique")
+    prior_target = prior_targets[0]
+    rendered = _replace_exact(
+        source,
+        r'(- name: EXPECTED_SHARED_COMMIT\n\s+value: ")[0-9a-f]{40}("$)',
+        rf"\g<1>{source_sha}\g<2>",
+        2,
+        "migration shared commit env",
+    )
+    rendered = _replace_exact(
+        rendered,
+        r'(- name: TARGET_FLYWAY_VERSION\n\s+value: ")[0-9]{12}("$)',
+        rf"\g<1>{flyway_target}\g<2>",
+        2,
+        "migration Flyway target env",
+    )
+    rendered = _replace_exact(
+        rendered,
+        r'(test "\$EXPECTED_SHARED_COMMIT" = ")[0-9a-f]{40}("$)',
+        rf"\g<1>{source_sha}\g<2>",
+        1,
+        "migration shared commit assertion",
+    )
+    rendered = _replace_exact(
+        rendered,
+        r'(test "\$TARGET_FLYWAY_VERSION" = ")[0-9]{12}("$)',
+        rf"\g<1>{flyway_target}\g<2>",
+        1,
+        "migration Flyway target assertion",
+    )
+    rendered = _replace_exact(
+        rendered,
+        rf"^              test -f /flyway/sql/V{prior_target}__[a-z0-9_]+\.sql$",
+        f"              test -f /flyway/sql/{required_migration}",
+        1,
+        "migration prior-target SQL assertion",
+    )
+    return rendered
+
+
+def render_migration_preflight(
+    source: str,
+    *,
+    source_sha: str,
+    flyway_target: str,
+) -> str:
+    if (
+        SHA40.fullmatch(source_sha) is None
+        or re.fullmatch(r"[0-9]{12}", flyway_target) is None
+        or "\r" in source
+        or not source.endswith("\n")
+    ):
+        raise ValueError("migration preflight binding is invalid")
+    rendered = _replace_exact(
+        source,
+        r'^    required_commit="[0-9a-f]{40}"$',
+        f'    required_commit="{source_sha}"',
+        1,
+        "migration preflight shared commit",
+    )
+    rendered = _replace_exact(
+        rendered,
+        r'^    required_target="[0-9]{12}"$',
+        f'    required_target="{flyway_target}"',
+        1,
+        "migration preflight target",
+    )
+    rendered = _replace_exact(
+        rendered,
+        r'( -> final )V[0-9]{12}(; historical SQL remains immutable")$',
+        rf"\g<1>V{flyway_target}\g<2>",
+        1,
+        "migration preflight success marker",
+    )
+    return rendered
+
+
+def _require_migration_runtime_fix(
+    root: Path,
+    commit: str,
+    parent: str,
+    candidate: dict[str, Any],
+) -> None:
+    migration = candidate["shared_migration"]
+    expected_job = render_migration_runtime_job(
+        _blob(root, parent, MIGRATION_JOB_PATH),
+        source_sha=migration["source_sha"],
+        flyway_target=migration["flyway_target"],
+        required_migration=migration["required_migration"],
+    )
+    if _blob(root, commit, MIGRATION_JOB_PATH) != expected_job:
+        raise ValueError("migration runtime Job fix is not the exact sealed binding")
+    expected_preflight = render_migration_preflight(
+        _blob(root, parent, MIGRATION_PREFLIGHT_PATH),
+        source_sha=migration["source_sha"],
+        flyway_target=migration["flyway_target"],
+    )
+    if _blob(root, commit, MIGRATION_PREFLIGHT_PATH) != expected_preflight:
+        raise ValueError("migration preflight fix is not the exact sealed binding")
 
 
 def migration_job_name(image_digest: str, release_manifest_sha256: str) -> str:
@@ -307,6 +532,20 @@ def _require_writer_fences(root: Path, commit: str, base: str) -> None:
             raise ValueError(f"{name}: migration commit writer fence is not exact")
 
 
+def _require_migration_service_state(
+    root: Path,
+    commit: str,
+    base: str,
+    candidate: dict[str, Any],
+    writer_fence_active: str,
+) -> None:
+    if writer_fence_active == "true":
+        _require_writer_fences(root, commit, base)
+        return
+    if writer_fence_active == "false":
+        _require_service_base_selectors(root, commit, candidate)
+        return
+    raise ValueError("migration writer-fence state is invalid")
 def _require_services(
     root: Path,
     commit: str,
@@ -461,7 +700,18 @@ def inspect_chain(
                 "web_phase": "base",
                 "current_commit": commit,
                 "base_commit": base,
+                "writer_fence_active": "false",
                 "migration_commit": "",
+                "shared_migration_approval_fix_commit": "",
+                "migration_runtime_fix_commit": "",
+                "migration_runtime_admission_fix_commit": "",
+                "migration_preflight_identity_fix_commit": "",
+                "service_status_image_fix_commit": "",
+                "service_source_status_fix_commit": "",
+                "canary_runtime_form_fix_commit": "",
+                "post_on_resume_fix_commit": "",
+                "web_applied_revision_fix_commit": "",
+                "staging_context_auth_fix_commit": "",
                 "services_commit": "",
                 "off_commit": "",
                 "on_commit": "",
@@ -479,14 +729,232 @@ def inspect_chain(
             _require_write_actor(root, commit)
             if prior["phase"] != "base" or parent != base:
                 raise ValueError("migration commit must be the sole child of sealed base")
-            _require_delta(root, commit, MIGRATION_PATHS)
             _require_migration(root, commit, candidate, release_manifest_sha256)
-            _require_writer_fences(root, commit, base)
+            if commit in LEGACY_UNFENCED_MIGRATION_COMMITS:
+                _require_delta(root, commit, (MIGRATION_PATH,))
+                _require_service_base_selectors(root, commit, candidate)
+                writer_fence_active = "false"
+            else:
+                _require_delta(root, commit, MIGRATION_PATHS)
+                _require_writer_fences(root, commit, base)
+                writer_fence_active = "true"
             return {
                 **prior,
                 "phase": "migration",
                 "current_commit": commit,
+                "writer_fence_active": writer_fence_active,
                 "migration_commit": commit,
+            }
+        if subject == SHARED_MIGRATION_APPROVAL_FIX_SUBJECT:
+            _require_write_actor(root, commit)
+            if (
+                prior["phase"] != "migration"
+                or parent != prior["migration_commit"]
+            ):
+                raise ValueError(
+                    "shared migration approval fix must directly follow migration"
+                )
+            _require_delta(root, commit, SHARED_MIGRATION_APPROVAL_FIX_PATHS)
+            _require_migration(root, commit, candidate, release_manifest_sha256)
+            _require_migration_service_state(
+                root, commit, base, candidate, prior["writer_fence_active"]
+            )
+            _require_web(root, commit, candidate, candidate_spec_sha256, "base")
+            return {
+                **prior,
+                "current_commit": commit,
+                "shared_migration_approval_fix_commit": commit,
+            }
+        if subject == MIGRATION_RUNTIME_FIX_SUBJECT:
+            _require_write_actor(root, commit)
+            if (
+                prior["phase"] != "migration"
+                or not prior["shared_migration_approval_fix_commit"]
+                or parent != prior["shared_migration_approval_fix_commit"]
+                or prior["migration_runtime_fix_commit"]
+            ):
+                raise ValueError(
+                    "migration runtime fix must directly follow approval fix"
+                )
+            _require_delta(root, commit, MIGRATION_RUNTIME_FIX_PATHS)
+            _require_migration_runtime_fix(root, commit, parent, candidate)
+            _require_migration(root, commit, candidate, release_manifest_sha256)
+            _require_migration_service_state(
+                root, commit, base, candidate, prior["writer_fence_active"]
+            )
+            _require_web(root, commit, candidate, candidate_spec_sha256, "base")
+            return {
+                **prior,
+                "current_commit": commit,
+                "migration_runtime_fix_commit": commit,
+            }
+        if subject == MIGRATION_RUNTIME_ADMISSION_FIX_SUBJECT:
+            _require_write_actor(root, commit)
+            if (
+                prior["phase"] != "migration"
+                or not prior["migration_runtime_fix_commit"]
+                or parent != prior["migration_runtime_fix_commit"]
+                or prior["migration_runtime_admission_fix_commit"]
+            ):
+                raise ValueError(
+                    "migration runtime admission fix must directly follow runtime fix"
+                )
+            _require_delta(root, commit, MIGRATION_RUNTIME_ADMISSION_FIX_PATHS)
+            _require_migration(root, commit, candidate, release_manifest_sha256)
+            _require_migration_service_state(
+                root, commit, base, candidate, prior["writer_fence_active"]
+            )
+            _require_web(root, commit, candidate, candidate_spec_sha256, "base")
+            return {
+                **prior,
+                "current_commit": commit,
+                "migration_runtime_admission_fix_commit": commit,
+            }
+        if subject == MIGRATION_PREFLIGHT_IDENTITY_FIX_SUBJECT:
+            _require_write_actor(root, commit)
+            if (
+                prior["phase"] != "migration"
+                or not prior["migration_runtime_admission_fix_commit"]
+                or parent != prior["migration_runtime_admission_fix_commit"]
+                or prior["migration_preflight_identity_fix_commit"]
+            ):
+                raise ValueError(
+                    "migration preflight identity fix must directly follow admission fix"
+                )
+            _require_delta(root, commit, MIGRATION_PREFLIGHT_IDENTITY_FIX_PATHS)
+            _require_migration(root, commit, candidate, release_manifest_sha256)
+            _require_migration_service_state(
+                root, commit, base, candidate, prior["writer_fence_active"]
+            )
+            _require_web(root, commit, candidate, candidate_spec_sha256, "base")
+            return {
+                **prior,
+                "current_commit": commit,
+                "migration_preflight_identity_fix_commit": commit,
+            }
+        if subject == SERVICE_STATUS_IMAGE_FIX_SUBJECT:
+            _require_write_actor(root, commit)
+            if (
+                prior["phase"] != "services"
+                or not prior["services_commit"]
+                or parent != prior["services_commit"]
+                or prior["service_status_image_fix_commit"]
+            ):
+                raise ValueError(
+                    "service status image fix must directly follow services"
+                )
+            _require_delta(root, commit, SERVICE_STATUS_IMAGE_FIX_PATHS)
+            _require_migration(root, commit, candidate, release_manifest_sha256)
+            _require_services(root, commit, candidate)
+            _require_web(root, commit, candidate, candidate_spec_sha256, "base")
+            return {
+                **prior,
+                "current_commit": commit,
+                "service_status_image_fix_commit": commit,
+            }
+        if subject == SERVICE_SOURCE_STATUS_FIX_SUBJECT:
+            _require_write_actor(root, commit)
+            if (
+                prior["phase"] != "services"
+                or not prior["service_status_image_fix_commit"]
+                or parent != prior["service_status_image_fix_commit"]
+                or prior["service_source_status_fix_commit"]
+            ):
+                raise ValueError(
+                    "service source status fix must directly follow status image fix"
+                )
+            _require_delta(root, commit, SERVICE_SOURCE_STATUS_FIX_PATHS)
+            _require_migration(root, commit, candidate, release_manifest_sha256)
+            _require_services(root, commit, candidate)
+            _require_web(root, commit, candidate, candidate_spec_sha256, "base")
+            return {
+                **prior,
+                "current_commit": commit,
+                "service_source_status_fix_commit": commit,
+            }
+        if subject == CANARY_RUNTIME_FORM_FIX_SUBJECT:
+            _require_write_actor(root, commit)
+            if (
+                prior["phase"] != "mission-on"
+                or not prior["on_commit"]
+                or parent != prior["on_commit"]
+                or prior["canary_runtime_form_fix_commit"]
+            ):
+                raise ValueError(
+                    "canary runtime form fix must directly follow mission-ON"
+                )
+            _require_delta(root, commit, CANARY_RUNTIME_FORM_FIX_PATHS)
+            _require_migration(root, commit, candidate, release_manifest_sha256)
+            _require_services(root, commit, candidate)
+            _require_web(root, commit, candidate, candidate_spec_sha256, "mission-on")
+            return {
+                **prior,
+                "current_commit": commit,
+                "canary_runtime_form_fix_commit": commit,
+                "on_commit": commit,
+            }
+        if subject == POST_ON_RESUME_FIX_SUBJECT:
+            _require_write_actor(root, commit)
+            if (
+                prior["phase"] != "mission-on"
+                or not prior["canary_runtime_form_fix_commit"]
+                or parent != prior["on_commit"]
+                or prior["post_on_resume_fix_commit"]
+            ):
+                raise ValueError(
+                    "post-ON resume fix must directly follow canary runtime form fix"
+                )
+            _require_delta(root, commit, POST_ON_RESUME_FIX_PATHS)
+            _require_migration(root, commit, candidate, release_manifest_sha256)
+            _require_services(root, commit, candidate)
+            _require_web(root, commit, candidate, candidate_spec_sha256, "mission-on")
+            return {
+                **prior,
+                "current_commit": commit,
+                "post_on_resume_fix_commit": commit,
+                "on_commit": commit,
+            }
+        if subject == WEB_APPLIED_REVISION_FIX_SUBJECT:
+            _require_write_actor(root, commit)
+            if (
+                prior["phase"] != "mission-on"
+                or not prior["post_on_resume_fix_commit"]
+                or parent != prior["on_commit"]
+                or prior["web_applied_revision_fix_commit"]
+            ):
+                raise ValueError(
+                    "web applied revision fix must directly follow post-ON resume fix"
+                )
+            _require_delta(root, commit, WEB_APPLIED_REVISION_FIX_PATHS)
+            _require_migration(root, commit, candidate, release_manifest_sha256)
+            _require_services(root, commit, candidate)
+            _require_web(root, commit, candidate, candidate_spec_sha256, "mission-on")
+            return {
+                **prior,
+                "current_commit": commit,
+                "web_applied_revision_fix_commit": commit,
+                "on_commit": commit,
+            }
+        if subject == STAGING_CONTEXT_AUTH_FIX_SUBJECT:
+            _require_write_actor(root, commit)
+            if (
+                prior["phase"] != "mission-on"
+                or not prior["web_applied_revision_fix_commit"]
+                or parent != prior["on_commit"]
+                or prior["staging_context_auth_fix_commit"]
+            ):
+                raise ValueError(
+                    "staging context auth fix must directly follow web applied revision fix"
+                )
+            _require_delta(root, commit, STAGING_CONTEXT_AUTH_FIX_PATHS)
+            _require_migration(root, commit, candidate, release_manifest_sha256)
+            _require_services(root, commit, candidate)
+            _require_web(root, commit, candidate, candidate_spec_sha256, "mission-on")
+            return {
+                **prior,
+                "current_commit": commit,
+                "staging_context_auth_fix_commit": commit,
+                "on_commit": commit,
             }
         if subject == services_subject:
             _require_write_actor(root, commit)
@@ -501,6 +969,7 @@ def inspect_chain(
                 "phase": "services",
                 "web_phase": "base",
                 "current_commit": commit,
+                "writer_fence_active": "false",
                 "services_commit": commit,
             }
         if subject == off_subject:

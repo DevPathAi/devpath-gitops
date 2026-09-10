@@ -8,11 +8,21 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts" / "release"
 FIXTURE = ROOT / "tests" / "release" / "fixtures" / "valid-candidate-spec.json"
+WEB_APPLIED_REVISION_FIX_PATHS = (
+    ".github/workflows/mission-spine-promote.yml",
+    ".github/workflows/mission-spine-rollback.yml",
+    "scripts/release/verify_promotion_chain.py",
+    "scripts/release/wait_web_rollout.py",
+    "tests/release/test_production_workflow_wiring.py",
+    "tests/release/test_promotion_chain.py",
+    "tests/release/test_release_hardening.py",
+)
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
@@ -27,8 +37,39 @@ def load_module(filename: str, name: str):
 
 def git(root: Path, *args: str) -> str:
     return subprocess.run(
-        ["git", *args], cwd=root, check=True, capture_output=True, text=True
+        [
+            "git",
+            "-c",
+            "maintenance.auto=false",
+            "-c",
+            "gc.auto=0",
+            *args,
+        ],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
     ).stdout.strip()
+
+
+class GitTestHelperTest(unittest.TestCase):
+    @mock.patch("subprocess.run")
+    def test_transient_repositories_disable_automatic_git_maintenance(self, run):
+        run.return_value.stdout = ""
+
+        git(Path("temporary-repository"), "status")
+
+        self.assertEqual(
+            [
+                "git",
+                "-c",
+                "maintenance.auto=false",
+                "-c",
+                "gc.auto=0",
+                "status",
+            ],
+            run.call_args.args[0],
+        )
 
 
 class PromotionChainTest(unittest.TestCase):
@@ -43,16 +84,76 @@ class PromotionChainTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         shutil.copytree(ROOT / "apps", self.root / "apps")
+        copied_contract_paths = {
+            *self.chain.SHARED_MIGRATION_APPROVAL_FIX_PATHS,
+            *self.chain.MIGRATION_RUNTIME_FIX_PATHS,
+            *self.chain.MIGRATION_RUNTIME_ADMISSION_FIX_PATHS,
+            *self.chain.MIGRATION_PREFLIGHT_IDENTITY_FIX_PATHS,
+            *self.chain.SERVICE_STATUS_IMAGE_FIX_PATHS,
+            *self.chain.SERVICE_SOURCE_STATUS_FIX_PATHS,
+            *self.chain.CANARY_RUNTIME_FORM_FIX_PATHS,
+            *WEB_APPLIED_REVISION_FIX_PATHS,
+        }
+        for relative in copied_contract_paths:
+            target = self.root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / relative, target)
+        self.candidate = copy.deepcopy(self.fixture)
+        historical_migration = {
+            "source_sha": "c4d468a70e8870e8f60f25539e91599def75f0f2",
+            "flyway_target": "202608221001",
+            "required_migration": "V202608221001__correct_question_bank_accuracy.sql",
+        }
+        job_path = self.root / self.chain.MIGRATION_JOB_PATH
+        job_path.write_text(
+            self.chain.render_migration_runtime_job(
+                job_path.read_text(encoding="utf-8"),
+                **historical_migration,
+            ),
+            encoding="utf-8",
+            newline="\n",
+        )
+        preflight_path = self.root / self.chain.MIGRATION_PREFLIGHT_PATH
+        preflight_path.write_text(
+            self.chain.render_migration_preflight(
+                preflight_path.read_text(encoding="utf-8"),
+                source_sha=historical_migration["source_sha"],
+                flyway_target=historical_migration["flyway_target"],
+            ),
+            encoding="utf-8",
+            newline="\n",
+        )
+        self.candidate_hash = "c" * 64
+        self.release_hash = "a" * 64
+        web_path = self.root / "apps/devpath-web/base/kustomization.yaml"
+        prior = self.candidate["frontend"]["rollback"]["prior_identity"]
+        web_source = (
+            "apiVersion: kustomize.config.k8s.io/v1beta1\n"
+            "kind: Kustomization\n"
+            "resources:\n"
+            "- deployment.yaml\n"
+            "- service.yaml\n"
+            "- ingress.yaml\n"
+            "configMapGenerator:\n"
+            "- name: devpath-web-release-identity\n"
+            "  literals:\n"
+            f"  - MISSION_RELEASE_READY={'true' if prior['ready'] else 'false'}\n"
+            f"  - MISSION_RELEASE_ID={prior['release_id']}\n"
+            f"  - MISSION_CANDIDATE_SPEC_SHA256={prior['candidate_spec_sha256']}\n"
+            f"  - MISSION_IMAGE_DIGEST={prior['image_digest']}\n"
+            "images:\n"
+            "- name: ghcr.io/devpathai/devpath-web\n"
+            "  newName: ghcr.io/devpathai/devpath-web\n"
+            f"  newTag: {self.candidate['gitops']['base_web_tag']}\n"
+        )
+        web_path.write_text(web_source, encoding="utf-8", newline="\n")
         git(self.root, "init", "-b", "main")
         git(self.root, "config", "user.name", "devpath-gitops-release[bot]")
         git(self.root, "config", "user.email", "test@example.invalid")
-        git(self.root, "add", "apps")
+        git(self.root, "add", ".github", "apps", "scripts", "tests")
         git(self.root, "commit", "-m", "base")
         self.base = git(self.root, "rev-parse", "HEAD")
-        self.candidate = copy.deepcopy(self.fixture)
         self.candidate["gitops"]["base_sha"] = self.base
-        self.candidate_hash = "c" * 64
-        self.release_hash = "a" * 64
 
     def tearDown(self):
         self.temp.cleanup()
@@ -63,6 +164,174 @@ class PromotionChainTest(unittest.TestCase):
         if allow_empty:
             arguments.append("--allow-empty")
         git(self.root, *arguments, "-m", subject)
+        return git(self.root, "rev-parse", "HEAD")
+
+    def commit_shared_migration_approval_fix(self, suffix: str = "") -> str:
+        paths = self.chain.SHARED_MIGRATION_APPROVAL_FIX_PATHS
+        for relative in paths:
+            path = self.root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"approval-contract-fix{suffix}\n", encoding="utf-8")
+        git(self.root, "add", *paths)
+        git(self.root, "commit", "-m", self.chain.SHARED_MIGRATION_APPROVAL_FIX_SUBJECT)
+        return git(self.root, "rev-parse", "HEAD")
+
+    def commit_migration_runtime_fix(self, *, suffix: str = "") -> str:
+        paths = self.chain.MIGRATION_RUNTIME_FIX_PATHS
+        source_sha = self.candidate["shared_migration"]["source_sha"]
+        target = self.candidate["shared_migration"]["flyway_target"]
+        required = self.candidate["shared_migration"]["required_migration"]
+        job_path = self.root / self.chain.MIGRATION_JOB_PATH
+        job = job_path.read_text(encoding="utf-8")
+        job = self.chain.render_migration_runtime_job(
+            job,
+            source_sha=source_sha,
+            flyway_target=target,
+            required_migration=required,
+        )
+        job_path.write_text(job, encoding="utf-8", newline="\n")
+        preflight_path = self.root / self.chain.MIGRATION_PREFLIGHT_PATH
+        preflight = self.chain.render_migration_preflight(
+            preflight_path.read_text(encoding="utf-8"),
+            source_sha=source_sha,
+            flyway_target=target,
+        )
+        preflight_path.write_text(preflight, encoding="utf-8", newline="\n")
+        for relative in paths:
+            if relative in {self.chain.MIGRATION_JOB_PATH, self.chain.MIGRATION_PREFLIGHT_PATH}:
+                continue
+            path = self.root / relative
+            path.write_text(
+                path.read_text(encoding="utf-8") + f"\n# migration-runtime-fix{suffix}\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+        git(self.root, "add", *paths)
+        git(self.root, "commit", "-m", self.chain.MIGRATION_RUNTIME_FIX_SUBJECT)
+        return git(self.root, "rev-parse", "HEAD")
+
+    def commit_migration_runtime_admission_fix(self, *, suffix: str = "") -> str:
+        paths = self.chain.MIGRATION_RUNTIME_ADMISSION_FIX_PATHS
+        for relative in paths:
+            path = self.root / relative
+            path.write_text(
+                path.read_text(encoding="utf-8")
+                + f"\n# migration-runtime-admission-fix{suffix}\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+        git(self.root, "add", *paths)
+        git(
+            self.root,
+            "commit",
+            "-m",
+            self.chain.MIGRATION_RUNTIME_ADMISSION_FIX_SUBJECT,
+        )
+        return git(self.root, "rev-parse", "HEAD")
+
+    def commit_migration_preflight_identity_fix(self, *, suffix: str = "") -> str:
+        paths = self.chain.MIGRATION_PREFLIGHT_IDENTITY_FIX_PATHS
+        for relative in paths:
+            path = self.root / relative
+            path.write_text(
+                path.read_text(encoding="utf-8")
+                + f"\n# migration-preflight-identity-fix{suffix}\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+        git(self.root, "add", *paths)
+        git(
+            self.root,
+            "commit",
+            "-m",
+            self.chain.MIGRATION_PREFLIGHT_IDENTITY_FIX_SUBJECT,
+        )
+        return git(self.root, "rev-parse", "HEAD")
+
+    def commit_service_status_image_fix(self, *, suffix: str = "") -> str:
+        paths = self.chain.SERVICE_STATUS_IMAGE_FIX_PATHS
+        for relative in paths:
+            path = self.root / relative
+            path.write_text(
+                path.read_text(encoding="utf-8")
+                + f"\n# service-status-image-fix{suffix}\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+        git(self.root, "add", *paths)
+        git(self.root, "commit", "-m", self.chain.SERVICE_STATUS_IMAGE_FIX_SUBJECT)
+        return git(self.root, "rev-parse", "HEAD")
+
+    def commit_service_source_status_fix(self, *, suffix: str = "") -> str:
+        paths = self.chain.SERVICE_SOURCE_STATUS_FIX_PATHS
+        for relative in paths:
+            path = self.root / relative
+            path.write_text(
+                path.read_text(encoding="utf-8")
+                + f"\n# service-source-status-fix{suffix}\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+        git(self.root, "add", *paths)
+        git(self.root, "commit", "-m", self.chain.SERVICE_SOURCE_STATUS_FIX_SUBJECT)
+        return git(self.root, "rev-parse", "HEAD")
+
+    def commit_canary_runtime_form_fix(self, *, suffix: str = "") -> str:
+        paths = self.chain.CANARY_RUNTIME_FORM_FIX_PATHS
+        for relative in paths:
+            path = self.root / relative
+            path.write_text(
+                path.read_text(encoding="utf-8")
+                + f"\n# canary-runtime-form-fix{suffix}\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+        git(self.root, "add", *paths)
+        git(self.root, "commit", "-m", self.chain.CANARY_RUNTIME_FORM_FIX_SUBJECT)
+        return git(self.root, "rev-parse", "HEAD")
+
+    def commit_post_on_resume_fix(self, *, suffix: str = "") -> str:
+        paths = self.chain.POST_ON_RESUME_FIX_PATHS
+        for relative in paths:
+            path = self.root / relative
+            path.write_text(
+                path.read_text(encoding="utf-8")
+                + f"\n# post-on-resume-fix{suffix}\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+        git(self.root, "add", *paths)
+        git(self.root, "commit", "-m", self.chain.POST_ON_RESUME_FIX_SUBJECT)
+        return git(self.root, "rev-parse", "HEAD")
+
+    def commit_web_applied_revision_fix(self, *, suffix: str = "") -> str:
+        self.assertEqual(
+            WEB_APPLIED_REVISION_FIX_PATHS,
+            self.chain.WEB_APPLIED_REVISION_FIX_PATHS,
+        )
+        for relative in self.chain.WEB_APPLIED_REVISION_FIX_PATHS:
+            path = self.root / relative
+            path.write_text(
+                path.read_text(encoding="utf-8")
+                + f"\n# web-applied-revision-fix{suffix}\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+        git(self.root, "add", *self.chain.WEB_APPLIED_REVISION_FIX_PATHS)
+        git(self.root, "commit", "-m", self.chain.WEB_APPLIED_REVISION_FIX_SUBJECT)
+        return git(self.root, "rev-parse", "HEAD")
+
+    def commit_staging_context_auth_fix(self, *, suffix: str = "") -> str:
+        for relative in self.chain.STAGING_CONTEXT_AUTH_FIX_PATHS:
+            path = self.root / relative
+            path.write_text(
+                path.read_text(encoding="utf-8")
+                + f"\n# staging-context-auth-fix{suffix}\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+        git(self.root, "add", *self.chain.STAGING_CONTEXT_AUTH_FIX_PATHS)
+        git(self.root, "commit", "-m", self.chain.STAGING_CONTEXT_AUTH_FIX_SUBJECT)
         return git(self.root, "rev-parse", "HEAD")
 
     def set_migration(self):
@@ -341,6 +610,475 @@ class PromotionChainTest(unittest.TestCase):
         drift = self.commit("unsealed drift")
         with self.assertRaises(ValueError):
             self.inspect(drift)
+
+    def test_new_migration_commit_cannot_use_the_legacy_unfenced_path_set(self):
+        path = self.root / self.chain.MIGRATION_PATH
+        path.write_text(
+            self.chain.render_migration_kustomization(
+                path.read_text(encoding="utf-8"),
+                self.candidate["shared_migration"]["image_digest"],
+                self.release_hash,
+            ),
+            encoding="utf-8",
+            newline="\n",
+        )
+        migration = self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+
+        with self.assertRaisesRegex(ValueError, "path set is not exact"):
+            self.inspect(migration)
+
+    def test_single_exact_shared_migration_approval_fix_is_phase_transparent(self):
+        self.set_migration()
+        migration = self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        control = self.commit_shared_migration_approval_fix()
+
+        state = self.inspect(control)
+        self.assertEqual("migration", state["phase"])
+        self.assertEqual(migration, state["migration_commit"])
+        self.assertEqual(control, state["current_commit"])
+
+        self.set_services()
+        services = self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        self.assertEqual("services", self.inspect(services)["phase"])
+
+    def test_shared_migration_approval_fix_requires_migration_and_cannot_repeat(self):
+        before_migration = self.commit_shared_migration_approval_fix()
+        with self.assertRaisesRegex(ValueError, "directly follow migration"):
+            self.inspect(before_migration)
+
+        git(self.root, "reset", "--hard", self.base)
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.commit_shared_migration_approval_fix()
+        repeated = self.commit_shared_migration_approval_fix("-repeated")
+        with self.assertRaisesRegex(ValueError, "directly follow migration"):
+            self.inspect(repeated)
+
+    def test_exact_migration_runtime_fix_is_phase_transparent_and_cannot_repeat(self):
+        self.set_migration()
+        migration = self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        approval = self.commit_shared_migration_approval_fix()
+        runtime = self.commit_migration_runtime_fix()
+
+        state = self.inspect(runtime)
+        self.assertEqual("migration", state["phase"])
+        self.assertEqual(migration, state["migration_commit"])
+        self.assertEqual(approval, state["shared_migration_approval_fix_commit"])
+        self.assertEqual(runtime, state["migration_runtime_fix_commit"])
+        self.assertEqual(runtime, state["current_commit"])
+
+        repeated = self.commit_migration_runtime_fix(suffix="-repeated")
+        with self.assertRaisesRegex(ValueError, "directly follow approval fix"):
+            self.inspect(repeated)
+
+    def test_migration_runtime_fix_rebinds_only_the_prior_target_sql_assertion(self):
+        source = (self.root / self.chain.MIGRATION_JOB_PATH).read_text(
+            encoding="utf-8"
+        )
+        migration = self.candidate["shared_migration"]
+
+        rendered = self.chain.render_migration_runtime_job(
+            source,
+            source_sha=migration["source_sha"],
+            flyway_target=migration["flyway_target"],
+            required_migration=migration["required_migration"],
+        )
+
+        self.assertIn(
+            f"test -f /flyway/sql/{migration['required_migration']}", rendered
+        )
+        self.assertNotIn(
+            "test -f /flyway/sql/V202608221001__correct_question_bank_accuracy.sql",
+            rendered,
+        )
+        self.assertIn(
+            "test -f /flyway/sql/V202609051003__mentor_invite_codes.sql",
+            rendered,
+        )
+
+    def test_migration_runtime_fix_requires_the_approval_fix_and_exact_paths(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        runtime = self.commit_migration_runtime_fix()
+        with self.assertRaisesRegex(ValueError, "directly follow approval fix"):
+            self.inspect(runtime)
+
+        git(self.root, "reset", "--hard", "HEAD^")
+        self.commit_shared_migration_approval_fix()
+        omitted = self.chain.MIGRATION_RUNTIME_FIX_PATHS[-1]
+        path = self.root / omitted
+        path.write_text(
+            path.read_text(encoding="utf-8") + "\n# omitted-path-restored\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+        runtime = self.commit_migration_runtime_fix()
+        git(self.root, "checkout", "HEAD^", "--", omitted)
+        git(self.root, "add", omitted)
+        git(self.root, "commit", "--amend", "--no-edit")
+        runtime = git(self.root, "rev-parse", "HEAD")
+        with self.assertRaisesRegex(ValueError, "path set is not exact"):
+            self.inspect(runtime)
+
+    def test_exact_runtime_admission_fix_is_phase_transparent_and_cannot_repeat(self):
+        self.set_migration()
+        migration = self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        approval = self.commit_shared_migration_approval_fix()
+        runtime = self.commit_migration_runtime_fix()
+        admission = self.commit_migration_runtime_admission_fix()
+
+        state = self.inspect(admission)
+        self.assertEqual("migration", state["phase"])
+        self.assertEqual(migration, state["migration_commit"])
+        self.assertEqual(approval, state["shared_migration_approval_fix_commit"])
+        self.assertEqual(runtime, state["migration_runtime_fix_commit"])
+        self.assertEqual(admission, state["migration_runtime_admission_fix_commit"])
+        self.assertEqual(admission, state["current_commit"])
+
+        repeated = self.commit_migration_runtime_admission_fix(suffix="-repeated")
+        with self.assertRaisesRegex(ValueError, "directly follow runtime fix"):
+            self.inspect(repeated)
+
+    def test_runtime_admission_fix_requires_runtime_fix_and_exact_paths(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.commit_shared_migration_approval_fix()
+        admission = self.commit_migration_runtime_admission_fix()
+        with self.assertRaisesRegex(ValueError, "directly follow runtime fix"):
+            self.inspect(admission)
+
+        git(self.root, "reset", "--hard", "HEAD^")
+        self.commit_migration_runtime_fix()
+        omitted = self.chain.MIGRATION_RUNTIME_ADMISSION_FIX_PATHS[-1]
+        self.commit_migration_runtime_admission_fix()
+        git(self.root, "checkout", "HEAD^", "--", omitted)
+        git(self.root, "add", omitted)
+        git(self.root, "commit", "--amend", "--no-edit")
+        admission = git(self.root, "rev-parse", "HEAD")
+        with self.assertRaisesRegex(ValueError, "path set is not exact"):
+            self.inspect(admission)
+
+    def test_exact_preflight_identity_fix_is_phase_transparent_and_cannot_repeat(self):
+        self.set_migration()
+        migration = self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        approval = self.commit_shared_migration_approval_fix()
+        runtime = self.commit_migration_runtime_fix()
+        admission = self.commit_migration_runtime_admission_fix()
+        identity = self.commit_migration_preflight_identity_fix()
+
+        state = self.inspect(identity)
+        self.assertEqual("migration", state["phase"])
+        self.assertEqual(migration, state["migration_commit"])
+        self.assertEqual(approval, state["shared_migration_approval_fix_commit"])
+        self.assertEqual(runtime, state["migration_runtime_fix_commit"])
+        self.assertEqual(admission, state["migration_runtime_admission_fix_commit"])
+        self.assertEqual(identity, state["migration_preflight_identity_fix_commit"])
+        self.assertEqual(identity, state["current_commit"])
+
+        repeated = self.commit_migration_preflight_identity_fix(suffix="-repeated")
+        with self.assertRaisesRegex(ValueError, "directly follow admission fix"):
+            self.inspect(repeated)
+
+    def test_preflight_identity_fix_requires_admission_fix_and_exact_paths(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.commit_shared_migration_approval_fix()
+        self.commit_migration_runtime_fix()
+        identity = self.commit_migration_preflight_identity_fix()
+        with self.assertRaisesRegex(ValueError, "directly follow admission fix"):
+            self.inspect(identity)
+
+        git(self.root, "reset", "--hard", "HEAD^")
+        self.commit_migration_runtime_admission_fix()
+        omitted = self.chain.MIGRATION_PREFLIGHT_IDENTITY_FIX_PATHS[-1]
+        self.commit_migration_preflight_identity_fix()
+        git(self.root, "checkout", "HEAD^", "--", omitted)
+        git(self.root, "add", omitted)
+        git(self.root, "commit", "--amend", "--no-edit")
+        identity = git(self.root, "rev-parse", "HEAD")
+        with self.assertRaisesRegex(ValueError, "path set is not exact"):
+            self.inspect(identity)
+
+    def test_exact_service_status_image_fix_is_phase_transparent_and_cannot_repeat(self):
+        self.set_migration()
+        migration = self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        approval = self.commit_shared_migration_approval_fix()
+        runtime = self.commit_migration_runtime_fix()
+        admission = self.commit_migration_runtime_admission_fix()
+        identity = self.commit_migration_preflight_identity_fix()
+        self.set_services()
+        services = self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        status_image = self.commit_service_status_image_fix()
+
+        state = self.inspect(status_image)
+        self.assertEqual("services", state["phase"])
+        self.assertEqual(migration, state["migration_commit"])
+        self.assertEqual(approval, state["shared_migration_approval_fix_commit"])
+        self.assertEqual(runtime, state["migration_runtime_fix_commit"])
+        self.assertEqual(admission, state["migration_runtime_admission_fix_commit"])
+        self.assertEqual(identity, state["migration_preflight_identity_fix_commit"])
+        self.assertEqual(services, state["services_commit"])
+        self.assertEqual(status_image, state["service_status_image_fix_commit"])
+        self.assertEqual(status_image, state["current_commit"])
+
+        repeated = self.commit_service_status_image_fix(suffix="-repeated")
+        with self.assertRaisesRegex(ValueError, "directly follow services"):
+            self.inspect(repeated)
+
+    def test_service_status_image_fix_requires_identity_fix_and_exact_paths(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.commit_shared_migration_approval_fix()
+        self.commit_migration_runtime_fix()
+        self.commit_migration_runtime_admission_fix()
+        status_image = self.commit_service_status_image_fix()
+        with self.assertRaisesRegex(ValueError, "directly follow services"):
+            self.inspect(status_image)
+
+        git(self.root, "reset", "--hard", "HEAD^")
+        self.commit_migration_preflight_identity_fix()
+        self.set_services()
+        self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        omitted = self.chain.SERVICE_STATUS_IMAGE_FIX_PATHS[-1]
+        self.commit_service_status_image_fix()
+        git(self.root, "checkout", "HEAD^", "--", omitted)
+        git(self.root, "add", omitted)
+        git(self.root, "commit", "--amend", "--no-edit")
+        status_image = git(self.root, "rev-parse", "HEAD")
+        with self.assertRaisesRegex(ValueError, "path set is not exact"):
+            self.inspect(status_image)
+
+    def test_exact_service_source_status_fix_is_phase_transparent_and_cannot_repeat(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.commit_shared_migration_approval_fix()
+        self.commit_migration_runtime_fix()
+        self.commit_migration_runtime_admission_fix()
+        self.commit_migration_preflight_identity_fix()
+        self.set_services()
+        services = self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        status_image = self.commit_service_status_image_fix()
+        source_status = self.commit_service_source_status_fix()
+
+        state = self.inspect(source_status)
+        self.assertEqual("services", state["phase"])
+        self.assertEqual(services, state["services_commit"])
+        self.assertEqual(status_image, state["service_status_image_fix_commit"])
+        self.assertEqual(source_status, state["service_source_status_fix_commit"])
+        self.assertEqual(source_status, state["current_commit"])
+
+        repeated = self.commit_service_source_status_fix(suffix="-repeated")
+        with self.assertRaisesRegex(ValueError, "directly follow status image fix"):
+            self.inspect(repeated)
+
+    def test_service_source_status_fix_requires_status_fix_and_exact_paths(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.commit_shared_migration_approval_fix()
+        self.commit_migration_runtime_fix()
+        self.commit_migration_runtime_admission_fix()
+        self.commit_migration_preflight_identity_fix()
+        self.set_services()
+        self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        source_status = self.commit_service_source_status_fix()
+        with self.assertRaisesRegex(ValueError, "directly follow status image fix"):
+            self.inspect(source_status)
+
+        git(self.root, "reset", "--hard", "HEAD^")
+        self.commit_service_status_image_fix()
+        omitted = self.chain.SERVICE_SOURCE_STATUS_FIX_PATHS[-1]
+        self.commit_service_source_status_fix()
+        git(self.root, "checkout", "HEAD^", "--", omitted)
+        git(self.root, "add", omitted)
+        git(self.root, "commit", "--amend", "--no-edit")
+        source_status = git(self.root, "rev-parse", "HEAD")
+        with self.assertRaisesRegex(ValueError, "path set is not exact"):
+            self.inspect(source_status)
+
+    def test_exact_canary_runtime_form_fix_is_on_transparent_and_cannot_repeat(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.set_services()
+        self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        self.set_web("mission-off", "base")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-off")
+        self.set_web("mission-on", "mission-off")
+        on = self.commit(
+            f"release(web): promote {self.candidate['release_id']} mission-on"
+        )
+        runtime_form = self.commit_canary_runtime_form_fix()
+
+        state = self.inspect(runtime_form)
+        self.assertEqual("mission-on", state["phase"])
+        self.assertNotEqual(on, runtime_form)
+        self.assertEqual(runtime_form, state["on_commit"])
+        self.assertEqual(runtime_form, state["canary_runtime_form_fix_commit"])
+        self.assertEqual(runtime_form, state["current_commit"])
+
+        repeated = self.commit_canary_runtime_form_fix(suffix="-repeated")
+        with self.assertRaisesRegex(ValueError, "directly follow mission-ON"):
+            self.inspect(repeated)
+
+    def test_canary_runtime_form_fix_requires_on_and_exact_paths(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.set_services()
+        self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        self.set_web("mission-off", "base")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-off")
+        runtime_form = self.commit_canary_runtime_form_fix()
+        with self.assertRaisesRegex(ValueError, "directly follow mission-ON"):
+            self.inspect(runtime_form)
+
+        git(self.root, "reset", "--hard", "HEAD^")
+        self.set_web("mission-on", "mission-off")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-on")
+        omitted = self.chain.CANARY_RUNTIME_FORM_FIX_PATHS[-1]
+        self.commit_canary_runtime_form_fix()
+        git(self.root, "checkout", "HEAD^", "--", omitted)
+        git(self.root, "add", omitted)
+        git(self.root, "commit", "--amend", "--no-edit")
+        runtime_form = git(self.root, "rev-parse", "HEAD")
+        with self.assertRaisesRegex(ValueError, "path set is not exact"):
+            self.inspect(runtime_form)
+
+    def test_post_on_resume_fix_advances_exact_on_identity_and_cannot_repeat(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.set_services()
+        self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        self.set_web("mission-off", "base")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-off")
+        self.set_web("mission-on", "mission-off")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-on")
+        runtime_form = self.commit_canary_runtime_form_fix()
+        resume = self.commit_post_on_resume_fix()
+
+        state = self.inspect(resume)
+        self.assertEqual("mission-on", state["phase"])
+        self.assertEqual(runtime_form, state["canary_runtime_form_fix_commit"])
+        self.assertEqual(resume, state["post_on_resume_fix_commit"])
+        self.assertEqual(resume, state["on_commit"])
+        self.assertEqual(resume, state["current_commit"])
+
+        omitted = self.chain.POST_ON_RESUME_FIX_PATHS[-1]
+        git(self.root, "checkout", "HEAD^", "--", omitted)
+        git(self.root, "add", omitted)
+        git(self.root, "commit", "--amend", "--no-edit")
+        malformed = git(self.root, "rev-parse", "HEAD")
+        with self.assertRaisesRegex(ValueError, "path set is not exact"):
+            self.inspect(malformed)
+
+        git(self.root, "reset", "--hard", runtime_form)
+        self.commit_post_on_resume_fix()
+        repeated = self.commit_post_on_resume_fix(suffix="-repeated")
+        with self.assertRaisesRegex(ValueError, "directly follow canary runtime form fix"):
+            self.inspect(repeated)
+
+    def test_web_applied_revision_fix_advances_on_identity_and_cannot_repeat(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.set_services()
+        self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        self.set_web("mission-off", "base")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-off")
+        self.set_web("mission-on", "mission-off")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-on")
+        self.commit_canary_runtime_form_fix()
+        resume = self.commit_post_on_resume_fix()
+        applied = self.commit_web_applied_revision_fix()
+
+        state = self.inspect(applied)
+        self.assertEqual("mission-on", state["phase"])
+        self.assertEqual(resume, state["post_on_resume_fix_commit"])
+        self.assertEqual(applied, state["web_applied_revision_fix_commit"])
+        self.assertEqual(applied, state["on_commit"])
+        self.assertEqual(applied, state["current_commit"])
+
+        repeated = self.commit_web_applied_revision_fix(suffix="-repeated")
+        with self.assertRaisesRegex(ValueError, "directly follow post-ON resume fix"):
+            self.inspect(repeated)
+
+    def test_staging_context_auth_fix_advances_on_identity_and_cannot_repeat(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.set_services()
+        self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        self.set_web("mission-off", "base")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-off")
+        self.set_web("mission-on", "mission-off")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-on")
+        self.commit_canary_runtime_form_fix()
+        self.commit_post_on_resume_fix()
+        applied = self.commit_web_applied_revision_fix()
+        auth = self.commit_staging_context_auth_fix()
+
+        state = self.inspect(auth)
+        self.assertEqual("mission-on", state["phase"])
+        self.assertEqual(applied, state["web_applied_revision_fix_commit"])
+        self.assertEqual(auth, state["staging_context_auth_fix_commit"])
+        self.assertEqual(auth, state["on_commit"])
+        self.assertEqual(auth, state["current_commit"])
+
+        repeated = self.commit_staging_context_auth_fix(suffix="-repeated")
+        with self.assertRaisesRegex(ValueError, "directly follow web applied revision fix"):
+            self.inspect(repeated)
 
     def test_recognized_commit_from_non_app_actor_is_rejected(self):
         self.set_migration()

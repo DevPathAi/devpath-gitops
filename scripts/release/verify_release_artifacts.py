@@ -153,6 +153,10 @@ PROTECTED_APPROVAL_CONTRACTS = {
         "mission-spine-privacy-approval",
         "Approve analytics privacy release",
     ),
+    "shared-migration-result": (
+        "mission-spine-migration-release",
+        "deploy",
+    ),
     "manual-nvda": ("manual-at-nvda", "Approve manual NVDA evidence"),
     "manual-talkback": (
         "manual-at-talkback",
