@@ -158,7 +158,6 @@ def _project(token: str, base: str) -> dict:
     config = source.get("config") if isinstance(source, dict) else None
     direct_upload = (
         isinstance(project, dict)
-        and "source" in project
         and source is None
     )
     git_source_fenced = (

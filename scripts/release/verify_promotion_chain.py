@@ -146,6 +146,15 @@ STAGING_CONTEXT_AUTH_FIX_PATHS = (
     "tests/release/test_production_workflow_wiring.py",
     "tests/release/test_promotion_chain.py",
 )
+LANDING_DIRECT_UPLOAD_SOURCE_FIX_SUBJECT = (
+    "fix(release): accept Pages direct-upload source omission"
+)
+LANDING_DIRECT_UPLOAD_SOURCE_FIX_PATHS = (
+    "scripts/release/cloudflare_pages.py",
+    "scripts/release/verify_promotion_chain.py",
+    "tests/release/test_promotion_chain.py",
+    "tests/release/test_release_hardening.py",
+)
 
 
 def _git(root: Path, args: list[str], *, binary: bool = False) -> str | bytes:
@@ -726,6 +735,7 @@ def inspect_chain(
                 "post_on_resume_fix_commit": "",
                 "web_applied_revision_fix_commit": "",
                 "staging_context_auth_fix_commit": "",
+                "landing_direct_upload_source_fix_commit": "",
                 "services_commit": "",
                 "off_commit": "",
                 "on_commit": "",
@@ -989,6 +999,27 @@ def inspect_chain(
                 **prior,
                 "current_commit": commit,
                 "staging_context_auth_fix_commit": commit,
+                "on_commit": commit,
+            }
+        if subject == LANDING_DIRECT_UPLOAD_SOURCE_FIX_SUBJECT:
+            _require_write_actor(root, commit)
+            if (
+                prior["phase"] != "mission-on"
+                or not prior["on_commit"]
+                or parent != prior["on_commit"]
+                or prior["landing_direct_upload_source_fix_commit"]
+            ):
+                raise ValueError(
+                    "Landing direct-upload source fix must directly follow mission-ON"
+                )
+            _require_delta(root, commit, LANDING_DIRECT_UPLOAD_SOURCE_FIX_PATHS)
+            _require_migration(root, commit, candidate, release_manifest_sha256)
+            _require_services(root, commit, candidate)
+            _require_web(root, commit, candidate, candidate_spec_sha256, "mission-on")
+            return {
+                **prior,
+                "current_commit": commit,
+                "landing_direct_upload_source_fix_commit": commit,
                 "on_commit": commit,
             }
         if subject == services_subject:

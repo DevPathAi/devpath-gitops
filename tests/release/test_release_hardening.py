@@ -1036,6 +1036,27 @@ images:
                 deployment,
             )
 
+        # The live Pages API omits ``source`` entirely for Direct Upload
+        # projects.  Omission is equivalent to the documented null form and
+        # still proves that no external Git source can create production
+        # deployments.
+        with mock.patch.object(
+            self.cloudflare,
+            "_api",
+            return_value={
+                "result": {
+                    "canonical_deployment": deployment,
+                    "production_branch": "develop",
+                }
+            },
+        ):
+            self.assertEqual(
+                self.cloudflare._current_production(
+                    "test-token", "/accounts/a/pages/projects/p/deployments"
+                ),
+                deployment,
+            )
+
         for mutation in (
             {"production_branch": "main"},
             {"source": {"config": {"production_branch": "develop", "production_deployments_enabled": True}}},
