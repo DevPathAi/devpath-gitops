@@ -77,3 +77,282 @@ jobs:
           python3 scripts/release/verify_gitops_write_authority.py \
             --expected-app-id "$APP_ID" --app-slug "$APP_SLUG" \
             --installation-id "$INSTALLATION_ID"
+
+  dispatch-prod27-ai-digest-main-publish:
+    if: ${{ github.ref == 'refs/heads/chore/prod27-ai-digest-main-publish-v2-20260910' && !inputs.full }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+      pull-requests: read
+    env:
+      EXPECTED_MAIN: e7c32930ee42061075283a9893bd46247f16868d
+      DESIRED_HEAD: db3652122fab3ec870f70b82bc5af4f95d3a61cd
+      EXPECTED_PR: "150"
+      HELPER_BRANCH: chore/prod27-ai-digest-main-publish-v2-20260910
+      TARGET_BRANCH: fix/ai-release-digest-runtime-main-20260910
+      GITHUB_API_VERSION: "2026-03-10"
+    steps:
+      - name: Checkout the exact one-shot helper
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Prove the exact user dispatcher and immutable coordinates
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_FULL: ${{ inputs.full }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTOR" = "VelkaressiaBlutkrone"
+          test "$GITHUB_TRIGGERING_ACTOR" = "VelkaressiaBlutkrone"
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          test "$GITHUB_REF" = "refs/heads/$HELPER_BRANCH"
+          test "$GITHUB_REF_NAME" = "$HELPER_BRANCH"
+          test "$INPUT_FULL" = "false"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_MAIN"
+          mapfile -t helper_paths < <(git diff-tree --no-commit-id --name-only -r HEAD)
+          test "${#helper_paths[@]}" -eq 1
+          test "${helper_paths[0]}" = ".github/workflows/mission-spine-auth-smoke.yml"
+          test "$(
+            gh api -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+              "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha'
+          )" = "$EXPECTED_MAIN"
+          test "$(
+            gh api -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+              "repos/$GITHUB_REPOSITORY/branches/${HELPER_BRANCH//\//%2F}" --jq '.commit.sha'
+          )" = "$GITHUB_SHA"
+          test "$(
+            gh api -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+              "repos/$GITHUB_REPOSITORY/branches/${TARGET_BRANCH//\//%2F}" --jq '.commit.sha'
+          )" = "$DESIRED_HEAD"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/pulls/$EXPECTED_PR" --jq '.state')" = "open"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/pulls/$EXPECTED_PR" --jq '.base.sha')" = "$EXPECTED_MAIN"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/pulls/$EXPECTED_PR" --jq '.head.sha')" = "$DESIRED_HEAD"
+
+      - name: Dispatch the protected App writer through GitHub Actions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          payload="$RUNNER_TEMP/prod27-ai-digest-main-dispatch.json"
+          response="$RUNNER_TEMP/prod27-ai-digest-main-response.json"
+          run_document="$RUNNER_TEMP/prod27-ai-digest-main-run.json"
+          umask 077
+          jq -n --arg ref "$HELPER_BRANCH" \
+            '{ref: $ref, inputs: {full: "true"}, return_run_details: true}' >"$payload"
+          gh api --method POST \
+            -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+            --input "$payload" \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/mission-spine-auth-smoke.yml/dispatches" \
+            >"$response"
+          inner_run_id="$(jq -er '.workflow_run_id | select(type == "number" and . > 0)' "$response")"
+
+          cancel_inner() {
+            gh api --method POST \
+              -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$inner_run_id/cancel" \
+              >/dev/null 2>&1 || true
+          }
+          trap 'status=$?; if test "$status" -ne 0; then cancel_inner; fi; exit "$status"' EXIT
+          for attempt in $(seq 1 12); do
+            if gh api -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$inner_run_id" >"$run_document"; then
+              break
+            fi
+            test "$attempt" -lt 12
+            sleep 1
+          done
+          test "$(jq -er '.actor.login' "$run_document")" = "github-actions[bot]"
+          test "$(jq -er '.actor.id' "$run_document")" = "41898282"
+          test "$(jq -er '.actor.type' "$run_document")" = "Bot"
+          test "$(jq -er '.triggering_actor.login' "$run_document")" = "github-actions[bot]"
+          test "$(jq -er '.triggering_actor.id' "$run_document")" = "41898282"
+          test "$(jq -er '.triggering_actor.type' "$run_document")" = "Bot"
+          test "$(jq -er '.head_sha' "$run_document")" = "$GITHUB_SHA"
+          test "$(jq -er '.run_attempt' "$run_document")" = "1"
+          test "$(jq -er '.path' "$run_document")" = ".github/workflows/mission-spine-auth-smoke.yml"
+          trap - EXIT
+          echo "inner_run_id=$inner_run_id" >>"$GITHUB_STEP_SUMMARY"
+
+  apply-prod27-ai-digest-main-publish:
+    name: Apply prod27 AI digest verifier main publish
+    if: ${{ github.ref == 'refs/heads/chore/prod27-ai-digest-main-publish-v2-20260910' && inputs.full }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: mission-spine-production-off
+    permissions:
+      actions: read
+      contents: read
+      deployments: write
+      pull-requests: read
+    env:
+      EXPECTED_MAIN: e7c32930ee42061075283a9893bd46247f16868d
+      DESIRED_HEAD: db3652122fab3ec870f70b82bc5af4f95d3a61cd
+      EXPECTED_PR: "150"
+      HELPER_BRANCH: chore/prod27-ai-digest-main-publish-v2-20260910
+      TARGET_BRANCH: fix/ai-release-digest-runtime-main-20260910
+      GITHUB_API_VERSION: "2026-03-10"
+      PYTHONDONTWRITEBYTECODE: "1"
+      GIT_CONFIG_COUNT: "2"
+      GIT_CONFIG_KEY_0: maintenance.auto
+      GIT_CONFIG_VALUE_0: "false"
+      GIT_CONFIG_KEY_1: gc.auto
+      GIT_CONFIG_VALUE_1: "0"
+    steps:
+      - name: Checkout the exact protected helper
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+          path: helper
+
+      - name: Prove the exact protected automation context
+        working-directory: helper
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_FULL: ${{ inputs.full }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTOR" = "github-actions[bot]"
+          test "$GITHUB_TRIGGERING_ACTOR" = "github-actions[bot]"
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          test "$GITHUB_REF" = "refs/heads/$HELPER_BRANCH"
+          test "$GITHUB_REF_NAME" = "$HELPER_BRANCH"
+          test "$INPUT_FULL" = "true"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_MAIN"
+          mapfile -t helper_paths < <(git diff-tree --no-commit-id --name-only -r HEAD)
+          test "${#helper_paths[@]}" -eq 1
+          test "${helper_paths[0]}" = ".github/workflows/mission-spine-auth-smoke.yml"
+          test "$(
+            gh api -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+              "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha'
+          )" = "$EXPECTED_MAIN"
+          test "$(
+            gh api -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+              "repos/$GITHUB_REPOSITORY/branches/${HELPER_BRANCH//\//%2F}" --jq '.commit.sha'
+          )" = "$GITHUB_SHA"
+
+      - name: Checkout the exact reviewed target
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ env.DESIRED_HEAD }}
+          fetch-depth: 2
+          persist-credentials: false
+          path: target
+
+      - name: Authenticate the exact PR, target lineage, paths, and blobs
+        working-directory: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$DESIRED_HEAD"
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_MAIN"
+          test "$(git rev-list --count "$EXPECTED_MAIN..$DESIRED_HEAD")" = "1"
+          test "$(git merge-base "$EXPECTED_MAIN" "$DESIRED_HEAD")" = "$EXPECTED_MAIN"
+          mapfile -t changed_paths < <(git diff-tree --no-commit-id --name-only -r HEAD)
+          test "${#changed_paths[@]}" -eq 2
+          test "${changed_paths[0]}" = "scripts/release/verify_release_artifacts.py"
+          test "${changed_paths[1]}" = "tests/release/test_ai_release_eval_trust.py"
+          expected_entries=(
+            $'100644 blob 8f7a4ffb5ca7cb20ff26cc1b749abe2164b80404\tscripts/release/verify_release_artifacts.py'
+            $'100644 blob 51c25fee7588c30f8fa310e83ed1ca9c5c19e2b3\ttests/release/test_ai_release_eval_trust.py'
+          )
+          mapfile -t actual_entries < <(git ls-tree HEAD -- "${changed_paths[@]}")
+          test "${#actual_entries[@]}" -eq "${#expected_entries[@]}"
+          for index in "${!expected_entries[@]}"; do
+            test "${actual_entries[$index]}" = "${expected_entries[$index]}"
+          done
+          git diff --check "$EXPECTED_MAIN..$DESIRED_HEAD"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/pulls/$EXPECTED_PR" --jq '.state')" = "open"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/pulls/$EXPECTED_PR" --jq '.base.sha')" = "$EXPECTED_MAIN"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/pulls/$EXPECTED_PR" --jq '.head.sha')" = "$DESIRED_HEAD"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/pulls/$EXPECTED_PR" --jq '.head.ref')" = "$TARGET_BRANCH"
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+
+      - name: Re-run the exact target and full release test suites
+        working-directory: target
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check jsonschema==4.25.1 PyYAML==6.0.2
+          python -m unittest tests.release.test_ai_release_eval_trust
+          python -m unittest discover -s tests/release -p 'test_*.py'
+
+      - name: Mint the production-scoped release App token
+        id: app_token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.GITOPS_RELEASE_APP_ID }}
+          private-key: ${{ secrets.GITOPS_RELEASE_APP_PRIVATE_KEY }}
+          owner: DevPathAi
+          permission-administration: read
+          permission-contents: write
+
+      - name: Checkout current protected main with release App authority
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          repository: DevPathAi/devpath-gitops
+          ref: main
+          token: ${{ steps.app_token.outputs.token }}
+          fetch-depth: 0
+          persist-credentials: true
+          path: gitops-main
+
+      - name: Re-authenticate App authority and immutable target
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          APP_ID: ${{ secrets.GITOPS_RELEASE_APP_ID }}
+          APP_SLUG: ${{ steps.app_token.outputs.app-slug }}
+          INSTALLATION_ID: ${{ steps.app_token.outputs.installation-id }}
+        run: |
+          set -euo pipefail
+          test "$(git -C gitops-main rev-parse HEAD)" = "$EXPECTED_MAIN"
+          python3 gitops-main/scripts/release/verify_gitops_write_authority.py \
+            --expected-app-id "$APP_ID" --app-slug "$APP_SLUG" \
+            --installation-id "$INSTALLATION_ID"
+          git -C gitops-main fetch --no-tags origin \
+            "refs/heads/$TARGET_BRANCH:refs/remotes/origin/$TARGET_BRANCH"
+          test "$(git -C gitops-main rev-parse "refs/remotes/origin/$TARGET_BRANCH")" = "$DESIRED_HEAD"
+          test "$(git -C gitops-main rev-parse "$DESIRED_HEAD^")" = "$EXPECTED_MAIN"
+          test "$(git -C gitops-main rev-list --count "$EXPECTED_MAIN..$DESIRED_HEAD")" = "1"
+          test "$(git -C gitops-main merge-base "$EXPECTED_MAIN" "$DESIRED_HEAD")" = "$EXPECTED_MAIN"
+          test "$(
+            gh api -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+              "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha'
+          )" = "$EXPECTED_MAIN"
+
+      - name: Fast-forward protected main to the exact tested target
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+        run: |
+          set -euo pipefail
+          git -C gitops-main fetch --no-tags origin main:refs/remotes/origin/main
+          test "$(git -C gitops-main rev-parse refs/remotes/origin/main)" = "$EXPECTED_MAIN"
+          git -C gitops-main fetch --no-tags origin \
+            "refs/heads/$TARGET_BRANCH:refs/remotes/origin/$TARGET_BRANCH"
+          test "$(git -C gitops-main rev-parse "refs/remotes/origin/$TARGET_BRANCH")" = "$DESIRED_HEAD"
+          git -C gitops-main push origin "$DESIRED_HEAD:refs/heads/main"
+          git -C gitops-main fetch --no-tags origin main:refs/remotes/origin/main
+          test "$(git -C gitops-main rev-parse refs/remotes/origin/main)" = "$DESIRED_HEAD"
+
+      - name: Verify the published protected main ref
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+        run: |
+          set -euo pipefail
+          test "$(
+            gh api -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+              "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha'
+          )" = "$DESIRED_HEAD"
