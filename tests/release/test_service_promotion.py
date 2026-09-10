@@ -96,6 +96,7 @@ class ServicePromotionTest(unittest.TestCase):
             source = (ROOT / self.promoter.SERVICE_PATHS[name]).read_text(
                 encoding="utf-8"
             )
+            source = self.promoter._remove_writer_fence(source, name)
             fenced = (
                 source
                 + "replicas:\n"

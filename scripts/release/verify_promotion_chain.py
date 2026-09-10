@@ -88,6 +88,17 @@ MIGRATION_PREFLIGHT_IDENTITY_FIX_SUBJECT = (
     "fix(release): authenticate preflight root image identity"
 )
 MIGRATION_PREFLIGHT_IDENTITY_FIX_PATHS = MIGRATION_RUNTIME_ADMISSION_FIX_PATHS
+MIGRATION_WRITER_FENCE_RUNTIME_FIX_SUBJECT = (
+    "fix(release): authenticate writer-fence migration runtime"
+)
+MIGRATION_WRITER_FENCE_RUNTIME_FIX_PATHS = (
+    "scripts/release/verify_kubernetes_release_runtime.py",
+    "scripts/release/verify_promotion_chain.py",
+    "tests/release/test_kubernetes_release_runtime.py",
+    "tests/release/test_promotion_chain.py",
+    "tests/release/test_release_contract.py",
+    "tests/release/test_service_promotion.py",
+)
 SERVICE_STATUS_IMAGE_FIX_SUBJECT = (
     "fix(release): accept service status image normalization"
 )
@@ -708,6 +719,7 @@ def inspect_chain(
                 "migration_runtime_fix_commit": "",
                 "migration_runtime_admission_fix_commit": "",
                 "migration_preflight_identity_fix_commit": "",
+                "migration_writer_fence_runtime_fix_commit": "",
                 "service_status_image_fix_commit": "",
                 "service_source_status_fix_commit": "",
                 "canary_runtime_form_fix_commit": "",
@@ -746,6 +758,27 @@ def inspect_chain(
                 "current_commit": commit,
                 "writer_fence_active": writer_fence_active,
                 "migration_commit": commit,
+            }
+        if subject == MIGRATION_WRITER_FENCE_RUNTIME_FIX_SUBJECT:
+            _require_write_actor(root, commit)
+            if (
+                prior["phase"] != "migration"
+                or parent != prior["migration_commit"]
+                or prior["migration_writer_fence_runtime_fix_commit"]
+            ):
+                raise ValueError(
+                    "writer-fence migration runtime fix must directly follow migration"
+                )
+            _require_delta(root, commit, MIGRATION_WRITER_FENCE_RUNTIME_FIX_PATHS)
+            _require_migration(root, commit, candidate, release_manifest_sha256)
+            _require_migration_service_state(
+                root, commit, base, candidate, prior["writer_fence_active"]
+            )
+            _require_web(root, commit, candidate, candidate_spec_sha256, "base")
+            return {
+                **prior,
+                "current_commit": commit,
+                "migration_writer_fence_runtime_fix_commit": commit,
             }
         if subject == SHARED_MIGRATION_APPROVAL_FIX_SUBJECT:
             _require_write_actor(root, commit)

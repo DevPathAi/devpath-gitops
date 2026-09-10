@@ -15,7 +15,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from verify_oci_images import normalize_runtime_image_id
-from verify_promotion_chain import migration_job_name
+from verify_promotion_chain import LEGACY_UNFENCED_MIGRATION_COMMITS, migration_job_name
 
 
 GITOPS_REPO_URL = "https://github.com/DevPathAi/devpath-gitops.git"
@@ -31,6 +31,39 @@ MIGRATION_PREFLIGHT_MANIFEST_DIGEST = (
 )
 MIGRATION_PREFLIGHT_CONFIG_DIGEST = (
     "sha256:cc4c61127125de9f69aa50f7d78b54686576d5d3d835de03128b064d12b97154"
+)
+MIGRATION_WRITER_FENCE_IMAGE = (
+    "registry.k8s.io/kubectl@sha256:"
+    "b0d792e0d8dfb9bb1b922b78b23137e2a34bb6f9667640353a9d2aadd1fd7761"
+)
+MIGRATION_WRITER_FENCE_ARGS = {
+    "wait-for-writer-deployments": [
+        "wait",
+        "--for=jsonpath={.spec.replicas}=0",
+        "deployment/devpath-platform-svc",
+        "deployment/devpath-sandbox-svc",
+        "--timeout=10m",
+    ],
+    "wait-for-platform-pods": [
+        "wait",
+        "--for=delete",
+        "pod",
+        "--selector=app=devpath-platform-svc",
+        "--timeout=10m",
+    ],
+    "wait-for-sandbox-pods": [
+        "wait",
+        "--for=delete",
+        "pod",
+        "--selector=app=devpath-sandbox-svc",
+        "--timeout=10m",
+    ],
+}
+MIGRATION_PREFLIGHT_NAME = "sandbox-low-lock-preflight"
+MIGRATION_WRITER_FENCE_INIT_NAMES = tuple(MIGRATION_WRITER_FENCE_ARGS)
+MIGRATION_FENCED_INIT_NAMES = (
+    *MIGRATION_WRITER_FENCE_INIT_NAMES,
+    MIGRATION_PREFLIGHT_NAME,
 )
 ARGO_NAMESPACE = "argocd"
 SHA40 = re.compile(r"[0-9a-f]{40}")
@@ -57,6 +90,18 @@ def _only_named(items: Any, name: str, label: str) -> dict[str, Any]:
     if not isinstance(items, list) or len(items) != 1:
         raise ValueError(f"{label} must be the sole exact {name}")
     return _single_named(items, name, label)
+
+
+def _exact_named_sequence(
+    items: Any, names: tuple[str, ...], label: str
+) -> dict[str, dict[str, Any]]:
+    if (
+        not isinstance(items, list)
+        or any(not isinstance(item, dict) for item in items)
+        or [item.get("name") for item in items] != list(names)
+    ):
+        raise ValueError(f"{label} names/order are not exact")
+    return {item["name"]: item for item in items}
 
 
 def _no_ephemeral(spec: Any, status: Any, label: str) -> None:
@@ -543,11 +588,29 @@ def validate_migration_runtime(
         raise ValueError("migration Job spec is not exact")
     if pod_spec.get("ephemeralContainers") not in (None, []):
         raise ValueError("migration Job may not contain ephemeral containers")
-    preflight = _only_named(
+    fenced = migration_commit not in LEGACY_UNFENCED_MIGRATION_COMMITS
+    expected_init_names = (
+        MIGRATION_FENCED_INIT_NAMES if fenced else (MIGRATION_PREFLIGHT_NAME,)
+    )
+    init_containers = _exact_named_sequence(
         pod_spec.get("initContainers"),
-        "sandbox-low-lock-preflight",
+        expected_init_names,
         "migration initContainers",
     )
+    if fenced:
+        if (
+            pod_spec.get("serviceAccountName") != "devpath-migration-fence"
+            or pod_spec.get("automountServiceAccountToken") is not False
+        ):
+            raise ValueError("migration writer fence service account is not exact")
+        for name, args in MIGRATION_WRITER_FENCE_ARGS.items():
+            writer_fence = init_containers[name]
+            if (
+                writer_fence.get("image") != MIGRATION_WRITER_FENCE_IMAGE
+                or writer_fence.get("args") != args
+            ):
+                raise ValueError(f"migration writer fence {name} is not exact")
+    preflight = init_containers[MIGRATION_PREFLIGHT_NAME]
     if (
         preflight.get("image") != MIGRATION_PREFLIGHT_IMAGE
         or preflight.get("command") != MIGRATION_PREFLIGHT_COMMAND
@@ -627,11 +690,14 @@ def validate_migration_runtime(
     _no_ephemeral(runtime_pod_spec, pod_status, "migration Pod")
     if pod_status.get("phase") != "Succeeded":
         raise ValueError("migration Pod did not succeed")
-    init = _only_named(
+    init_statuses = _exact_named_sequence(
         pod_status.get("initContainerStatuses"),
-        "sandbox-low-lock-preflight",
+        expected_init_names,
         "migration initContainerStatuses",
     )
+    for name in MIGRATION_WRITER_FENCE_INIT_NAMES if fenced else ():
+        _terminated(init_statuses[name], f"migration writer fence {name}")
+    init = init_statuses[MIGRATION_PREFLIGHT_NAME]
     _terminated(init, "migration preflight")
     _authenticated_status_image(
         init.get("image"),

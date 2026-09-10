@@ -459,8 +459,43 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
                 "backoffLimit": 3,
                 "template": {
                     "spec": {
+                        "serviceAccountName": "devpath-migration-fence",
+                        "automountServiceAccountToken": False,
                         "restartPolicy": "Never",
                         "initContainers": [
+                            {
+                                "name": "wait-for-writer-deployments",
+                                "image": "registry.k8s.io/kubectl@sha256:b0d792e0d8dfb9bb1b922b78b23137e2a34bb6f9667640353a9d2aadd1fd7761",
+                                "args": [
+                                    "wait",
+                                    "--for=jsonpath={.spec.replicas}=0",
+                                    "deployment/devpath-platform-svc",
+                                    "deployment/devpath-sandbox-svc",
+                                    "--timeout=10m",
+                                ],
+                            },
+                            {
+                                "name": "wait-for-platform-pods",
+                                "image": "registry.k8s.io/kubectl@sha256:b0d792e0d8dfb9bb1b922b78b23137e2a34bb6f9667640353a9d2aadd1fd7761",
+                                "args": [
+                                    "wait",
+                                    "--for=delete",
+                                    "pod",
+                                    "--selector=app=devpath-platform-svc",
+                                    "--timeout=10m",
+                                ],
+                            },
+                            {
+                                "name": "wait-for-sandbox-pods",
+                                "image": "registry.k8s.io/kubectl@sha256:b0d792e0d8dfb9bb1b922b78b23137e2a34bb6f9667640353a9d2aadd1fd7761",
+                                "args": [
+                                    "wait",
+                                    "--for=delete",
+                                    "pod",
+                                    "--selector=app=devpath-sandbox-svc",
+                                    "--timeout=10m",
+                                ],
+                            },
                             {
                                 "name": "sandbox-low-lock-preflight",
                                 "image": self.runtime.MIGRATION_PREFLIGHT_IMAGE,
@@ -519,6 +554,21 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
                 "phase": "Succeeded",
                 "initContainerStatuses": [
                     {
+                        "name": "wait-for-writer-deployments",
+                        "restartCount": 0,
+                        "state": {"terminated": {"exitCode": 0, "reason": "Completed"}},
+                    },
+                    {
+                        "name": "wait-for-platform-pods",
+                        "restartCount": 0,
+                        "state": {"terminated": {"exitCode": 0, "reason": "Completed"}},
+                    },
+                    {
+                        "name": "wait-for-sandbox-pods",
+                        "restartCount": 0,
+                        "state": {"terminated": {"exitCode": 0, "reason": "Completed"}},
+                    },
+                    {
                         "name": "sandbox-low-lock-preflight",
                         "image": self.runtime.MIGRATION_PREFLIGHT_IMAGE,
                         "imageID": "containerd://"
@@ -562,9 +612,10 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
             "readOnly": True,
         }
         for section in ("initContainers", "containers"):
-            admitted_pod["spec"][section][0].setdefault("volumeMounts", []).append(
-                copy.deepcopy(service_account_mount)
-            )
+            for container in admitted_pod["spec"][section]:
+                container.setdefault("volumeMounts", []).append(
+                    copy.deepcopy(service_account_mount)
+                )
         admitted_pod["spec"]["volumes"] = [
             {
                 "name": service_account_volume,
@@ -616,7 +667,7 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
         self.assertTrue(admitted_result["service_account_projection_admitted"])
 
         root_identity_pod = copy.deepcopy(admitted_pod)
-        root_identity_pod["status"]["initContainerStatuses"][0]["imageID"] = (
+        root_identity_pod["status"]["initContainerStatuses"][-1]["imageID"] = (
             "docker.io/library/postgres@"
             + self.runtime.MIGRATION_PREFLIGHT_IMAGE.rsplit("@", 1)[1]
         )
@@ -675,7 +726,7 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
                 )
 
         k3s_normalized_pod = copy.deepcopy(pod)
-        k3s_normalized_pod["status"]["initContainerStatuses"][0]["image"] = (
+        k3s_normalized_pod["status"]["initContainerStatuses"][-1]["image"] = (
             self.runtime.MIGRATION_PREFLIGHT_CONFIG_DIGEST
         )
         k3s_normalized_pod["status"]["containerStatuses"][0]["image"] = (
@@ -718,12 +769,12 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
             corrected_result["application_applied_revision"], applied_commit
         )
 
-        for statuses, message in (
-            ("initContainerStatuses", "preflight runtime image"),
-            ("containerStatuses", "Pod runtime image"),
+        for statuses, index, message in (
+            ("initContainerStatuses", -1, "preflight runtime image"),
+            ("containerStatuses", 0, "Pod runtime image"),
         ):
             untrusted_image_pod = copy.deepcopy(pod)
-            untrusted_image_pod["status"][statuses][0]["image"] = "sha256:" + "0" * 64
+            untrusted_image_pod["status"][statuses][index]["image"] = "sha256:" + "0" * 64
             with self.subTest(statuses=statuses), self.assertRaisesRegex(ValueError, message):
                 self.runtime.validate_migration_runtime(
                     app,
@@ -781,7 +832,7 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
             ("command", ["/bin/sh", "-c", "true"]),
         ):
             changed = copy.deepcopy(job)
-            changed["spec"]["template"]["spec"]["initContainers"][0][field] = value
+            changed["spec"]["template"]["spec"]["initContainers"][-1][field] = value
             with self.assertRaisesRegex(ValueError, "preflight image/command"):
                 self.runtime.validate_migration_runtime(
                     app,
@@ -795,6 +846,70 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
                     "V202608221001__correct_question_bank_accuracy.sql",
                     "2026-08-17T00:00:00Z",
                 )
+
+        for label, mutation, message in (
+            (
+                "writer-image",
+                lambda value: value["spec"]["template"]["spec"]["initContainers"][0].__setitem__(
+                    "image", "registry.k8s.io/kubectl:latest"
+                ),
+                "writer fence",
+            ),
+            (
+                "writer-args",
+                lambda value: value["spec"]["template"]["spec"]["initContainers"][1].__setitem__(
+                    "args", ["wait", "--timeout=1s"]
+                ),
+                "writer fence",
+            ),
+            (
+                "service-account",
+                lambda value: value["spec"]["template"]["spec"].__setitem__(
+                    "serviceAccountName", "default"
+                ),
+                "service account",
+            ),
+            (
+                "init-order",
+                lambda value: value["spec"]["template"]["spec"]["initContainers"].reverse(),
+                "names/order",
+            ),
+        ):
+            changed = copy.deepcopy(job)
+            mutation(changed)
+            with self.subTest(writer_fence=label), self.assertRaisesRegex(
+                ValueError, message
+            ):
+                self.runtime.validate_migration_runtime(
+                    app,
+                    changed,
+                    {"items": [pod]},
+                    "mission-spine-flyway-target=202608221001 status=validated\n",
+                    self.commit,
+                    release_hash,
+                    migration_trust,
+                    "202608221001",
+                    "V202608221001__correct_question_bank_accuracy.sql",
+                    "2026-08-17T00:00:00Z",
+                )
+
+        failed_writer = copy.deepcopy(pod)
+        failed_writer["status"]["initContainerStatuses"][0]["state"]["terminated"][
+            "exitCode"
+        ] = 1
+        with self.assertRaisesRegex(ValueError, "writer fence"):
+            self.runtime.validate_migration_runtime(
+                app,
+                job,
+                {"items": [failed_writer]},
+                "mission-spine-flyway-target=202608221001 status=validated\n",
+                self.commit,
+                release_hash,
+                migration_trust,
+                "202608221001",
+                "V202608221001__correct_question_bank_accuracy.sql",
+                "2026-08-17T00:00:00Z",
+            )
 
         changed_pod = copy.deepcopy(pod)
         changed_pod["spec"]["containers"][0]["args"] = ["echo spoofed"]
@@ -861,7 +976,7 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
                 )
 
         changed_pod = copy.deepcopy(pod)
-        changed_pod["status"]["initContainerStatuses"][0]["imageID"] = (
+        changed_pod["status"]["initContainerStatuses"][-1]["imageID"] = (
             "containerd://sha256:" + "0" * 64
         )
         with self.assertRaisesRegex(ValueError, "preflight runtime imageID"):
