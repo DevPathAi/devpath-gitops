@@ -13,3 +13,6 @@ images:
 - name: ghcr.io/devpathai/devpath-platform-svc
   newName: ghcr.io/devpathai/devpath-platform-svc
   digest: sha256:3092e945f7036233b772309bc84da4c3c61fc7165d087bc9e86f7c9e7401cd03
+replicas:
+- name: devpath-platform-svc
+  count: 0

@@ -7,4 +7,17 @@ resources:
 images:
 - name: ghcr.io/devpathai/devpath-migration
   newName: ghcr.io/devpathai/devpath-migration
-  newTag: 9793b8f92f92cca1ef57e28d2db6fb7d911741a3
+  digest: sha256:81029e190726c7967a6c840caee1735586da3a694081982b29261b2a54436e2b
+patches:
+- target:
+    group: batch
+    version: v1
+    kind: Job
+    name: devpath-flyway-migrate
+  patch: |-
+    - op: replace
+      path: /metadata/name
+      value: devpath-flyway-migrate-81029e190726-e6a4d6f187c5a503ceeaf68f
+    - op: replace
+      path: /spec/suspend
+      value: false
