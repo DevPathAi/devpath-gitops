@@ -8,6 +8,59 @@ APP_ACTION = "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da40
 
 
 class ProductionWorkflowWiringTest(unittest.TestCase):
+    def test_live_candidate_journeys_run_on_the_exact_candidate_web_and_restore_prior(self):
+        text = (WORKFLOWS / "mission-spine-validate.yml").read_text(
+            encoding="utf-8"
+        )
+        start = text.index("  candidate-journeys:")
+        end = text.index("  seal-and-staging:", start)
+        section = text[start:end]
+
+        configure = section.index("Configure candidate journey staging cluster")
+        prior = section.index("Verify candidate journey live prior CAS")
+        stage = section.index("Stage exact candidate web for live journeys")
+        journey = section.index("npm run test:release")
+        restore = section.index("Fail-safe restore staging prior after live journeys")
+        cleanup = section.index("Remove the candidate journey staging kubeconfig")
+        self.assertEqual(
+            [configure, prior, stage, journey, restore, cleanup],
+            sorted([configure, prior, stage, journey, restore, cleanup]),
+        )
+        self.assertLess(
+            section.index("Authenticate exact candidate artifact and B-to-C data tree"),
+            section.index("secrets.STAGING_KUBECONFIG_B64"),
+        )
+
+        configure_block = section[configure:prior]
+        self.assertIn(
+            "RELEASE_EVIDENCE_TOKEN: ${{ secrets.RELEASE_EVIDENCE_TOKEN }}",
+            configure_block,
+        )
+
+        stage_block = section[stage:journey]
+        ordered = (
+            "--phase mission-off --expected-current prior",
+            "--environment staging --phase mission-off",
+            "--phase mission-on --expected-current mission-off",
+            "--environment staging --phase mission-on",
+        )
+        positions = [stage_block.index(value) for value in ordered]
+        self.assertEqual(positions, sorted(positions))
+
+        restore_block = section[restore:cleanup]
+        self.assertIn(
+            "if: always() && steps.journey_kube.outcome == 'success' && steps.journey_prior_cas.outcome == 'success'",
+            restore_block,
+        )
+        self.assertIn("--phase prior --expected-current candidate", restore_block)
+        self.assertIn("--environment staging --phase prior", restore_block)
+        self.assertEqual(section.count("stage_web_release.py"), 3)
+        self.assertEqual(section.count("wait_web_rollout.py"), 4)
+        self.assertEqual(section.count("--candidate-only"), 7)
+        self.assertNotIn("--candidate-only", text[end:])
+        self.assertEqual(section.count("manage_production_kubeconfig.py create"), 1)
+        self.assertEqual(section.count("manage_production_kubeconfig.py cleanup"), 1)
+
     def test_staging_seal_context_check_receives_the_workflow_token(self):
         text = (WORKFLOWS / "mission-spine-validate.yml").read_text(
             encoding="utf-8"
@@ -143,8 +196,8 @@ class ProductionWorkflowWiringTest(unittest.TestCase):
         landing = (WORKFLOWS / "mission-spine-landing-last.yml").read_text(encoding="utf-8")
         self.assertEqual(promote.count("name: Remove the exact production kubeconfig"), 2)
         self.assertEqual(rollback.count("name: Remove the exact production kubeconfig"), 1)
-        self.assertEqual(promote.count("if: always()"), 3)
-        self.assertEqual(rollback.count("if: always()"), 2)
+        self.assertEqual(promote.count("if: always()"), 6)
+        self.assertEqual(rollback.count("if: always()"), 4)
         self.assertEqual(promote.count("manage_production_kubeconfig.py create"), 3)
         self.assertEqual(promote.count("manage_production_kubeconfig.py cleanup"), 3)
         self.assertEqual(rollback.count("manage_production_kubeconfig.py create"), 2)
@@ -176,21 +229,81 @@ class ProductionWorkflowWiringTest(unittest.TestCase):
         for text in (promote, rollback, landing):
             self.assertIn("overwrite: false", text)
 
+    def test_every_remote_kubernetes_job_uses_ephemeral_runner_32_ingress(self):
+        action = (
+            "aws-actions/configure-aws-credentials@"
+            "e6de054238d6b7531b4efff3b6587d9aade6a06c"
+        )
+        role = "arn:aws:iam::963773969059:role/devpath-github-actions-k3s-api"
+        cases = {
+            "mission-spine-validate.yml": ("candidate-journeys", "seal-and-staging"),
+            "mission-spine-promote.yml": (
+                "production_off",
+                "rebaseline_staging",
+                "production_on",
+            ),
+            "mission-spine-rollback.yml": ("reverse-rollback", "rebaseline_staging"),
+        }
+        for filename, jobs in cases.items():
+            text = (WORKFLOWS / filename).read_text(encoding="utf-8")
+            self.assertEqual(text.count(action), len(jobs))
+            for job in jobs:
+                start = text.index(f"  {job}:")
+                later = [
+                    match.start()
+                    for match in re.finditer(r"^  [a-z][a-z0-9_-]+:\s*$", text, re.M)
+                    if match.start() > start
+                ]
+                section = text[start : min(later) if later else len(text)]
+                with self.subTest(filename=filename, job=job):
+                    self.assertIn("id-token: write", section)
+                    self.assertIn(action, section)
+                    self.assertIn(role, section)
+                    self.assertEqual(
+                        section.count("manage_kubernetes_api_ingress.py open"), 1
+                    )
+                    self.assertEqual(
+                        section.count("manage_kubernetes_api_ingress.py close"), 1
+                    )
+                    opened = section.index("manage_kubernetes_api_ingress.py open")
+                    kube = section.index("manage_production_kubeconfig.py create")
+                    kube_cleanup = section.index("manage_production_kubeconfig.py cleanup")
+                    closed = section.index("manage_kubernetes_api_ingress.py close")
+                    self.assertEqual(
+                        [opened, kube, kube_cleanup, closed],
+                        sorted([opened, kube, kube_cleanup, closed]),
+                    )
+                    close_step = section.rfind("      - name:", 0, closed)
+                    self.assertIn("if: always()", section[close_step:closed])
+                    self.assertNotIn("AWS_ACCESS_KEY_ID", section)
+                    self.assertNotIn("AWS_SECRET_ACCESS_KEY", section)
+
     def test_every_production_web_runtime_binds_the_exact_gitops_commit(self):
-        for filename in ("mission-spine-promote.yml", "mission-spine-rollback.yml"):
+        expected_counts = {
+            "mission-spine-promote.yml": 3,
+            "mission-spine-rollback.yml": 2,
+        }
+        for filename, expected_count in expected_counts.items():
             text = (WORKFLOWS / filename).read_text(encoding="utf-8")
             starts = [
                 match.start()
                 for match in re.finditer(
-                    r"python scripts/release/wait_web_rollout\.py", text
+                    r"python control/scripts/release/wait_web_rollout\.py", text
                 )
             ]
+            blocks = []
             for index, start in enumerate(starts):
                 end = text.find("\n      - name:", start)
                 block = text[start : len(text) if end < 0 else end]
+                if "--environment production" in block:
+                    blocks.append((index, block))
+            self.assertEqual(expected_count, len(blocks), filename)
+            for index, block in blocks:
                 with self.subTest(filename=filename, index=index):
-                    self.assertIn("--environment production", block)
                     self.assertIn("--commit", block)
+                    self.assertIn(
+                        '--gitops-root "$GITHUB_WORKSPACE/gitops-main"', block
+                    )
         rollback = (WORKFLOWS / "mission-spine-rollback.yml").read_text(encoding="utf-8")
         self.assertLess(
             rollback.index("Require exact mission-OFF runtime before prior mutation"),

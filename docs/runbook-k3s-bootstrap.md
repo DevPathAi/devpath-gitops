@@ -32,6 +32,36 @@
 7. **cert-manager**: release yaml 적용 → `infra/cert-manager/cluster-issuer.yaml`(cluster 리소스, EC2 직접 적용).
 8. **ghcr pull 자격**: 패키지가 private이므로 `ghcr-pull` docker-registry Secret(read:packages PAT) + deployment `imagePullSecrets` 필요.
 
+## GitHub Actions → k3s API 접근 경계 (2026-08-30 실측)
+
+GitHub-hosted runner의 출발지 IP는 실행마다 달라지므로 고정 관리 IP 규칙으로는 보호된 릴리스 잡이
+`13.124.153.105:6443`에 도달할 수 없다. mission-spine의 원격 Kubernetes 잡은 장기 허용 CIDR이나
+정적 AWS 키 대신 다음 경계를 사용한다.
+
+- GitHub OIDC 역할: `arn:aws:iam::963773969059:role/devpath-github-actions-k3s-api`
+- 신뢰 subject: `DevPathAi/devpath-gitops`의 `mission-spine-staging`,
+  `mission-spine-production-off`, `mission-spine-production-on`,
+  `mission-spine-production-rollback` 환경만 허용한다.
+- 권한: `sg-0ad7dfa8afe5d1eea`의 ingress 허용·회수와 생성된 SG rule 태깅·조회만 허용한다.
+- 실행: `scripts/release/manage_kubernetes_api_ingress.py open`이 프록시를 우회해 확인한 현재 runner의
+  canonical global IPv4 하나만 `tcp/6443` `/32`로 추가한다. kubeconfig 정리 뒤 `close`가 태그·SG·포트·
+  CIDR을 다시 검증하고 해당 rule ID만 회수한다.
+- 각 규칙에는 `ManagedBy=devpath-mission-spine-github-actions`, GitHub run/job, 만료 epoch가 붙는다.
+  workflow와 AWS credential action은 보호된 `main`의 고정 SHA에서만 실행한다.
+
+강제 취소나 runner 장애 뒤 남은 관리 규칙 감사:
+
+```bash
+aws ec2 describe-security-group-rules --region ap-northeast-2 \
+  --filters Name=group-id,Values=sg-0ad7dfa8afe5d1eea \
+            Name=tag:ManagedBy,Values=devpath-mission-spine-github-actions \
+  --query 'SecurityGroupRules[].{Id:SecurityGroupRuleId,Cidr:CidrIpv4,Description:Description,Tags:Tags}'
+```
+
+정상 완료 뒤 결과는 빈 배열이어야 한다. 잔여 규칙은 위 출력에서 정확한 rule ID와 태그·범위를 먼저
+확인한 후 `aws ec2 revoke-security-group-ingress --region ap-northeast-2
+--group-id sg-0ad7dfa8afe5d1eea --security-group-rule-ids <sgr-id>`로 회수한다.
+
 ## 마이그레이션 (RDS)
 
 - Job = `apps/devpath-migration`(구 `apps/_migration` — **언더스코어 이름은 Application 생성 불가(RFC1123)로 개명**, shared ci.yml deploy 잡 경로도 함께 수정).

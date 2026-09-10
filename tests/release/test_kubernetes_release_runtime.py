@@ -1,15 +1,21 @@
 import copy
 import importlib.util
 from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "release" / "verify_kubernetes_release_runtime.py"
+SCRIPTS = SCRIPT.parent
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
 
 
-def load_module():
-    spec = importlib.util.spec_from_file_location("kubernetes_release_runtime", SCRIPT)
+def load_module(path=SCRIPT, name="kubernetes_release_runtime"):
+    spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
@@ -64,6 +70,50 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.runtime = load_module()
+        cls.wait = load_module(
+            SCRIPTS / "wait_release_rollouts.py", "wait_release_rollouts_test"
+        )
+
+    def test_migration_application_revision_tracks_any_base_manifest_change(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-b", "main"], cwd=root, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.invalid"],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "test"], cwd=root, check=True
+            )
+            base = root / "apps" / "devpath-migration" / "base"
+            base.mkdir(parents=True)
+            (base / "kustomization.yaml").write_text("resources: []\n", encoding="utf-8")
+            (base / "job.yaml").write_text("suspend: true\n", encoding="utf-8")
+            subprocess.run(["git", "add", "apps"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-m", "migration"], cwd=root, check=True)
+            migration_commit = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
+            ).stdout.strip()
+            (base / "job.yaml").write_text("suspend: true\ntarget: ET11\n", encoding="utf-8")
+            subprocess.run(["git", "add", "apps"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-m", "runtime fix"], cwd=root, check=True)
+            observed_commit = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
+            ).stdout.strip()
+
+            self.assertEqual(
+                self.wait._last_path_change(
+                    root, observed_commit, self.wait.MIGRATION_PATH
+                ),
+                migration_commit,
+            )
+            self.assertEqual(
+                self.wait._last_path_change(
+                    root, observed_commit, self.wait.MIGRATION_APPLICATION_PATH
+                ),
+                observed_commit,
+            )
 
     def setUp(self):
         self.name = "devpath-ai-svc"
@@ -173,6 +223,40 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
             {"linux-amd64-manifest", "config"},
         )
 
+        k3s_normalized_pods = copy.deepcopy(self.pods)
+        for pod in k3s_normalized_pods["items"]:
+            pod["status"]["containerStatuses"][0]["image"] = self.trust[
+                "config_digest"
+            ]
+        normalized_result = self.runtime.validate_service_runtime(
+            self.app,
+            self.deployment,
+            self.replicasets,
+            k3s_normalized_pods,
+            self.name,
+            self.commit,
+            self.commit,
+            self.trust,
+        )
+        self.assertEqual(len(normalized_result["pods"]), 2)
+
+        source_tag_pods = copy.deepcopy(self.pods)
+        for pod in source_tag_pods["items"]:
+            pod["status"]["containerStatuses"][0]["image"] = (
+                f"{self.trust['image_repository']}:{self.trust['source_sha']}"
+            )
+        source_tag_result = self.runtime.validate_service_runtime(
+            self.app,
+            self.deployment,
+            self.replicasets,
+            source_tag_pods,
+            self.name,
+            self.commit,
+            self.commit,
+            self.trust,
+        )
+        self.assertEqual(len(source_tag_result["pods"]), 2)
+
     def test_monorepo_application_binds_current_and_last_applied_revisions(self):
         observed = "c" * 40
         applied = self.commit
@@ -264,6 +348,36 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "runtime imageID"):
             self.runtime.validate_service_runtime(
                 self.app, self.deployment, self.replicasets, pods, self.name, self.commit, self.commit, self.trust
+            )
+        pods = copy.deepcopy(self.pods)
+        pods["items"][0]["status"]["containerStatuses"][0]["image"] = (
+            "sha256:" + "0" * 64
+        )
+        with self.assertRaisesRegex(ValueError, "runtime image"):
+            self.runtime.validate_service_runtime(
+                self.app,
+                self.deployment,
+                self.replicasets,
+                pods,
+                self.name,
+                self.commit,
+                self.commit,
+                self.trust,
+            )
+        pods = copy.deepcopy(self.pods)
+        pods["items"][0]["status"]["containerStatuses"][0]["image"] = (
+            self.trust["image_repository"] + ":main"
+        )
+        with self.assertRaisesRegex(ValueError, "runtime image"):
+            self.runtime.validate_service_runtime(
+                self.app,
+                self.deployment,
+                self.replicasets,
+                pods,
+                self.name,
+                self.commit,
+                self.commit,
+                self.trust,
             )
         deployment = copy.deepcopy(self.deployment)
         deployment["status"]["availableReplicas"] = 1
@@ -439,6 +553,190 @@ class KubernetesReleaseRuntimeTest(unittest.TestCase):
         )
         self.assertEqual(result["job"], name)
         self.assertEqual(result["status"], "passed")
+
+        admitted_pod = copy.deepcopy(pod)
+        service_account_volume = "kube-api-access-npnnz"
+        service_account_mount = {
+            "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+            "name": service_account_volume,
+            "readOnly": True,
+        }
+        for section in ("initContainers", "containers"):
+            admitted_pod["spec"][section][0].setdefault("volumeMounts", []).append(
+                copy.deepcopy(service_account_mount)
+            )
+        admitted_pod["spec"]["volumes"] = [
+            {
+                "name": service_account_volume,
+                "projected": {
+                    "defaultMode": 420,
+                    "sources": [
+                        {
+                            "serviceAccountToken": {
+                                "expirationSeconds": 3607,
+                                "path": "token",
+                            }
+                        },
+                        {
+                            "configMap": {
+                                "items": [{"key": "ca.crt", "path": "ca.crt"}],
+                                "name": "kube-root-ca.crt",
+                            }
+                        },
+                        {
+                            "downwardAPI": {
+                                "items": [
+                                    {
+                                        "fieldRef": {
+                                            "apiVersion": "v1",
+                                            "fieldPath": "metadata.namespace",
+                                        },
+                                        "path": "namespace",
+                                    }
+                                ]
+                            }
+                        },
+                    ],
+                },
+            }
+        ]
+        admitted_result = self.runtime.validate_migration_runtime(
+            app,
+            job,
+            {"items": [admitted_pod]},
+            "mission-spine-flyway-target=202608221001 status=validated\n",
+            self.commit,
+            release_hash,
+            migration_trust,
+            "202608221001",
+            "V202608221001__correct_question_bank_accuracy.sql",
+            "2026-08-17T00:00:00Z",
+        )
+        self.assertEqual(admitted_result["status"], "passed")
+        self.assertTrue(admitted_result["service_account_projection_admitted"])
+
+        root_identity_pod = copy.deepcopy(admitted_pod)
+        root_identity_pod["status"]["initContainerStatuses"][0]["imageID"] = (
+            "docker.io/library/postgres@"
+            + self.runtime.MIGRATION_PREFLIGHT_IMAGE.rsplit("@", 1)[1]
+        )
+        root_identity_result = self.runtime.validate_migration_runtime(
+            app,
+            job,
+            {"items": [root_identity_pod]},
+            "mission-spine-flyway-target=202608221001 status=validated\n",
+            self.commit,
+            release_hash,
+            migration_trust,
+            "202608221001",
+            "V202608221001__correct_question_bank_accuracy.sql",
+            "2026-08-17T00:00:00Z",
+        )
+        self.assertEqual(root_identity_result["status"], "passed")
+
+        for label, mutation in (
+            (
+                "token-path",
+                lambda value: value["spec"]["volumes"][0]["projected"][
+                    "sources"
+                ][0]["serviceAccountToken"].__setitem__("path", "other"),
+            ),
+            (
+                "expiration",
+                lambda value: value["spec"]["volumes"][0]["projected"][
+                    "sources"
+                ][0]["serviceAccountToken"].__setitem__(
+                    "expirationSeconds", 7201
+                ),
+            ),
+            (
+                "mount",
+                lambda value: value["spec"]["containers"][0]["volumeMounts"][
+                    0
+                ].__setitem__("readOnly", False),
+            ),
+        ):
+            changed = copy.deepcopy(admitted_pod)
+            mutation(changed)
+            with self.subTest(service_account_projection=label), self.assertRaisesRegex(
+                ValueError, "service account"
+            ):
+                self.runtime.validate_migration_runtime(
+                    app,
+                    job,
+                    {"items": [changed]},
+                    "mission-spine-flyway-target=202608221001 status=validated\n",
+                    self.commit,
+                    release_hash,
+                    migration_trust,
+                    "202608221001",
+                    "V202608221001__correct_question_bank_accuracy.sql",
+                    "2026-08-17T00:00:00Z",
+                )
+
+        k3s_normalized_pod = copy.deepcopy(pod)
+        k3s_normalized_pod["status"]["initContainerStatuses"][0]["image"] = (
+            self.runtime.MIGRATION_PREFLIGHT_CONFIG_DIGEST
+        )
+        k3s_normalized_pod["status"]["containerStatuses"][0]["image"] = (
+            migration_trust["config_digest"]
+        )
+        normalized_result = self.runtime.validate_migration_runtime(
+            app,
+            job,
+            {"items": [k3s_normalized_pod]},
+            "mission-spine-flyway-target=202608221001 status=validated\n",
+            self.commit,
+            release_hash,
+            migration_trust,
+            "202608221001",
+            "V202608221001__correct_question_bank_accuracy.sql",
+            "2026-08-17T00:00:00Z",
+        )
+        self.assertEqual(normalized_result["runtime_image_digest"], migration_trust["config_digest"])
+
+        observed_commit = "c" * 40
+        applied_commit = "d" * 40
+        corrected_app = application(
+            "devpath-migration", observed_commit, applied_commit
+        )
+        corrected_result = self.runtime.validate_migration_runtime(
+            corrected_app,
+            job,
+            {"items": [pod]},
+            "mission-spine-flyway-target=202608221001 status=validated\n",
+            self.commit,
+            release_hash,
+            migration_trust,
+            "202608221001",
+            "V202608221001__correct_question_bank_accuracy.sql",
+            "2026-08-17T00:00:00Z",
+            observed_commit=observed_commit,
+            application_applied_commit=applied_commit,
+        )
+        self.assertEqual(
+            corrected_result["application_applied_revision"], applied_commit
+        )
+
+        for statuses, message in (
+            ("initContainerStatuses", "preflight runtime image"),
+            ("containerStatuses", "Pod runtime image"),
+        ):
+            untrusted_image_pod = copy.deepcopy(pod)
+            untrusted_image_pod["status"][statuses][0]["image"] = "sha256:" + "0" * 64
+            with self.subTest(statuses=statuses), self.assertRaisesRegex(ValueError, message):
+                self.runtime.validate_migration_runtime(
+                    app,
+                    job,
+                    {"items": [untrusted_image_pod]},
+                    "mission-spine-flyway-target=202608221001 status=validated\n",
+                    self.commit,
+                    release_hash,
+                    migration_trust,
+                    "202608221001",
+                    "V202608221001__correct_question_bank_accuracy.sql",
+                    "2026-08-17T00:00:00Z",
+                )
 
         for mutation, message in (
             (lambda value: value["metadata"].__setitem__("name", "devpath-flyway-migrate"), "identity"),

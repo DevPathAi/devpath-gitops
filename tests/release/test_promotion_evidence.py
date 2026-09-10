@@ -66,7 +66,7 @@ class ProductionCanaryEvidenceTest(unittest.TestCase):
                     {
                         "pod_uid": f"pod-{name}",
                         "runtime_image_digest": services[name]["manifest_digest"],
-                        "runtime_image_form": "manifest",
+                        "runtime_image_form": "linux-amd64-manifest",
                     }
                 ],
             }
@@ -140,6 +140,11 @@ class ProductionCanaryEvidenceTest(unittest.TestCase):
             "runtime_image_digest"
         ] = "sha256:" + "9" * 64
         mutations.append(runtime)
+        legacy_form = copy.deepcopy(self.payload)
+        legacy_form["service_runtime"]["services"][module.SERVICE_NAMES[0]]["pods"][0][
+            "runtime_image_form"
+        ] = "manifest"
+        mutations.append(legacy_form)
         extra = copy.deepcopy(self.payload)
         extra["extra"] = True
         mutations.append(extra)
