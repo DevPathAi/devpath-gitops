@@ -11,8 +11,8 @@ KAFKA = ROOT / "kafka" / "staging-cluster.yaml"
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 PROD27_STAGING_IMAGES = {
     "ghcr.io/devpathai/devpath-gateway": (
-        "44f22a3a684d6c81ffcfd8327cfc47adb8613729",
-        "sha256:a5bdfbaf56aa8add46f3f8ca1f982252e2b06d13402d7e3c3c0e60669a5fd94a",
+        "a886215711890519731c8a4e7b3bda32978015a7",
+        "sha256:7d46fa8714c2fb1d94107a29a9eb5f046991b752c33d51ac2809e02cb918b2af",
     ),
     "ghcr.io/devpathai/devpath-platform-svc": (
         "cd4c1317f328c52e481cefc219a467d2227ae968",
@@ -217,6 +217,10 @@ class MissionStagingStackTest(unittest.TestCase):
         self.assertEqual(
             gateway["PUBLIC_CORS_ALLOWED_ORIGINS"]["value"],
             "https://leva.ai.kr",
+        )
+        self.assertEqual(
+            gateway["RELEASE_CORS_ALLOWED_ORIGINS"]["value"],
+            "https://leva.ai.kr,https://app.leva.ai.kr",
         )
         self.assertEqual(
             gateway[
