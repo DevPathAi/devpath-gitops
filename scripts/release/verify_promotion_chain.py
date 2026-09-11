@@ -155,6 +155,15 @@ LANDING_DIRECT_UPLOAD_SOURCE_FIX_PATHS = (
     "tests/release/test_promotion_chain.py",
     "tests/release/test_release_hardening.py",
 )
+LANDING_WRANGLER_ISOLATION_FIX_SUBJECT = (
+    "fix(release): keep Landing control checkout immutable"
+)
+LANDING_WRANGLER_ISOLATION_FIX_PATHS = (
+    ".github/workflows/mission-spine-landing-last.yml",
+    "scripts/release/verify_promotion_chain.py",
+    "tests/release/test_promotion_chain.py",
+    "tests/release/test_release_hardening.py",
+)
 
 
 def _git(root: Path, args: list[str], *, binary: bool = False) -> str | bytes:
@@ -736,6 +745,7 @@ def inspect_chain(
                 "web_applied_revision_fix_commit": "",
                 "staging_context_auth_fix_commit": "",
                 "landing_direct_upload_source_fix_commit": "",
+                "landing_wrangler_isolation_fix_commit": "",
                 "services_commit": "",
                 "off_commit": "",
                 "on_commit": "",
@@ -1020,6 +1030,27 @@ def inspect_chain(
                 **prior,
                 "current_commit": commit,
                 "landing_direct_upload_source_fix_commit": commit,
+                "on_commit": commit,
+            }
+        if subject == LANDING_WRANGLER_ISOLATION_FIX_SUBJECT:
+            _require_write_actor(root, commit)
+            if (
+                prior["phase"] != "mission-on"
+                or not prior["on_commit"]
+                or parent != prior["on_commit"]
+                or prior["landing_wrangler_isolation_fix_commit"]
+            ):
+                raise ValueError(
+                    "Landing Wrangler isolation fix must directly follow mission-ON"
+                )
+            _require_delta(root, commit, LANDING_WRANGLER_ISOLATION_FIX_PATHS)
+            _require_migration(root, commit, candidate, release_manifest_sha256)
+            _require_services(root, commit, candidate)
+            _require_web(root, commit, candidate, candidate_spec_sha256, "mission-on")
+            return {
+                **prior,
+                "current_commit": commit,
+                "landing_wrangler_isolation_fix_commit": commit,
                 "on_commit": commit,
             }
         if subject == services_subject:

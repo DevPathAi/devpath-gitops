@@ -5,9 +5,11 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from unittest import mock
 from urllib.request import ProxyHandler, Request
@@ -976,7 +978,7 @@ images:
         )
         self.assertLess(
             deploy_block.index("--action preflight"),
-            deploy_block.index("wrangler pages deploy"),
+            deploy_block.index('node_modules/.bin/wrangler" pages deploy'),
         )
 
         created_id = "33333333-3333-3333-3333-333333333333"
@@ -1349,12 +1351,178 @@ images:
         self.assertNotIn("prepare-wrangler:", prepare)
         self.assertIn("environment: mission-spine-production-landing", deploy)
         self.assertIn("actions/setup-node@", deploy)
-        self.assertIn("npm ci --ignore-scripts --no-audit --no-fund", deploy)
+        self.assertIn(
+            'npm ci --prefix "$WRANGLER_ROOT" --ignore-scripts --no-audit --no-fund',
+            deploy,
+        )
         self.assertIn(
             'require(\'./node_modules/wrangler/package.json\').version")" = "4.123.0"',
             deploy,
         )
         self.assertNotRegex(deploy, r"\bnpx\b.*wrangler")
+
+    def test_landing_installs_wrangler_outside_authenticated_control_checkout(self):
+        landing = (ROOT / ".github/workflows/mission-spine-landing-last.yml").read_text(
+            encoding="utf-8"
+        )
+        install = landing.split(
+            "- name: Install approved integrity-locked Wrangler", 1
+        )[1].split("- name: Install exact AI release renderer", 1)[0]
+
+        self.assertIn(
+            "WRANGLER_ROOT: ${{ runner.temp }}/mission-spine-release-wrangler",
+            install,
+        )
+        self.assertIn("control/tools/release-wrangler/package.json", install)
+        self.assertIn("control/tools/release-wrangler/package-lock.json", install)
+        self.assertIn('mkdir "$WRANGLER_ROOT"', install)
+        self.assertIn(
+            "cp -- control/tools/release-wrangler/package.json \\\n"
+            "            control/tools/release-wrangler/package-lock.json \\\n"
+            '            "$WRANGLER_ROOT/"',
+            install,
+        )
+        self.assertIn(
+            'npm ci --prefix "$WRANGLER_ROOT" --ignore-scripts --no-audit --no-fund',
+            install,
+        )
+        self.assertNotIn("working-directory: control/", install)
+        self.assertNotIn("control/tools/release-wrangler/node_modules", landing)
+        self.assertIn(
+            '"$RUNNER_TEMP/mission-spine-release-wrangler/node_modules/.bin/wrangler" pages deploy',
+            landing,
+        )
+
+    def test_landing_wrangler_install_preserves_reauthentication_cleanliness(self):
+        landing = (ROOT / ".github/workflows/mission-spine-landing-last.yml").read_text(
+            encoding="utf-8"
+        )
+        install = landing.split(
+            "- name: Install approved integrity-locked Wrangler", 1
+        )[1].split("- name: Install exact AI release renderer", 1)[0]
+        run = textwrap.dedent(install.split("        run: |\n", 1)[1])
+
+        bash = shutil.which("bash")
+        if os.name == "nt":
+            git_bash = (
+                Path(os.environ.get("ProgramFiles", "C:/Program Files"))
+                / "Git/bin/bash.exe"
+            )
+            bash = str(git_bash) if git_bash.is_file() else None
+        if bash is None:
+            self.skipTest("a POSIX bash is required to execute the Landing install block")
+
+        with tempfile.TemporaryDirectory() as raw_temp:
+            workspace = Path(raw_temp) / "workspace"
+            control = workspace / "control"
+            tool = control / "tools" / "release-wrangler"
+            workflow = (
+                control / ".github" / "workflows" / "mission-spine-landing-last.yml"
+            )
+            fake_bin = workspace / "fake-bin"
+            (workspace / "runner").mkdir(parents=True)
+            tool.mkdir(parents=True)
+            workflow.parent.mkdir(parents=True)
+            fake_bin.mkdir()
+            shutil.copy2(
+                ROOT / "tools/release-wrangler/package.json", tool / "package.json"
+            )
+            shutil.copy2(
+                ROOT / "tools/release-wrangler/package-lock.json", tool / "package-lock.json"
+            )
+            workflow.write_bytes(
+                (ROOT / ".github/workflows/mission-spine-landing-last.yml").read_bytes()
+            )
+
+            fake_npm = fake_bin / "npm"
+            fake_npm.write_text(
+                "#!/bin/sh\n"
+                "set -eu\n"
+                "test \"$1\" = ci\n"
+                "test \"$2\" = --prefix\n"
+                "install_root=$3\n"
+                "test -f \"$install_root/package.json\"\n"
+                "test -f \"$install_root/package-lock.json\"\n"
+                "mkdir -p \"$install_root/node_modules/wrangler\" "
+                "\"$install_root/node_modules/.bin\"\n"
+                "printf '%s\\n' '{\"version\":\"4.123.0\"}' > "
+                "\"$install_root/node_modules/wrangler/package.json\"\n"
+                "touch \"$install_root/node_modules/.bin/wrangler\"\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+            fake_node = fake_bin / "node"
+            fake_node.write_text(
+                "#!/bin/sh\nset -eu\ntest \"$1\" = -p\nprintf '%s\\n' 4.123.0\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+            fake_npm.chmod(0o755)
+            fake_node.chmod(0o755)
+
+            subprocess.run(["git", "init", "-b", "main"], cwd=control, check=True)
+            subprocess.run(
+                ["git", "config", "core.autocrlf", "false"], cwd=control, check=True
+            )
+            subprocess.run(["git", "add", "."], cwd=control, check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "user.name=Release Test",
+                    "-c",
+                    "user.email=release-test@example.invalid",
+                    "commit",
+                    "--no-gpg-sign",
+                    "-m",
+                    "fixture",
+                ],
+                cwd=control,
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
+            head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=control, text=True
+            ).strip()
+
+            environment = os.environ.copy()
+            environment["WRANGLER_ROOT"] = "runner/mission-spine-release-wrangler"
+            subprocess.run(
+                [bash, "-c", 'export PATH="$PWD/fake-bin:$PATH"\n' + run],
+                cwd=workspace,
+                env=environment,
+                check=True,
+            )
+
+            verifier = load_module(
+                "verify_main_release_context.py", "landing_clean_context_verifier"
+            )
+            verified = verifier.validate_control_checkout(
+                control,
+                ".github/workflows/mission-spine-landing-last.yml",
+                {"name": "main", "protected": True, "commit": {"sha": head}},
+                {
+                    "GITHUB_RUN_ATTEMPT": "1",
+                    "GITHUB_WORKFLOW_SHA": head,
+                    "GITHUB_REPOSITORY": "DevPathAi/devpath-gitops",
+                    "GITHUB_EVENT_NAME": "workflow_dispatch",
+                    "GITHUB_REF": "refs/heads/main",
+                    "GITHUB_REF_NAME": "main",
+                    "GITHUB_WORKFLOW_REF": (
+                        "DevPathAi/devpath-gitops/.github/workflows/"
+                        "mission-spine-landing-last.yml@refs/heads/main"
+                    ),
+                    "GITHUB_SHA": head,
+                },
+            )
+            self.assertEqual(verified, head)
+            self.assertTrue(
+                (
+                    workspace
+                    / "runner/mission-spine-release-wrangler/node_modules/.bin/wrangler"
+                )
+                .is_file()
+            )
 
     def test_canonical_composed_source_pins_are_bound_in_candidate_fixture(self):
         expected = {

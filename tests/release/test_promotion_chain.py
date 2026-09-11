@@ -34,6 +34,15 @@ MIGRATION_WRITER_FENCE_RUNTIME_FIX_PATHS = (
     "tests/release/test_release_contract.py",
     "tests/release/test_service_promotion.py",
 )
+LANDING_WRANGLER_ISOLATION_FIX_SUBJECT = (
+    "fix(release): keep Landing control checkout immutable"
+)
+LANDING_WRANGLER_ISOLATION_FIX_PATHS = (
+    ".github/workflows/mission-spine-landing-last.yml",
+    "scripts/release/verify_promotion_chain.py",
+    "tests/release/test_promotion_chain.py",
+    "tests/release/test_release_hardening.py",
+)
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
@@ -115,6 +124,7 @@ class PromotionChainTest(unittest.TestCase):
             *self.chain.CANARY_RUNTIME_FORM_FIX_PATHS,
             *WEB_APPLIED_REVISION_FIX_PATHS,
             *self.chain.LANDING_DIRECT_UPLOAD_SOURCE_FIX_PATHS,
+            *LANDING_WRANGLER_ISOLATION_FIX_PATHS,
         }
         for relative in copied_contract_paths:
             target = self.root / relative
@@ -390,6 +400,32 @@ class PromotionChainTest(unittest.TestCase):
             "commit",
             "-m",
             self.chain.LANDING_DIRECT_UPLOAD_SOURCE_FIX_SUBJECT,
+        )
+        return git(self.root, "rev-parse", "HEAD")
+
+    def commit_landing_wrangler_isolation_fix(self, *, suffix: str = "") -> str:
+        self.assertEqual(
+            LANDING_WRANGLER_ISOLATION_FIX_SUBJECT,
+            self.chain.LANDING_WRANGLER_ISOLATION_FIX_SUBJECT,
+        )
+        self.assertEqual(
+            LANDING_WRANGLER_ISOLATION_FIX_PATHS,
+            self.chain.LANDING_WRANGLER_ISOLATION_FIX_PATHS,
+        )
+        for relative in self.chain.LANDING_WRANGLER_ISOLATION_FIX_PATHS:
+            path = self.root / relative
+            path.write_text(
+                path.read_text(encoding="utf-8")
+                + f"\n# landing-wrangler-isolation-fix{suffix}\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+        git(self.root, "add", *self.chain.LANDING_WRANGLER_ISOLATION_FIX_PATHS)
+        git(
+            self.root,
+            "commit",
+            "-m",
+            self.chain.LANDING_WRANGLER_ISOLATION_FIX_SUBJECT,
         )
         return git(self.root, "rev-parse", "HEAD")
 
@@ -1229,6 +1265,103 @@ class PromotionChainTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "path set is not exact"):
             self.inspect(malformed)
+
+    def test_landing_wrangler_isolation_fix_advances_on_identity_and_cannot_repeat(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.set_services()
+        self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        self.set_web("mission-off", "base")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-off")
+        self.set_web("mission-on", "mission-off")
+        on = self.commit(
+            f"release(web): promote {self.candidate['release_id']} mission-on"
+        )
+        landing_fix = self.commit_landing_wrangler_isolation_fix()
+
+        state = self.inspect(landing_fix)
+        self.assertEqual("mission-on", state["phase"])
+        self.assertNotEqual(on, landing_fix)
+        self.assertEqual(
+            landing_fix, state["landing_wrangler_isolation_fix_commit"]
+        )
+        self.assertEqual(landing_fix, state["on_commit"])
+        self.assertEqual(landing_fix, state["current_commit"])
+
+        repeated = self.commit_landing_wrangler_isolation_fix(suffix="-repeated")
+        with self.assertRaisesRegex(ValueError, "directly follow mission-ON"):
+            self.inspect(repeated)
+
+    def test_landing_wrangler_isolation_fix_requires_exact_paths(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.set_services()
+        self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        self.set_web("mission-off", "base")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-off")
+        self.set_web("mission-on", "mission-off")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-on")
+        omitted = self.chain.LANDING_WRANGLER_ISOLATION_FIX_PATHS[-1]
+        self.commit_landing_wrangler_isolation_fix()
+        git(self.root, "checkout", "HEAD^", "--", omitted)
+        git(self.root, "add", omitted)
+        git(self.root, "commit", "--amend", "--no-edit")
+        malformed = git(self.root, "rev-parse", "HEAD")
+
+        with self.assertRaisesRegex(ValueError, "path set is not exact"):
+            self.inspect(malformed)
+
+    def test_landing_wrangler_isolation_fix_follows_direct_upload_fix(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.set_services()
+        self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        self.set_web("mission-off", "base")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-off")
+        self.set_web("mission-on", "mission-off")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-on")
+        direct_upload_fix = self.commit_landing_direct_upload_source_fix()
+        landing_fix = self.commit_landing_wrangler_isolation_fix()
+
+        state = self.inspect(landing_fix)
+        self.assertEqual(
+            direct_upload_fix, state["landing_direct_upload_source_fix_commit"]
+        )
+        self.assertEqual(
+            landing_fix, state["landing_wrangler_isolation_fix_commit"]
+        )
+        self.assertEqual(landing_fix, state["on_commit"])
+
+    def test_landing_wrangler_isolation_fix_requires_release_app_actor(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.set_services()
+        self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        self.set_web("mission-off", "base")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-off")
+        self.set_web("mission-on", "mission-off")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-on")
+        git(self.root, "config", "user.name", "lookalike-release-bot")
+        landing_fix = self.commit_landing_wrangler_isolation_fix()
+
+        with self.assertRaisesRegex(ValueError, "release App"):
+            self.inspect(landing_fix)
 
     def test_recognized_commit_from_non_app_actor_is_rejected(self):
         self.set_migration()
