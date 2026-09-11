@@ -83,12 +83,17 @@ jobs:
           node-version: "24"
           cache: npm
           cache-dependency-path: control/tools/release-wrangler/package-lock.json
-      - name: Install approved integrity-locked Wrangler inside the protected job
-        working-directory: control/tools/release-wrangler
+      - name: Install approved integrity-locked Wrangler outside authenticated checkout
+        env:
+          WRANGLER_ROOT: ${{ runner.temp }}/mission-spine-release-wrangler
         run: |
           set -euo pipefail
-          npm ci --ignore-scripts --no-audit --no-fund
-          test "$(node -p "require('./node_modules/wrangler/package.json').version")" = "4.123.0"
+          mkdir "$WRANGLER_ROOT"
+          cp -- control/tools/release-wrangler/package.json \
+            control/tools/release-wrangler/package-lock.json \
+            "$WRANGLER_ROOT/"
+          npm ci --prefix "$WRANGLER_ROOT" --ignore-scripts --no-audit --no-fund
+          test "$(cd "$WRANGLER_ROOT" && node -p "require('./node_modules/wrangler/package.json').version")" = "4.123.0"
       - name: Install exact AI release renderer
         run: |
           set -euo pipefail
@@ -188,7 +193,7 @@ jobs:
               ;;
             deploy)
               deploy_started="$(date +%s)"
-              control/tools/release-wrangler/node_modules/.bin/wrangler pages deploy \
+              "$RUNNER_TEMP/mission-spine-release-wrangler/node_modules/.bin/wrangler" pages deploy \
                 "$RUNNER_TEMP/home-release/dist" --project-name "$HOME_PROJECT" \
                 --branch develop --commit-hash "$HOME_SOURCE_SHA" --commit-dirty=false
               python control/scripts/release/cloudflare_pages.py \
