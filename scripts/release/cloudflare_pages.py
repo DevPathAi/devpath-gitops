@@ -19,6 +19,7 @@ from validate_release_manifest import CF_ID, resolve_release_bundle
 API_ROOT = "https://api.cloudflare.com/client/v4"
 MARKER_KEYS = {"release_id", "candidate_spec_sha256", "dist_sha256"}
 PRODUCTION_BRANCH = "develop"
+DEPLOYMENT_PAGE_SIZE = 25
 MAX_DEPLOYMENT_PAGES = 10
 MAX_API_RESPONSE_BYTES = 1024 * 1024
 
@@ -198,7 +199,9 @@ def _production_deployments(token: str, base: str) -> list[dict]:
     while total_pages is None or page <= total_pages:
         if page > MAX_DEPLOYMENT_PAGES:
             raise ValueError("Cloudflare production deployment census exceeds its page bound")
-        query = urlencode({"env": "production", "page": page, "per_page": 100})
+        query = urlencode(
+            {"env": "production", "page": page, "per_page": DEPLOYMENT_PAGE_SIZE}
+        )
         payload = _api(token, "GET", f"{base}?{query}")
         results = payload.get("result")
         info = payload.get("result_info")
@@ -207,7 +210,7 @@ def _production_deployments(token: str, base: str) -> list[dict]:
         if (
             isinstance(info.get("page"), bool)
             or info.get("page") != page
-            or info.get("per_page") != 100
+            or info.get("per_page") != DEPLOYMENT_PAGE_SIZE
             or isinstance(info.get("total_pages"), bool)
             or not isinstance(info.get("total_pages"), int)
             or info["total_pages"] < 1
