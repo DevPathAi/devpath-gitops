@@ -144,6 +144,17 @@ LANDING_WRANGLER_ISOLATION_FIX_PATHS = (
     "tests/release/test_promotion_chain.py",
     "tests/release/test_release_hardening.py",
 )
+STAGING_REBASELINE_IDEMPOTENCY_FIX_SUBJECT = (
+    "fix(release): make staging rebaseline idempotent"
+)
+STAGING_REBASELINE_IDEMPOTENCY_FIX_PATHS = (
+    ".github/workflows/mission-spine-promote.yml",
+    "scripts/release/inspect_staging_web_phase.py",
+    "scripts/release/verify_promotion_chain.py",
+    "tests/release/test_inspect_staging_web_phase.py",
+    "tests/release/test_production_workflow_wiring.py",
+    "tests/release/test_promotion_chain.py",
+)
 
 
 def _git(root: Path, args: list[str], *, binary: bool = False) -> str | bytes:
@@ -722,6 +733,7 @@ def inspect_chain(
                 "web_applied_revision_fix_commit": "",
                 "staging_context_auth_fix_commit": "",
                 "landing_wrangler_isolation_fix_commit": "",
+                "staging_rebaseline_idempotency_fix_commit": "",
                 "services_commit": "",
                 "off_commit": "",
                 "on_commit": "",
@@ -985,6 +997,28 @@ def inspect_chain(
                 **prior,
                 "current_commit": commit,
                 "landing_wrangler_isolation_fix_commit": commit,
+                "on_commit": commit,
+            }
+        if subject == STAGING_REBASELINE_IDEMPOTENCY_FIX_SUBJECT:
+            _require_write_actor(root, commit)
+            if (
+                prior["phase"] != "mission-on"
+                or not prior["landing_wrangler_isolation_fix_commit"]
+                or parent != prior["on_commit"]
+                or prior["staging_rebaseline_idempotency_fix_commit"]
+            ):
+                raise ValueError(
+                    "staging rebaseline idempotency fix must directly follow "
+                    "Landing Wrangler isolation fix"
+                )
+            _require_delta(root, commit, STAGING_REBASELINE_IDEMPOTENCY_FIX_PATHS)
+            _require_migration(root, commit, candidate, release_manifest_sha256)
+            _require_services(root, commit, candidate)
+            _require_web(root, commit, candidate, candidate_spec_sha256, "mission-on")
+            return {
+                **prior,
+                "current_commit": commit,
+                "staging_rebaseline_idempotency_fix_commit": commit,
                 "on_commit": commit,
             }
         if subject == services_subject:
