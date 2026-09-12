@@ -531,7 +531,16 @@ jobs:
           test -n "${STAGING_KUBECONFIG_B64:-}"
           python control/scripts/release/manage_production_kubeconfig.py create \
             --scope staging --runner-temp "$RUNNER_TEMP" --github-env "$GITHUB_ENV"
+      - name: Identify the exact idempotent staging rebaseline state
+        id: staging_state
+        run: |
+          set -euo pipefail
+          python control/scripts/release/inspect_staging_web_phase.py \
+            --root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID" \
+            --allowed-phase prior --allowed-phase mission-on \
+            --github-output "$GITHUB_OUTPUT"
       - name: Verify exact recorded prior before staging rebaseline
+        if: steps.staging_state.outputs.current_phase == 'prior'
         id: prior_cas
         env:
           MISSION_SYNTHETIC_PROBE_TOKEN: ${{ secrets.MISSION_SYNTHETIC_PROBE_TOKEN }}
@@ -544,17 +553,22 @@ jobs:
         id: rebaseline
         env:
           MISSION_SYNTHETIC_PROBE_TOKEN: ${{ secrets.MISSION_SYNTHETIC_PROBE_TOKEN }}
+          STAGING_CURRENT_PHASE: ${{ steps.staging_state.outputs.current_phase }}
         run: |
           set -euo pipefail
           test -n "${MISSION_SYNTHETIC_PROBE_TOKEN:-}"
-          python control/scripts/release/stage_web_release.py \
-            --root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID" \
-            --phase mission-on --expected-current prior
+          if [ "$STAGING_CURRENT_PHASE" = "prior" ]; then
+            python control/scripts/release/stage_web_release.py \
+              --root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID" \
+              --phase mission-on --expected-current prior
+          else
+            test "$STAGING_CURRENT_PHASE" = "mission-on"
+          fi
           python control/scripts/release/wait_web_rollout.py \
             --root "$GITHUB_WORKSPACE/sealed-release" --release-id "$RELEASE_ID" \
             --environment staging --phase mission-on --canary-seconds 0
       - name: Fail-safe restore staging prior after an incomplete rebaseline
-        if: failure() && steps.kube.outcome == 'success' && steps.prior_cas.outcome == 'success'
+        if: failure() && steps.kube.outcome == 'success' && steps.staging_state.outputs.current_phase == 'prior' && steps.prior_cas.outcome == 'success'
         env:
           MISSION_SYNTHETIC_PROBE_TOKEN: ${{ secrets.MISSION_SYNTHETIC_PROBE_TOKEN }}
         run: |
