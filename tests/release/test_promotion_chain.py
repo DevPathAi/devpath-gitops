@@ -43,6 +43,21 @@ LANDING_WRANGLER_ISOLATION_FIX_PATHS = (
     "tests/release/test_promotion_chain.py",
     "tests/release/test_release_hardening.py",
 )
+STAGING_REBASELINE_IDEMPOTENCY_FIX_SUBJECT = (
+    "fix(release): make staging rebaseline idempotent"
+)
+STAGING_REBASELINE_IDEMPOTENCY_FIX_PATHS = (
+    ".github/workflows/mission-spine-promote.yml",
+    "scripts/release/inspect_staging_web_phase.py",
+    "scripts/release/verify_promotion_chain.py",
+    "tests/release/test_inspect_staging_web_phase.py",
+    "tests/release/test_production_workflow_wiring.py",
+    "tests/release/test_promotion_chain.py",
+)
+STAGING_REBASELINE_IDEMPOTENCY_ADDED_PATHS = (
+    "scripts/release/inspect_staging_web_phase.py",
+    "tests/release/test_inspect_staging_web_phase.py",
+)
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
@@ -125,7 +140,11 @@ class PromotionChainTest(unittest.TestCase):
             *WEB_APPLIED_REVISION_FIX_PATHS,
             *self.chain.LANDING_DIRECT_UPLOAD_SOURCE_FIX_PATHS,
             *LANDING_WRANGLER_ISOLATION_FIX_PATHS,
+            *STAGING_REBASELINE_IDEMPOTENCY_FIX_PATHS,
         }
+        copied_contract_paths.difference_update(
+            STAGING_REBASELINE_IDEMPOTENCY_ADDED_PATHS
+        )
         for relative in copied_contract_paths:
             target = self.root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -426,6 +445,46 @@ class PromotionChainTest(unittest.TestCase):
             "commit",
             "-m",
             self.chain.LANDING_WRANGLER_ISOLATION_FIX_SUBJECT,
+        )
+        return git(self.root, "rev-parse", "HEAD")
+
+    def commit_staging_rebaseline_idempotency_fix(
+        self, *, suffix: str = ""
+    ) -> str:
+        self.assertEqual(
+            STAGING_REBASELINE_IDEMPOTENCY_FIX_SUBJECT,
+            self.chain.STAGING_REBASELINE_IDEMPOTENCY_FIX_SUBJECT,
+        )
+        self.assertEqual(
+            STAGING_REBASELINE_IDEMPOTENCY_FIX_PATHS,
+            self.chain.STAGING_REBASELINE_IDEMPOTENCY_FIX_PATHS,
+        )
+        self.assertEqual(
+            STAGING_REBASELINE_IDEMPOTENCY_ADDED_PATHS,
+            self.chain.STAGING_REBASELINE_IDEMPOTENCY_ADDED_PATHS,
+        )
+        for relative in self.chain.STAGING_REBASELINE_IDEMPOTENCY_FIX_PATHS:
+            path = self.root / relative
+            if relative in self.chain.STAGING_REBASELINE_IDEMPOTENCY_ADDED_PATHS:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                source = (ROOT / relative).read_text(encoding="utf-8")
+            else:
+                source = path.read_text(encoding="utf-8")
+            path.write_text(
+                source + f"\n# staging-rebaseline-idempotency-fix{suffix}\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+        git(
+            self.root,
+            "add",
+            *self.chain.STAGING_REBASELINE_IDEMPOTENCY_FIX_PATHS,
+        )
+        git(
+            self.root,
+            "commit",
+            "-m",
+            self.chain.STAGING_REBASELINE_IDEMPOTENCY_FIX_SUBJECT,
         )
         return git(self.root, "rev-parse", "HEAD")
 
@@ -1362,6 +1421,93 @@ class PromotionChainTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "release App"):
             self.inspect(landing_fix)
+
+    def test_staging_rebaseline_idempotency_fix_advances_on_and_cannot_repeat(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.set_services()
+        self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        self.set_web("mission-off", "base")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-off")
+        self.set_web("mission-on", "mission-off")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-on")
+        landing_fix = self.commit_landing_wrangler_isolation_fix()
+        rebaseline_fix = self.commit_staging_rebaseline_idempotency_fix()
+
+        state = self.inspect(rebaseline_fix)
+        self.assertEqual("mission-on", state["phase"])
+        self.assertEqual(
+            landing_fix, state["landing_wrangler_isolation_fix_commit"]
+        )
+        self.assertEqual(
+            rebaseline_fix, state["staging_rebaseline_idempotency_fix_commit"]
+        )
+        self.assertEqual(rebaseline_fix, state["on_commit"])
+        self.assertEqual(rebaseline_fix, state["current_commit"])
+
+        repeated = self.commit_staging_rebaseline_idempotency_fix(
+            suffix="-repeated"
+        )
+        with self.assertRaisesRegex(
+            ValueError, "directly follow Landing Wrangler isolation fix"
+        ):
+            self.inspect(repeated)
+
+    def test_staging_rebaseline_idempotency_fix_requires_exact_paths_and_order(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.set_services()
+        self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        self.set_web("mission-off", "base")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-off")
+        self.set_web("mission-on", "mission-off")
+        on = self.commit(
+            f"release(web): promote {self.candidate['release_id']} mission-on"
+        )
+        premature = self.commit_staging_rebaseline_idempotency_fix()
+        with self.assertRaisesRegex(
+            ValueError, "directly follow Landing Wrangler isolation fix"
+        ):
+            self.inspect(premature)
+
+        git(self.root, "reset", "--hard", on)
+        self.commit_landing_wrangler_isolation_fix()
+        omitted = self.chain.STAGING_REBASELINE_IDEMPOTENCY_FIX_PATHS[-1]
+        self.commit_staging_rebaseline_idempotency_fix()
+        git(self.root, "checkout", "HEAD^", "--", omitted)
+        git(self.root, "add", omitted)
+        git(self.root, "commit", "--amend", "--no-edit")
+        malformed = git(self.root, "rev-parse", "HEAD")
+        with self.assertRaisesRegex(ValueError, "path set is not exact"):
+            self.inspect(malformed)
+
+    def test_staging_rebaseline_idempotency_fix_requires_release_app_actor(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.set_services()
+        self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        self.set_web("mission-off", "base")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-off")
+        self.set_web("mission-on", "mission-off")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-on")
+        self.commit_landing_wrangler_isolation_fix()
+        git(self.root, "config", "user.name", "lookalike-release-bot")
+        rebaseline_fix = self.commit_staging_rebaseline_idempotency_fix()
+
+        with self.assertRaisesRegex(ValueError, "release App"):
+            self.inspect(rebaseline_fix)
 
     def test_recognized_commit_from_non_app_actor_is_rejected(self):
         self.set_migration()
