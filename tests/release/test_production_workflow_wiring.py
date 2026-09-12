@@ -357,6 +357,18 @@ class ProductionWorkflowWiringTest(unittest.TestCase):
         self.assertIn(
             "--phase mission-on --expected-current prior", section
         )
+        self.assertIn("id: staging_state", section)
+        self.assertIn("inspect_staging_web_phase.py", section)
+        self.assertIn("--allowed-phase prior --allowed-phase mission-on", section)
+        self.assertIn('--github-output "$GITHUB_OUTPUT"', section)
+        self.assertIn(
+            "if: steps.staging_state.outputs.current_phase == 'prior'", section
+        )
+        self.assertIn(
+            "STAGING_CURRENT_PHASE: ${{ steps.staging_state.outputs.current_phase }}",
+            section,
+        )
+        self.assertIn('if [ "$STAGING_CURRENT_PHASE" = "prior" ]; then', section)
         self.assertIn("--environment staging --phase mission-on", section)
         self.assertIn("--scope staging", section)
         self.assertIn("manage_production_kubeconfig.py cleanup", section)
@@ -398,7 +410,7 @@ class ProductionWorkflowWiringTest(unittest.TestCase):
             (
                 "mission-spine-promote.yml",
                 "Fail-safe restore staging prior after an incomplete rebaseline",
-                "if: failure() && steps.kube.outcome == 'success' && steps.prior_cas.outcome == 'success'",
+                "if: failure() && steps.kube.outcome == 'success' && steps.staging_state.outputs.current_phase == 'prior' && steps.prior_cas.outcome == 'success'",
             ),
             (
                 "mission-spine-rollback.yml",
