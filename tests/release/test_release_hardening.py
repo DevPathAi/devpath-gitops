@@ -1064,7 +1064,7 @@ images:
         pages = [
             {
                 "result": [deployment],
-                "result_info": {"page": 1, "per_page": 100, "count": 1, "total_pages": 2},
+                "result_info": {"page": 1, "per_page": 25, "count": 1, "total_pages": 2},
             },
             {
                 "result": [
@@ -1073,7 +1073,7 @@ images:
                         "id": "55555555-5555-5555-5555-555555555555",
                     }
                 ],
-                "result_info": {"page": 2, "per_page": 100, "count": 1, "total_pages": 2},
+                "result_info": {"page": 2, "per_page": 25, "count": 1, "total_pages": 2},
             },
         ]
         with mock.patch.object(self.cloudflare, "_api", side_effect=pages) as api:
@@ -1086,6 +1086,20 @@ images:
                 2,
             )
         self.assertEqual(api.call_count, 2)
+        api.assert_has_calls(
+            [
+                mock.call(
+                    "test-token",
+                    "GET",
+                    "/accounts/a/pages/projects/p/deployments?env=production&page=1&per_page=25",
+                ),
+                mock.call(
+                    "test-token",
+                    "GET",
+                    "/accounts/a/pages/projects/p/deployments?env=production&page=2&per_page=25",
+                ),
+            ]
+        )
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "github-output"
             with (
