@@ -155,6 +155,10 @@ STAGING_REBASELINE_IDEMPOTENCY_FIX_PATHS = (
     "tests/release/test_production_workflow_wiring.py",
     "tests/release/test_promotion_chain.py",
 )
+STAGING_REBASELINE_IDEMPOTENCY_ADDED_PATHS = (
+    "scripts/release/inspect_staging_web_phase.py",
+    "tests/release/test_inspect_staging_web_phase.py",
+)
 
 
 def _git(root: Path, args: list[str], *, binary: bool = False) -> str | bytes:
@@ -192,16 +196,29 @@ def _require_write_actor(root: Path, commit: str) -> None:
         raise ValueError("promotion chain commit was not created by the release App")
 
 
-def _require_delta(root: Path, commit: str, expected_paths: tuple[str, ...]) -> None:
+def _require_delta(
+    root: Path,
+    commit: str,
+    expected_paths: tuple[str, ...],
+    *,
+    added_paths: tuple[str, ...] = (),
+) -> None:
+    added = set(added_paths)
+    if len(added) != len(added_paths) or not added.issubset(expected_paths):
+        raise ValueError("promotion chain added path contract is invalid")
     rows = str(
         _git(root, ["diff-tree", "--no-commit-id", "--name-status", "-r", commit])
     ).splitlines()
     actual: list[str] = []
     for row in rows:
         fields = row.split("\t")
-        if len(fields) != 2 or fields[0] != "M":
-            raise ValueError("promotion chain commit may only modify existing exact paths")
-        actual.append(fields[1])
+        if len(fields) != 2:
+            raise ValueError("promotion chain commit path status is not exact")
+        status, path = fields
+        expected_status = "A" if path in added else "M"
+        if status != expected_status:
+            raise ValueError("promotion chain commit path status is not exact")
+        actual.append(path)
     if tuple(actual) != tuple(sorted(expected_paths)):
         raise ValueError("promotion chain commit path set is not exact")
 
@@ -1011,7 +1028,12 @@ def inspect_chain(
                     "staging rebaseline idempotency fix must directly follow "
                     "Landing Wrangler isolation fix"
                 )
-            _require_delta(root, commit, STAGING_REBASELINE_IDEMPOTENCY_FIX_PATHS)
+            _require_delta(
+                root,
+                commit,
+                STAGING_REBASELINE_IDEMPOTENCY_FIX_PATHS,
+                added_paths=STAGING_REBASELINE_IDEMPOTENCY_ADDED_PATHS,
+            )
             _require_migration(root, commit, candidate, release_manifest_sha256)
             _require_services(root, commit, candidate)
             _require_web(root, commit, candidate, candidate_spec_sha256, "mission-on")

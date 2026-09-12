@@ -43,6 +43,10 @@ STAGING_REBASELINE_IDEMPOTENCY_FIX_PATHS = (
     "tests/release/test_production_workflow_wiring.py",
     "tests/release/test_promotion_chain.py",
 )
+STAGING_REBASELINE_IDEMPOTENCY_ADDED_PATHS = (
+    "scripts/release/inspect_staging_web_phase.py",
+    "tests/release/test_inspect_staging_web_phase.py",
+)
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
@@ -116,6 +120,9 @@ class PromotionChainTest(unittest.TestCase):
             *LANDING_WRANGLER_ISOLATION_FIX_PATHS,
             *STAGING_REBASELINE_IDEMPOTENCY_FIX_PATHS,
         }
+        copied_contract_paths.difference_update(
+            STAGING_REBASELINE_IDEMPOTENCY_ADDED_PATHS
+        )
         for relative in copied_contract_paths:
             target = self.root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -393,11 +400,19 @@ class PromotionChainTest(unittest.TestCase):
             STAGING_REBASELINE_IDEMPOTENCY_FIX_PATHS,
             self.chain.STAGING_REBASELINE_IDEMPOTENCY_FIX_PATHS,
         )
+        self.assertEqual(
+            STAGING_REBASELINE_IDEMPOTENCY_ADDED_PATHS,
+            self.chain.STAGING_REBASELINE_IDEMPOTENCY_ADDED_PATHS,
+        )
         for relative in self.chain.STAGING_REBASELINE_IDEMPOTENCY_FIX_PATHS:
             path = self.root / relative
+            if relative in self.chain.STAGING_REBASELINE_IDEMPOTENCY_ADDED_PATHS:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                source = (ROOT / relative).read_text(encoding="utf-8")
+            else:
+                source = path.read_text(encoding="utf-8")
             path.write_text(
-                path.read_text(encoding="utf-8")
-                + f"\n# staging-rebaseline-idempotency-fix{suffix}\n",
+                source + f"\n# staging-rebaseline-idempotency-fix{suffix}\n",
                 encoding="utf-8",
                 newline="\n",
             )
