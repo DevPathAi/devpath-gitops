@@ -159,6 +159,15 @@ STAGING_REBASELINE_IDEMPOTENCY_ADDED_PATHS = (
     "scripts/release/inspect_staging_web_phase.py",
     "tests/release/test_inspect_staging_web_phase.py",
 )
+LANDING_PAGES_PAGINATION_FIX_SUBJECT = (
+    "fix(release): use supported Pages deployment page size"
+)
+LANDING_PAGES_PAGINATION_FIX_PATHS = (
+    "scripts/release/cloudflare_pages.py",
+    "scripts/release/verify_promotion_chain.py",
+    "tests/release/test_promotion_chain.py",
+    "tests/release/test_release_hardening.py",
+)
 
 
 def _git(root: Path, args: list[str], *, binary: bool = False) -> str | bytes:
@@ -751,6 +760,7 @@ def inspect_chain(
                 "staging_context_auth_fix_commit": "",
                 "landing_wrangler_isolation_fix_commit": "",
                 "staging_rebaseline_idempotency_fix_commit": "",
+                "landing_pages_pagination_fix_commit": "",
                 "services_commit": "",
                 "off_commit": "",
                 "on_commit": "",
@@ -1041,6 +1051,28 @@ def inspect_chain(
                 **prior,
                 "current_commit": commit,
                 "staging_rebaseline_idempotency_fix_commit": commit,
+                "on_commit": commit,
+            }
+        if subject == LANDING_PAGES_PAGINATION_FIX_SUBJECT:
+            _require_write_actor(root, commit)
+            if (
+                prior["phase"] != "mission-on"
+                or not prior["staging_rebaseline_idempotency_fix_commit"]
+                or parent != prior["on_commit"]
+                or prior["landing_pages_pagination_fix_commit"]
+            ):
+                raise ValueError(
+                    "Landing Pages pagination fix must directly follow "
+                    "staging rebaseline idempotency fix"
+                )
+            _require_delta(root, commit, LANDING_PAGES_PAGINATION_FIX_PATHS)
+            _require_migration(root, commit, candidate, release_manifest_sha256)
+            _require_services(root, commit, candidate)
+            _require_web(root, commit, candidate, candidate_spec_sha256, "mission-on")
+            return {
+                **prior,
+                "current_commit": commit,
+                "landing_pages_pagination_fix_commit": commit,
                 "on_commit": commit,
             }
         if subject == services_subject:

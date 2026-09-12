@@ -47,6 +47,15 @@ STAGING_REBASELINE_IDEMPOTENCY_ADDED_PATHS = (
     "scripts/release/inspect_staging_web_phase.py",
     "tests/release/test_inspect_staging_web_phase.py",
 )
+LANDING_PAGES_PAGINATION_FIX_SUBJECT = (
+    "fix(release): use supported Pages deployment page size"
+)
+LANDING_PAGES_PAGINATION_FIX_PATHS = (
+    "scripts/release/cloudflare_pages.py",
+    "scripts/release/verify_promotion_chain.py",
+    "tests/release/test_promotion_chain.py",
+    "tests/release/test_release_hardening.py",
+)
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
@@ -119,6 +128,7 @@ class PromotionChainTest(unittest.TestCase):
             *WEB_APPLIED_REVISION_FIX_PATHS,
             *LANDING_WRANGLER_ISOLATION_FIX_PATHS,
             *STAGING_REBASELINE_IDEMPOTENCY_FIX_PATHS,
+            *LANDING_PAGES_PAGINATION_FIX_PATHS,
         }
         copied_contract_paths.difference_update(
             STAGING_REBASELINE_IDEMPOTENCY_ADDED_PATHS
@@ -426,6 +436,32 @@ class PromotionChainTest(unittest.TestCase):
             "commit",
             "-m",
             self.chain.STAGING_REBASELINE_IDEMPOTENCY_FIX_SUBJECT,
+        )
+        return git(self.root, "rev-parse", "HEAD")
+
+    def commit_landing_pages_pagination_fix(self, *, suffix: str = "") -> str:
+        self.assertEqual(
+            LANDING_PAGES_PAGINATION_FIX_SUBJECT,
+            self.chain.LANDING_PAGES_PAGINATION_FIX_SUBJECT,
+        )
+        self.assertEqual(
+            LANDING_PAGES_PAGINATION_FIX_PATHS,
+            self.chain.LANDING_PAGES_PAGINATION_FIX_PATHS,
+        )
+        for relative in self.chain.LANDING_PAGES_PAGINATION_FIX_PATHS:
+            path = self.root / relative
+            path.write_text(
+                path.read_text(encoding="utf-8")
+                + f"\n# landing-pages-pagination-fix{suffix}\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+        git(self.root, "add", *self.chain.LANDING_PAGES_PAGINATION_FIX_PATHS)
+        git(
+            self.root,
+            "commit",
+            "-m",
+            self.chain.LANDING_PAGES_PAGINATION_FIX_SUBJECT,
         )
         return git(self.root, "rev-parse", "HEAD")
 
@@ -1356,6 +1392,64 @@ class PromotionChainTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "release App"):
             self.inspect(rebaseline_fix)
+
+    def test_landing_pages_pagination_fix_advances_on_and_cannot_repeat(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.set_services()
+        self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        self.set_web("mission-off", "base")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-off")
+        self.set_web("mission-on", "mission-off")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-on")
+        self.commit_landing_wrangler_isolation_fix()
+        rebaseline_fix = self.commit_staging_rebaseline_idempotency_fix()
+        pagination_fix = self.commit_landing_pages_pagination_fix()
+
+        state = self.inspect(pagination_fix)
+        self.assertEqual("mission-on", state["phase"])
+        self.assertEqual(
+            rebaseline_fix, state["staging_rebaseline_idempotency_fix_commit"]
+        )
+        self.assertEqual(
+            pagination_fix, state["landing_pages_pagination_fix_commit"]
+        )
+        self.assertEqual(pagination_fix, state["on_commit"])
+        self.assertEqual(pagination_fix, state["current_commit"])
+
+        repeated = self.commit_landing_pages_pagination_fix(suffix="-repeated")
+        with self.assertRaisesRegex(
+            ValueError, "directly follow staging rebaseline idempotency fix"
+        ):
+            self.inspect(repeated)
+
+    def test_landing_pages_pagination_fix_requires_exact_paths(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.set_services()
+        self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        self.set_web("mission-off", "base")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-off")
+        self.set_web("mission-on", "mission-off")
+        self.commit(f"release(web): promote {self.candidate['release_id']} mission-on")
+        self.commit_landing_wrangler_isolation_fix()
+        self.commit_staging_rebaseline_idempotency_fix()
+        omitted = self.chain.LANDING_PAGES_PAGINATION_FIX_PATHS[-1]
+        self.commit_landing_pages_pagination_fix()
+        git(self.root, "checkout", "HEAD^", "--", omitted)
+        git(self.root, "add", omitted)
+        git(self.root, "commit", "--amend", "--no-edit")
+        malformed = git(self.root, "rev-parse", "HEAD")
+        with self.assertRaisesRegex(ValueError, "path set is not exact"):
+            self.inspect(malformed)
 
     def test_recognized_commit_from_non_app_actor_is_rejected(self):
         self.set_migration()
