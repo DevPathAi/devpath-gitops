@@ -10,8 +10,8 @@ configMapGenerator:
   - MISSION_RELEASE_READY=true
   - MISSION_RELEASE_ID=ms-20260916-mobile-first-redesign-r4
   - MISSION_CANDIDATE_SPEC_SHA256=b812ceb867b8f3b56e39f4fa5c654af5621d60879f16d4e090db340e20634c29
-  - MISSION_IMAGE_DIGEST=sha256:567dac17610f8e3e02b4b7dd060c175500169af7ad252ea9585a9ea1fa83acfb
+  - MISSION_IMAGE_DIGEST=sha256:27daf697da46c2a6e3d5c48675b3f8f1de3925906a1c9ec0e01be5cfe5914c16
 images:
 - name: ghcr.io/devpathai/devpath-web
   newName: ghcr.io/devpathai/devpath-web
-  digest: sha256:567dac17610f8e3e02b4b7dd060c175500169af7ad252ea9585a9ea1fa83acfb
+  digest: sha256:27daf697da46c2a6e3d5c48675b3f8f1de3925906a1c9ec0e01be5cfe5914c16
