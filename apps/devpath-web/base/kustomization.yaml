@@ -8,10 +8,10 @@ configMapGenerator:
 - name: devpath-web-release-identity
   literals:
   - MISSION_RELEASE_READY=true
-  - MISSION_RELEASE_ID=ms-20260915-github-login
-  - MISSION_CANDIDATE_SPEC_SHA256=89fec8a2a15bca8baf0d1e387e1b5dad630916d1cd2fb4f4d6030dbcd13fa59e
-  - MISSION_IMAGE_DIGEST=sha256:dcb373bfb484fd511bc9f8448b146cfb77426c3b4ee975fe0f09b010b28c97f0
+  - MISSION_RELEASE_ID=ms-20260916-mobile-first-redesign-r4
+  - MISSION_CANDIDATE_SPEC_SHA256=b812ceb867b8f3b56e39f4fa5c654af5621d60879f16d4e090db340e20634c29
+  - MISSION_IMAGE_DIGEST=sha256:567dac17610f8e3e02b4b7dd060c175500169af7ad252ea9585a9ea1fa83acfb
 images:
 - name: ghcr.io/devpathai/devpath-web
   newName: ghcr.io/devpathai/devpath-web
-  digest: sha256:dcb373bfb484fd511bc9f8448b146cfb77426c3b4ee975fe0f09b010b28c97f0
+  digest: sha256:567dac17610f8e3e02b4b7dd060c175500169af7ad252ea9585a9ea1fa83acfb
