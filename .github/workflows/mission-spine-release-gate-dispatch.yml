@@ -1,5 +1,4 @@
 ---
-# Dispatch nonce: landing-last attempt 2 after transient Cloudflare API failure.
 name: Mission Spine Release Gate Dispatch
 
 'on':
@@ -8,27 +7,55 @@ name: Mission Spine Release Gate Dispatch
       - automation/dispatch-ms-20260916-community-ia
 
 permissions:
-  actions: write
   contents: read
 
 jobs:
-  dispatch:
-    name: Dispatch protected release gate
+  diagnose-cloudflare:
+    name: Diagnose Cloudflare read-only status
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    environment: mission-spine-production-landing
     steps:
-      - name: Dispatch landing-last as GitHub Actions automation
+      - name: Report endpoint status codes without response bodies
         env:
-          GH_TOKEN: ${{ github.token }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
-          gh api \
-            --method POST \
-            "repos/${GITHUB_REPOSITORY}/actions/workflows/mission-spine-landing-last.yml/dispatches" \
-            --input - <<'JSON'
-          {
-            "ref": "main",
-            "inputs": {
-              "release_id": "ms-20260916-community-ia"
-            }
+          python - <<'PY'
+          import os
+          from urllib.error import HTTPError, URLError
+          from urllib.request import Request, urlopen
+
+          token = os.environ.get("CLOUDFLARE_API_TOKEN", "")
+          if not token:
+              raise SystemExit("Cloudflare token is unavailable")
+          root = "https://api.cloudflare.com/client/v4"
+          base = "/accounts/f74eb88cda37ff4f8e6c27aaaf91631c/pages/projects/devpath-home-page"
+          paths = {
+              "token": "/user/tokens/verify",
+              "project": base,
+              "candidate": base + "/deployments/1496e6fc-c0ab-41be-b3bb-718911757941",
+              "recorded_prior": base + "/deployments/740c6ab4-c035-458d-9cf6-5bafd9c397fc",
+              "previous_release_current": base + "/deployments/43c62c16-872d-48e7-8c14-078248c1d54b",
           }
-          JSON
+          failed = False
+          for label, path in paths.items():
+              request = Request(
+                  root + path,
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "User-Agent": "devpath-readonly-diagnostic/1",
+                  },
+              )
+              try:
+                  with urlopen(request, timeout=20) as response:
+                      status = response.status
+                      response.read(1)
+              except HTTPError as error:
+                  status = error.code
+                  failed = True
+              except URLError:
+                  status = "network-error"
+                  failed = True
+              print(f"{label}={status}")
+          raise SystemExit(1 if failed else 0)
+          PY
