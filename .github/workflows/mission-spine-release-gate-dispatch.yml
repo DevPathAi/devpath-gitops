@@ -1,5 +1,5 @@
 ---
-# Dispatch nonce: landing-last attempt 5 after sealed prior CAS restore.
+# Dispatch nonce: landing-last attempt 6 after marker propagation.
 name: Mission Spine Release Gate Dispatch
 
 'on':
