@@ -1,4 +1,5 @@
 ---
+# Dispatch nonce: landing-last attempt 2 after transient Cloudflare API failure.
 name: Mission Spine Release Gate Dispatch
 
 'on':
