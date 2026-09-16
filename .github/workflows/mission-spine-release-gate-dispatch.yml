@@ -1,5 +1,5 @@
 ---
-# Dispatch nonce: landing-last attempt 3 after Cloudflare credential refresh.
+# Dispatch nonce: landing-last attempt 4 with exact credential bytes.
 name: Mission Spine Release Gate Dispatch
 
 'on':
