@@ -17,7 +17,7 @@ patches:
   patch: |-
     - op: replace
       path: /metadata/name
-      value: devpath-flyway-migrate-81029e190726-67ad4ac8f5035d16333f2e26
+      value: devpath-flyway-migrate-81029e190726-3c8cd265494f93348a9a8809
     - op: replace
       path: /spec/suspend
       value: false
