@@ -1,0 +1,39 @@
+{
+  "schema_version": "leva.et13.source-pin.v1",
+  "repository": "DevPathAi/devpath-frontend",
+  "source_sha": "9607627616fdd1f369ff58d3fd86440ef6c171f3",
+  "files": {
+    "catalog.v1.json": {
+      "source_path": "evidence/et13/catalog.v1.json",
+      "sha256": "c5acc346a770f5890c6dd06ce616ffc1105eba12b7605e8ad985897e91b00c96"
+    },
+    "visual-cases.v1.json": {
+      "source_path": "evidence/et13/generated/visual-cases.v1.json",
+      "sha256": "acd368d92e9850cb51d67dc2d3cc9a6ae7c96e48f58da28f0e353ca0edc741ce"
+    },
+    "a11y-cases.v1.json": {
+      "source_path": "evidence/et13/generated/a11y-cases.v1.json",
+      "sha256": "cf664d46f5e0b0ea9ab789dbf4afca4dbc71778eff0db05779c3a48392622929"
+    },
+    "catalog.schema.json": {
+      "source_path": "evidence/et13/catalog.schema.json",
+      "sha256": "8e0bee6a1f99f2293c7fed5a4b19d89f855cc51da47793c9f88336daf7013726"
+    },
+    "evidence.schema.json": {
+      "source_path": "evidence/et13/evidence.schema.json",
+      "sha256": "acf5b914d1a45838772bac5f9e912534343931e36be51f742cdf6bc3172032c1"
+    },
+    "generated-cases.schema.json": {
+      "source_path": "evidence/et13/generated-cases.schema.json",
+      "sha256": "86d26364027e1e3a2bf178754ede042096f738c203220b83e6fc0d9c4ff1e8a7"
+    },
+    "manifest.schema.json": {
+      "source_path": "evidence/et13/manifest.schema.json",
+      "sha256": "e201fd195299ed7eddea7ceeaa2ee15eadfab634a49a284b4c23d13defdff5eb"
+    },
+    "release-bundle.v1.json": {
+      "source_path": "evidence/et13/release-bundle.v1.json",
+      "sha256": "b46cbc3903924267dfa9d44ea66d138ecceee22195c96c0f4fc29b0db6cfd411"
+    }
+  }
+}

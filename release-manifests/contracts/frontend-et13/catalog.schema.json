@@ -18,8 +18,8 @@
     "schema_version": {"const": "leva.et13.catalog.v1"},
     "fixtures": {
       "type": "array",
-      "minItems": 12,
-      "maxItems": 12,
+      "minItems": 13,
+      "maxItems": 13,
       "uniqueItems": true,
       "items": {"$ref": "#/$defs/fixture"}
     },
@@ -28,8 +28,8 @@
     },
     "projection_matrix": {
       "type": "array",
-      "minItems": 12,
-      "maxItems": 12,
+      "minItems": 13,
+      "maxItems": 13,
       "items": {"$ref": "#/$defs/projectionRow"}
     },
     "projection_contract_sha256": {
@@ -78,8 +78,8 @@
       ],
       "properties": {
         "id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
-        "owner": {"enum": ["web", "admin", "mobile", "dp_design"]},
-        "distribution": {"enum": ["web", "admin", "mobile"]},
+        "owner": {"enum": ["web", "admin", "dp_design"]},
+        "distribution": {"enum": ["web", "admin"]},
         "route": {"type": "string", "pattern": "^/\\?fixture=[a-z0-9-]+$"},
         "ready_semantics_label": {"type": "string", "pattern": "^ET13_READY:[a-z0-9-]+$"},
         "surface_label": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
