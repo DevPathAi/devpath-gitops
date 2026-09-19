@@ -300,7 +300,7 @@
       "required": ["schema_version", "projection_contract_sha256", "projection_matrix"],
       "properties": {
         "schema_version": {"const": "leva.et13.projection-contract.v1"},
-        "projection_contract_sha256": {"const": "c66d08b6425628a06b27d07e08d648cfb3568d9db7c8d8aca2371172ccf4bde3"},
+        "projection_contract_sha256": {"const": "158fdc882238c9459995c0572536a3cec3704e92bd1b28fa2d80907fc0435b78"},
         "projection_matrix": {"const": [
           {"fixture_id": "web-today-available", "capture_scope": "body_projection", "source_widget": "TodayMissionSection", "substitutions": ["controller/provider state replaced by approved deterministic fixture"]},
           {"fixture_id": "web-path-current-week", "capture_scope": "body_projection", "source_widget": "MissionPathPlanView", "substitutions": ["controller/provider state replaced by approved deterministic fixture"]},
@@ -310,10 +310,11 @@
           {"fixture_id": "web-mentor-context-preview", "capture_scope": "body_projection", "source_widget": "WebMentorContextProjection", "substitutions": ["controller/provider state replaced by approved deterministic fixture"]},
           {"fixture_id": "admin-kpi-dashboard", "capture_scope": "body_projection", "source_widget": "AdminKpiDashboardProjection", "substitutions": ["controller/provider state replaced by approved deterministic fixture"]},
           {"fixture_id": "admin-support-long-wire", "capture_scope": "component_projection", "source_widget": "AdminSupportDetailProjection", "substitutions": ["live provider and dialog shell replaced by deterministic AlertDialog host"]},
-          {"fixture_id": "mobile-today-available", "capture_scope": "body_projection", "source_widget": "MobileTodayProjection", "substitutions": ["native AppBar and route shell omitted", "controller/provider state replaced by approved deterministic fixture"]},
-          {"fixture_id": "mobile-content-reading", "capture_scope": "body_projection", "source_widget": "MobileContentProjection", "substitutions": ["native AppBar and route shell omitted", "periodic dwell timer frozen", "controller/provider state replaced by approved deterministic fixture"]},
           {"fixture_id": "dp-design-mission-ledger", "capture_scope": "component_projection", "source_widget": "DpEt13MissionLedgerFixture", "substitutions": ["hosted by the Flutter Web production distribution"]},
-          {"fixture_id": "dp-design-context-payload-preview", "capture_scope": "component_projection", "source_widget": "DpEt13ContextPayloadPreviewFixture", "substitutions": ["hosted by the Flutter Web production distribution"]}
+          {"fixture_id": "dp-design-context-payload-preview", "capture_scope": "component_projection", "source_widget": "DpEt13ContextPayloadPreviewFixture", "substitutions": ["hosted by the Flutter Web production distribution"]},
+          {"fixture_id": "web-community-free", "capture_scope": "body_projection", "source_widget": "WebCommunityBoardProjection", "substitutions": ["controller/provider state replaced by approved deterministic fixture"]},
+          {"fixture_id": "web-community-qna", "capture_scope": "body_projection", "source_widget": "WebCommunityBoardProjection", "substitutions": ["controller/provider state replaced by approved deterministic fixture"]},
+          {"fixture_id": "web-community-feedback", "capture_scope": "body_projection", "source_widget": "WebCommunityBoardProjection", "substitutions": ["controller/provider state replaced by approved deterministic fixture"]}
         ]}
       },
       "additionalProperties": false
@@ -328,10 +329,10 @@
         "sha256": {"$ref": "#/$defs/sha64"},
         "case_catalog_version": {"const": "leva.et13.catalog.v1"},
         "case_catalog_schema_version": {"const": "leva.et13.visual-cases.v1"},
-        "projection_contract_sha256": {"const": "c66d08b6425628a06b27d07e08d648cfb3568d9db7c8d8aca2371172ccf4bde3"},
-        "fixture_ids": {"const": ["web-today-available", "web-path-current-week", "web-content-reading", "web-workspace-idle", "web-review-loaded", "web-mentor-context-preview", "admin-kpi-dashboard", "admin-support-long-wire", "mobile-today-available", "mobile-content-reading", "dp-design-mission-ledger", "dp-design-context-payload-preview"]},
-        "case_count": {"const": 96},
-        "surface_case_counts": {"const": {"web": 48, "admin": 16, "mobile": 16, "dp_design": 16}},
+        "projection_contract_sha256": {"const": "158fdc882238c9459995c0572536a3cec3704e92bd1b28fa2d80907fc0435b78"},
+        "fixture_ids": {"const": ["web-today-available", "web-path-current-week", "web-content-reading", "web-workspace-idle", "web-review-loaded", "web-mentor-context-preview", "admin-kpi-dashboard", "admin-support-long-wire", "dp-design-mission-ledger", "dp-design-context-payload-preview", "web-community-free", "web-community-qna", "web-community-feedback"]},
+        "case_count": {"const": 104},
+        "surface_case_counts": {"const": {"web": 72, "admin": 16, "dp_design": 16}},
         "capture_surface": {"const": "flutter_web_release_projection"},
         "device_evidence": {"const": false},
         "evidence_mode": {"const": "release_ready"},
@@ -353,10 +354,10 @@
         "sha256": {"$ref": "#/$defs/sha64"},
         "case_catalog_version": {"const": "leva.et13.catalog.v1"},
         "case_catalog_schema_version": {"const": "leva.et13.a11y-cases.v1"},
-        "projection_contract_sha256": {"const": "c66d08b6425628a06b27d07e08d648cfb3568d9db7c8d8aca2371172ccf4bde3"},
-        "fixture_ids": {"const": ["web-today-available", "web-path-current-week", "web-content-reading", "web-workspace-idle", "web-review-loaded", "web-mentor-context-preview", "admin-kpi-dashboard", "admin-support-long-wire", "mobile-today-available", "mobile-content-reading", "dp-design-mission-ledger", "dp-design-context-payload-preview"]},
-        "case_count": {"const": 24},
-        "surface_case_counts": {"const": {"web": 12, "admin": 4, "mobile": 4, "dp_design": 4}},
+        "projection_contract_sha256": {"const": "158fdc882238c9459995c0572536a3cec3704e92bd1b28fa2d80907fc0435b78"},
+        "fixture_ids": {"const": ["web-today-available", "web-path-current-week", "web-content-reading", "web-workspace-idle", "web-review-loaded", "web-mentor-context-preview", "admin-kpi-dashboard", "admin-support-long-wire", "dp-design-mission-ledger", "dp-design-context-payload-preview", "web-community-free", "web-community-qna", "web-community-feedback"]},
+        "case_count": {"const": 26},
+        "surface_case_counts": {"const": {"web": 18, "admin": 4, "dp_design": 4}},
         "capture_surface": {"const": "flutter_web_release_projection"},
         "device_evidence": {"const": false},
         "evidence_mode": {"const": "release_ready"},
@@ -383,46 +384,22 @@
     },
     "qualityCatalogs": {
       "type": "object",
-      "required": ["frontend-visual", "home-visual", "frontend-automated-a11y", "home-axe-browser-a11y", "manual-nvda", "manual-talkback"],
+      "required": ["frontend-visual", "home-visual", "frontend-automated-a11y", "home-axe-browser-a11y", "manual-nvda"],
       "properties": {
         "frontend-visual": {"$ref": "#/$defs/frontendVisualCatalog"},
         "home-visual": {"$ref": "#/$defs/homeQualityCatalog"},
         "frontend-automated-a11y": {"$ref": "#/$defs/frontendAutomatedA11yCatalog"},
         "home-axe-browser-a11y": {"$ref": "#/$defs/homeQualityCatalog"},
-        "manual-nvda": {"allOf": [{"$ref": "#/$defs/qualityCatalog"}, {"properties": {"repository": {"const": "DevPathAi/devpath-frontend"}, "path": {"const": "tool/release-evidence/catalogs/manual-nvda.v1.json"}, "case_count": {"const": 2}}}]},
-        "manual-talkback": {"allOf": [{"$ref": "#/$defs/qualityCatalog"}, {"properties": {"repository": {"const": "DevPathAi/devpath-frontend"}, "path": {"const": "tool/release-evidence/catalogs/manual-talkback.v1.json"}, "case_count": {"const": 4}}}]}
-      },
-      "additionalProperties": false
-    },
-    "mobileTestArtifacts": {
-      "type": "object",
-      "required": ["schema_version", "repository", "source_sha", "event", "workflow_path", "workflow_sha256", "workflow_run_id", "run_attempt", "artifact_id", "artifact_name", "artifact_archive_sha256", "build_provenance_file", "build_provenance_sha256", "signed_apk_file", "signed_apk_sha256"],
-      "properties": {
-        "schema_version": {"const": "leva.mission-spine.signed-android-build-binding.v2"},
-        "repository": {"const": "DevPathAi/devpath-frontend"},
-        "source_sha": {"$ref": "#/$defs/sha40"},
-        "event": {"const": "workflow_dispatch"},
-        "workflow_path": {"const": ".github/workflows/mission-spine-signed-mobile-build.yml"},
-        "workflow_sha256": {"$ref": "#/$defs/sha64"},
-        "workflow_run_id": {"type": "integer", "minimum": 1},
-        "run_attempt": {"const": 1},
-        "artifact_id": {"type": "integer", "minimum": 1},
-        "artifact_name": {"$ref": "#/$defs/safeId"},
-        "artifact_archive_sha256": {"$ref": "#/$defs/sha64"},
-        "build_provenance_file": {"const": "build-provenance.v2.json"},
-        "build_provenance_sha256": {"$ref": "#/$defs/sha64"},
-        "signed_apk_file": {"const": "mobile/android/leva-release.apk"},
-        "signed_apk_sha256": {"$ref": "#/$defs/sha64"}
+        "manual-nvda": {"allOf": [{"$ref": "#/$defs/qualityCatalog"}, {"properties": {"repository": {"const": "DevPathAi/devpath-frontend"}, "path": {"const": "tool/release-evidence/catalogs/manual-nvda.v1.json"}, "case_count": {"const": 2}}}]}
       },
       "additionalProperties": false
     },
     "qualityEvidenceInputs": {
       "type": "object",
-      "required": ["catalogs", "frontend_projection_contract", "mobile_test_artifacts"],
+      "required": ["catalogs", "frontend_projection_contract"],
       "properties": {
         "catalogs": {"$ref": "#/$defs/qualityCatalogs"},
-        "frontend_projection_contract": {"$ref": "#/$defs/frontendProjectionContract"},
-        "mobile_test_artifacts": {"$ref": "#/$defs/mobileTestArtifacts"}
+        "frontend_projection_contract": {"$ref": "#/$defs/frontendProjectionContract"}
       },
       "additionalProperties": false
     },
@@ -584,14 +561,13 @@
     },
     "qualityEvidence": {
       "type": "object",
-      "required": ["frontend_visual", "home_visual", "frontend_automated_a11y", "home_axe_browser_a11y", "manual_nvda", "manual_talkback"],
+      "required": ["frontend_visual", "home_visual", "frontend_automated_a11y", "home_axe_browser_a11y", "manual_nvda"],
       "properties": {
         "frontend_visual": {"$ref": "#/$defs/artifact"},
         "home_visual": {"$ref": "#/$defs/homeVisualArtifact"},
         "frontend_automated_a11y": {"$ref": "#/$defs/artifact"},
         "home_axe_browser_a11y": {"$ref": "#/$defs/homeA11yArtifact"},
-        "manual_nvda": {"$ref": "#/$defs/manualArtifact"},
-        "manual_talkback": {"$ref": "#/$defs/manualArtifact"}
+        "manual_nvda": {"$ref": "#/$defs/manualArtifact"}
       },
       "additionalProperties": false
     },

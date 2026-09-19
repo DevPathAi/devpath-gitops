@@ -18,6 +18,11 @@ import sys
 from typing import Any, Iterable
 from urllib.parse import urlsplit
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import frontend_et13_contract  # noqa: E402
 
 RELEASE_ID = re.compile(r"^ms-[0-9]{8}-[a-z0-9][a-z0-9-]{2,40}$")
 ZERO_SHA256 = "0" * 64
@@ -56,7 +61,6 @@ PRODUCER_WORKFLOWS = {
     "frontend-automated-a11y": ".github/workflows/et13-evidence.yml",
     "home-axe-browser-a11y": ".github/workflows/mission-spine-validate.yml",
     "manual-nvda": ".github/workflows/mission-spine-manual-at-evidence.yml",
-    "manual-talkback": ".github/workflows/mission-spine-manual-at-evidence.yml",
 }
 
 QUALITY_EVIDENCE = {
@@ -65,7 +69,6 @@ QUALITY_EVIDENCE = {
     "frontend-automated-a11y": "frontend_automated_a11y",
     "home-axe-browser-a11y": "home_axe_browser_a11y",
     "manual-nvda": "manual_nvda",
-    "manual-talkback": "manual_talkback",
 }
 QUALITY_EVIDENCE_LABELS = tuple(QUALITY_EVIDENCE)
 QUALITY_EVIDENCE_KEYS = tuple(QUALITY_EVIDENCE.values())
@@ -76,7 +79,6 @@ QUALITY_EVIDENCE_FILES = {
     "frontend-automated-a11y": "evidence.json",
     "home-axe-browser-a11y": "a11y-evidence.v2.json",
     "manual-nvda": "evidence.json",
-    "manual-talkback": "evidence.json",
 }
 
 QUALITY_EVIDENCE_EVENTS = {
@@ -98,123 +100,11 @@ FRONTEND_EVIDENCE_FILES = {
     ),
 }
 
-FRONTEND_FIXTURE_IDS = (
-    "web-today-available",
-    "web-path-current-week",
-    "web-content-reading",
-    "web-workspace-idle",
-    "web-review-loaded",
-    "web-mentor-context-preview",
-    "admin-kpi-dashboard",
-    "admin-support-long-wire",
-    "mobile-today-available",
-    "mobile-content-reading",
-    "dp-design-mission-ledger",
-    "dp-design-context-payload-preview",
-)
+FRONTEND_FIXTURE_IDS = frontend_et13_contract.FIXTURE_IDS
 
 FRONTEND_PROJECTION_CONTRACT_VERSION = "leva.et13.projection-contract.v1"
-FRONTEND_PROJECTION_CONTRACT_SHA256 = (
-    "c66d08b6425628a06b27d07e08d648cfb3568d9db7c8d8aca2371172ccf4bde3"
-)
-FRONTEND_PROJECTION_MATRIX = [
-    {
-        "fixture_id": "web-today-available",
-        "capture_scope": "body_projection",
-        "source_widget": "TodayMissionSection",
-        "substitutions": [
-            "controller/provider state replaced by approved deterministic fixture"
-        ],
-    },
-    {
-        "fixture_id": "web-path-current-week",
-        "capture_scope": "body_projection",
-        "source_widget": "MissionPathPlanView",
-        "substitutions": [
-            "controller/provider state replaced by approved deterministic fixture"
-        ],
-    },
-    {
-        "fixture_id": "web-content-reading",
-        "capture_scope": "body_projection",
-        "source_widget": "WebContentProjection",
-        "substitutions": [
-            "AdSense slot replaced by explicit offline blocked-network evidence slot"
-        ],
-    },
-    {
-        "fixture_id": "web-workspace-idle",
-        "capture_scope": "body_projection",
-        "source_widget": "SandboxLayout",
-        "substitutions": [
-            "controller state replaced by approved deterministic fixture",
-            "Monaco callbacks disabled except production readiness",
-        ],
-    },
-    {
-        "fixture_id": "web-review-loaded",
-        "capture_scope": "component_projection",
-        "source_widget": "WebReviewProjection",
-        "substitutions": [
-            "controller state replaced by approved deterministic fixture"
-        ],
-    },
-    {
-        "fixture_id": "web-mentor-context-preview",
-        "capture_scope": "body_projection",
-        "source_widget": "WebMentorContextProjection",
-        "substitutions": [
-            "controller/provider state replaced by approved deterministic fixture"
-        ],
-    },
-    {
-        "fixture_id": "admin-kpi-dashboard",
-        "capture_scope": "body_projection",
-        "source_widget": "AdminKpiDashboardProjection",
-        "substitutions": [
-            "controller/provider state replaced by approved deterministic fixture"
-        ],
-    },
-    {
-        "fixture_id": "admin-support-long-wire",
-        "capture_scope": "component_projection",
-        "source_widget": "AdminSupportDetailProjection",
-        "substitutions": [
-            "live provider and dialog shell replaced by deterministic AlertDialog host"
-        ],
-    },
-    {
-        "fixture_id": "mobile-today-available",
-        "capture_scope": "body_projection",
-        "source_widget": "MobileTodayProjection",
-        "substitutions": [
-            "native AppBar and route shell omitted",
-            "controller/provider state replaced by approved deterministic fixture",
-        ],
-    },
-    {
-        "fixture_id": "mobile-content-reading",
-        "capture_scope": "body_projection",
-        "source_widget": "MobileContentProjection",
-        "substitutions": [
-            "native AppBar and route shell omitted",
-            "periodic dwell timer frozen",
-            "controller/provider state replaced by approved deterministic fixture",
-        ],
-    },
-    {
-        "fixture_id": "dp-design-mission-ledger",
-        "capture_scope": "component_projection",
-        "source_widget": "DpEt13MissionLedgerFixture",
-        "substitutions": ["hosted by the Flutter Web production distribution"],
-    },
-    {
-        "fixture_id": "dp-design-context-payload-preview",
-        "capture_scope": "component_projection",
-        "source_widget": "DpEt13ContextPayloadPreviewFixture",
-        "substitutions": ["hosted by the Flutter Web production distribution"],
-    },
-]
+FRONTEND_PROJECTION_CONTRACT_SHA256 = frontend_et13_contract.PROJECTION_CONTRACT_SHA256
+FRONTEND_PROJECTION_MATRIX = frontend_et13_contract.PROJECTION_MATRIX
 
 FRONTEND_CATALOG_CONTRACTS = {
     "frontend-visual": {
@@ -222,8 +112,8 @@ FRONTEND_CATALOG_CONTRACTS = {
         "case_catalog_version": "leva.et13.catalog.v1",
         "case_catalog_schema_version": "leva.et13.visual-cases.v1",
         "projection_contract_sha256": FRONTEND_PROJECTION_CONTRACT_SHA256,
-        "case_count": 96,
-        "surface_case_counts": {"web": 48, "admin": 16, "mobile": 16, "dp_design": 16},
+        "case_count": frontend_et13_contract.CASE_COUNTS["frontend-visual"],
+        "surface_case_counts": frontend_et13_contract.SURFACE_CASE_COUNTS["frontend-visual"],
         "capture_surface": "flutter_web_release_projection",
         "device_evidence": False,
         "evidence_mode": "release_ready",
@@ -233,36 +123,12 @@ FRONTEND_CATALOG_CONTRACTS = {
         "case_catalog_version": "leva.et13.catalog.v1",
         "case_catalog_schema_version": "leva.et13.a11y-cases.v1",
         "projection_contract_sha256": FRONTEND_PROJECTION_CONTRACT_SHA256,
-        "case_count": 24,
-        "surface_case_counts": {"web": 12, "admin": 4, "mobile": 4, "dp_design": 4},
+        "case_count": frontend_et13_contract.CASE_COUNTS["frontend-automated-a11y"],
+        "surface_case_counts": frontend_et13_contract.SURFACE_CASE_COUNTS["frontend-automated-a11y"],
         "capture_surface": "flutter_web_release_projection",
         "device_evidence": False,
         "evidence_mode": "release_ready",
     },
-}
-
-SIGNED_MOBILE_BINDING_KEYS = {
-    "schema_version",
-    "repository",
-    "source_sha",
-    "event",
-    "workflow_path",
-    "workflow_sha256",
-    "workflow_run_id",
-    "run_attempt",
-    "artifact_id",
-    "artifact_name",
-    "artifact_archive_sha256",
-    "build_provenance_file",
-    "build_provenance_sha256",
-    "signed_apk_file",
-    "signed_apk_sha256",
-}
-SIGNED_MOBILE_BINDING_VERSION = "leva.mission-spine.signed-android-build-binding.v2"
-SIGNED_MOBILE_WORKFLOW = ".github/workflows/mission-spine-signed-mobile-build.yml"
-SIGNED_MOBILE_FILES = {
-    "build_provenance_file": "build-provenance.v2.json",
-    "signed_apk_file": "mobile/android/leva-release.apk",
 }
 
 MANUAL_CATALOG_CONTRACTS = {
@@ -279,22 +145,6 @@ MANUAL_CATALOG_CONTRACTS = {
         "required_platform": "windows_physical_host",
         "required_client": "chromium",
         "required_artifact": "exact_source_web_release_build",
-    },
-    "manual-talkback": {
-        "path": "tool/release-evidence/catalogs/manual-talkback.v1.json",
-        "provenance_path": "tool/release-evidence/provenance/manual-talkback.v1.json",
-        "case_count": 4,
-        "assistive_technology": "TalkBack+Android",
-        "surface": "android",
-        "case_ids": (
-            "talkback-android-today-mission-spine",
-            "talkback-android-next-action-navigation",
-            "talkback-android-content-reading",
-            "talkback-android-offline-status",
-        ),
-        "required_platform": "android_physical_device",
-        "required_client": "native_flutter_android",
-        "required_artifact": "candidate_signed_apk",
     },
 }
 
@@ -800,7 +650,7 @@ def _validate_quality_evidence_inputs(value: Any, candidate: dict[str, Any]) -> 
     obj = _object(value, path)
     _exact_keys(
         obj,
-        {"catalogs", "frontend_projection_contract", "mobile_test_artifacts"},
+        {"catalogs", "frontend_projection_contract"},
         path,
     )
 
@@ -820,7 +670,7 @@ def _validate_quality_evidence_inputs(value: Any, candidate: dict[str, Any]) -> 
     )
     matrix = projection["projection_matrix"]
     if matrix != FRONTEND_PROJECTION_MATRIX:
-        _fail(projection_path, "projection contract must contain the exact ordered 12-row matrix")
+        _fail(projection_path, "projection contract must contain the exact ordered approved matrix")
     if (
         projection_sha != FRONTEND_PROJECTION_CONTRACT_SHA256
         or _canonical_sha256(matrix) != projection_sha
@@ -918,7 +768,7 @@ def _validate_quality_evidence_inputs(value: Any, candidate: dict[str, Any]) -> 
             )
             _exact_keys(
                 surface_counts,
-                {"web", "admin", "mobile", "dp_design"},
+                frontend_et13_contract.SURFACES,
                 f"{catalog_path}.surface_case_counts",
             )
             for surface, count in surface_counts.items():
@@ -1020,49 +870,6 @@ def _validate_quality_evidence_inputs(value: Any, candidate: dict[str, Any]) -> 
             f"{path}.catalogs",
             "Home visual and axe/browser evidence must bind the same combined catalog and render provenance",
         )
-
-    mobile_path = f"{path}.mobile_test_artifacts"
-    mobile = _object(obj["mobile_test_artifacts"], mobile_path)
-    _exact_keys(mobile, SIGNED_MOBILE_BINDING_KEYS, mobile_path)
-    if mobile["schema_version"] != SIGNED_MOBILE_BINDING_VERSION:
-        _fail(f"{mobile_path}.schema_version", "signed-Android binding schema is not approved")
-    if mobile["repository"] != candidate["frontend"]["repository"]:
-        _fail(f"{mobile_path}.repository", "must be DevPathAi/devpath-frontend")
-    if mobile["source_sha"] != candidate["frontend"]["source_sha"]:
-        _fail(f"{mobile_path}.source_sha", "must bind the exact frontend source")
-    if mobile["event"] != "workflow_dispatch":
-        _fail(f"{mobile_path}.event", "must be workflow_dispatch")
-    if mobile["workflow_path"] != SIGNED_MOBILE_WORKFLOW:
-        _fail(f"{mobile_path}.workflow_path", f"must be {SIGNED_MOBILE_WORKFLOW}")
-    for field in ("workflow_run_id", "run_attempt", "artifact_id"):
-        _positive_int(mobile[field], f"{mobile_path}.{field}")
-    if mobile["run_attempt"] != 1:
-        _fail(
-            f"{mobile_path}.run_attempt",
-            "protected signing approval is sealable only on attempt 1; retry with a fresh dispatch",
-        )
-    expected_name = (
-        f"{candidate['release_id']}-signed-android-build-run-"
-        f"{mobile['workflow_run_id']}-attempt-{mobile['run_attempt']}"
-    )
-    if mobile["artifact_name"] != expected_name:
-        _fail(f"{mobile_path}.artifact_name", f"must be {expected_name}")
-    for field, expected_file in SIGNED_MOBILE_FILES.items():
-        if mobile[field] != expected_file:
-            _fail(f"{mobile_path}.{field}", f"must be {expected_file}")
-    for field in (
-        "workflow_sha256",
-        "artifact_archive_sha256",
-        "build_provenance_sha256",
-        "signed_apk_sha256",
-    ):
-        _string(mobile[field], f"{mobile_path}.{field}", SHA64)
-    mobile_hashes = {
-        mobile["build_provenance_sha256"],
-        mobile["signed_apk_sha256"],
-    }
-    if len(mobile_hashes) != 2:
-        _fail(mobile_path, "build provenance and signed APK hashes must be distinct")
 
 
 def validate_candidate_spec(data: Any, source: Path | None = None) -> dict[str, Any]:
@@ -1613,7 +1420,7 @@ def validate_release_manifest(
         if len(values) != 1:
             _fail(
                 "$.quality_evidence",
-                f"atomic manual evidence trio {field} must match",
+                f"atomic manual evidence set {field} must match",
             )
 
     shared_home_fields = {
@@ -1636,7 +1443,7 @@ def validate_release_manifest(
 
     logical_hashes = [artifact["sha256"] for artifact in artifacts.values()]
     if len(set(logical_hashes)) != len(logical_hashes):
-        _fail("$.quality_evidence", "all six logical evidence manifest hashes must be distinct")
+        _fail("$.quality_evidence", "all logical evidence manifest hashes must be distinct")
     physical_ids = {
         label: (artifact["repository"], artifact["artifact_id"])
         for label, artifact in artifacts.items()
@@ -1644,24 +1451,6 @@ def validate_release_manifest(
     }
     if len(set(physical_ids.values())) != len(physical_ids):
         _fail("$.quality_evidence", "quality evidence artifacts must be distinct except Home's two manifests")
-    signed_mobile = candidate["quality_evidence_inputs"]["mobile_test_artifacts"]
-    for label, artifact in artifacts.items():
-        if (
-            artifact["repository"] == signed_mobile["repository"]
-            and artifact["artifact_id"] == signed_mobile["artifact_id"]
-        ):
-            _fail(
-                f"$.quality_evidence.{QUALITY_EVIDENCE[label]}.artifact_id",
-                "must be distinct from the prebound signed-mobile artifact ID",
-            )
-        if (
-            artifact["repository"] == signed_mobile["repository"]
-            and artifact["artifact_name"] == signed_mobile["artifact_name"]
-        ):
-            _fail(
-                f"$.quality_evidence.{QUALITY_EVIDENCE[label]}.artifact_name",
-                "must be distinct from the prebound signed-mobile artifact name",
-            )
 
     attestation = _object(root["validation_attestation"], "$.validation_attestation")
     _exact_keys(

@@ -18,6 +18,9 @@ from urllib.request import ProxyHandler, Request
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "tests" / "release" / "fixtures"
 SCRIPTS = ROOT / "scripts" / "release"
+if str(SCRIPTS) not in __import__("sys").path:
+    __import__("sys").path.insert(0, str(SCRIPTS))
+import frontend_et13_contract  # noqa: E402
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 WORKFLOWS = [
@@ -817,10 +820,10 @@ images:
             "capture_surface": "flutter_web_release_projection",
             "device_evidence": False,
             "evidence_mode": "release_ready",
-            "case_count": 96,
-            "passed_case_count": 96,
+            "case_count": self.candidate["quality_evidence_inputs"]["catalogs"]["frontend-visual"]["case_count"],
+            "passed_case_count": self.candidate["quality_evidence_inputs"]["catalogs"]["frontend-visual"]["case_count"],
             "failed_case_count": 0,
-            "surface_case_counts": {"web": 48, "admin": 16, "mobile": 16, "dp_design": 16},
+            "surface_case_counts": dict(self.candidate["quality_evidence_inputs"]["catalogs"]["frontend-visual"]["surface_case_counts"]),
             "input_provenance_sha256": self.candidate["quality_evidence_inputs"][
                 "catalogs"
             ]["frontend-visual"]["input_provenance_sha256"],
@@ -899,10 +902,10 @@ images:
                 "capture_surface": "flutter_web_release_projection",
                 "device_evidence": False,
                 "evidence_mode": "release_ready",
-                "case_count": 24,
-                "passed_case_count": 24,
+                "case_count": self.candidate["quality_evidence_inputs"]["catalogs"]["frontend-automated-a11y"]["case_count"],
+                "passed_case_count": self.candidate["quality_evidence_inputs"]["catalogs"]["frontend-automated-a11y"]["case_count"],
                 "failed_case_count": 0,
-                "surface_case_counts": {"web": 12, "admin": 4, "mobile": 4, "dp_design": 4},
+                "surface_case_counts": dict(self.candidate["quality_evidence_inputs"]["catalogs"]["frontend-automated-a11y"]["surface_case_counts"]),
                 "input_provenance_sha256": self.candidate["quality_evidence_inputs"][
                     "catalogs"
                 ]["frontend-automated-a11y"]["input_provenance_sha256"],
@@ -1540,7 +1543,7 @@ images:
 
     def test_canonical_composed_source_pins_are_bound_in_candidate_fixture(self):
         expected = {
-            "devpath-admin": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
+            "devpath-admin": frontend_et13_contract.SOURCE_SHA,
             "devpath-ai-svc": "b7203bcb000edfc0030f77a4c05dd8e1a83f7ce6",
             "devpath-community-svc": "d8bdff0df558e212a4974731d4614c4b626e3264",
             "devpath-gateway": "f55add639992fbe45fcc17adc210eb8e92277885",
@@ -1568,7 +1571,7 @@ images:
         )
         self.assertEqual(
             self.candidate["frontend"]["source_sha"],
-            "dbc1cc9010dea56471e8eec462a0c52cee946d15",
+            frontend_et13_contract.SOURCE_SHA,
         )
         self.assertEqual(
             self.candidate["home"]["source_sha"],

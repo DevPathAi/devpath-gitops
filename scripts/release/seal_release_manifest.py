@@ -46,7 +46,6 @@ from verify_release_artifacts import (
     validate_home_dist_archive,
     validate_home_master_trust,
     validate_ai_release_eval_trust,
-    validate_manual_chronology,
     validate_privacy_approval_trust,
     validate_run_provenance,
     validate_workflow_dispatch_inputs,
@@ -55,7 +54,6 @@ from verify_release_artifacts import (
     verify_ai_rendered_config,
     verify_live_protected_approval,
     verify_manual_catalog_inputs,
-    verify_signed_mobile_artifact,
     select_unique_protected_producer_run,
 )
 
@@ -86,7 +84,6 @@ def _discover_external_artifact(
     expected_run_id: int | None = None,
     expected_run_attempt: int | None = None,
     frontend_authentications: dict[str, dict[str, Any]] | None = None,
-    signed_mobile_context: tuple[dict[str, Any], dict[str, Any]] | None = None,
     payload_output: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     name = artifact_name
@@ -260,16 +257,6 @@ def _discover_external_artifact(
             if frontend_authentications is not None:
                 frontend_authentications[label] = authentication
         if label in MANUAL_CATALOG_CONTRACTS:
-            if signed_mobile_context is None:
-                raise ValueError(f"{label}: signed-mobile chronology context is required")
-            signed_provenance, signed_run = signed_mobile_context
-            validate_manual_chronology(
-                label,
-                signed_provenance,
-                signed_run,
-                run,
-                payload,
-            )
             verify_live_protected_approval(
                 env,
                 repository,
@@ -566,12 +553,11 @@ def _discover_privacy_approval(
     )
 
 
-def _discover_manual_trio(
+def _discover_manual_evidence(
     env: dict[str, str],
     release_id: str,
     candidate_hash: str,
     candidate: dict[str, Any],
-    signed_mobile_context: tuple[dict[str, Any], dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
     repository = candidate["frontend"]["repository"]
     expected_head = candidate["frontend"]["source_sha"]
@@ -630,7 +616,6 @@ def _discover_manual_trio(
             expected_files=["evidence.json"],
             expected_run_id=run_id,
             expected_run_attempt=1,
-            signed_mobile_context=signed_mobile_context,
         )
     return discovered
 
@@ -883,12 +868,6 @@ def seal(root: Path, args: argparse.Namespace) -> Path:
     )
     verify_ai_rendered_config(root, candidate)
     verify_manual_catalog_inputs(gh_env, candidate)
-    with tempfile.TemporaryDirectory(prefix="mission-spine-signed-mobile-") as temp_dir:
-        signed_mobile_context = verify_signed_mobile_artifact(
-            gh_env,
-            candidate,
-            Path(temp_dir) / "signed-mobile",
-        )
     ai_payload: dict[str, Any] = {}
     privacy_payload: dict[str, Any] = {}
     discovered: dict[str, dict[str, Any]] = {
@@ -922,12 +901,11 @@ def seal(root: Path, args: argparse.Namespace) -> Path:
         )
     )
     discovered.update(
-        _discover_manual_trio(
+        _discover_manual_evidence(
             gh_env,
             args.release_id,
             candidate_hash,
             candidate,
-            signed_mobile_context,
         )
     )
     for label, key in QUALITY_EVIDENCE.items():
