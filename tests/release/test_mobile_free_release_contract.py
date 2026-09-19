@@ -145,6 +145,20 @@ class MobileFreeReleaseContractTest(unittest.TestCase):
         with self.assertRaises(jsonschema.ValidationError):
             self.schema.validate(release)
 
+    def test_duplicate_logical_evidence_hash_is_rejected_without_a_lane_count(self):
+        release = copy.deepcopy(self.release)
+        quality = release["quality_evidence"]
+        quality["manual_nvda"]["sha256"] = quality["frontend_visual"]["sha256"]
+        with self.assertRaisesRegex(
+            ValueError, "all logical evidence manifest hashes must be distinct"
+        ):
+            self.validator.validate_release_manifest(
+                release,
+                copy.deepcopy(self.candidate),
+                self.candidate_sha,
+                RELEASE_FIXTURE,
+            )
+
     def test_contract_tables_are_nvda_only(self):
         self.assertEqual(tuple(self.validator.QUALITY_EVIDENCE), QUALITY_LABELS)
         self.assertEqual(tuple(self.validator.QUALITY_EVIDENCE.values()), QUALITY_KEYS)

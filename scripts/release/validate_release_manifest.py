@@ -1550,7 +1550,7 @@ def validate_release_manifest(
 
     logical_hashes = [artifact["sha256"] for artifact in artifacts.values()]
     if len(set(logical_hashes)) != len(logical_hashes):
-        _fail("$.quality_evidence", "all six logical evidence manifest hashes must be distinct")
+        _fail("$.quality_evidence", "all logical evidence manifest hashes must be distinct")
     physical_ids = {
         label: (artifact["repository"], artifact["artifact_id"])
         for label, artifact in artifacts.items()
