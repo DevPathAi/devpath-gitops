@@ -267,14 +267,6 @@
         "sha256": "f900678464064d0f481ab736d682fea1587622fb633ab19d5f7566cdc47974e2",
         "case_count": 2,
         "provenance_sha256": "954f95400dfba2122844367cd3eacaa5062a7767957181260ca4f219a5e106bb"
-      },
-      "manual-talkback": {
-        "repository": "DevPathAi/devpath-frontend",
-        "source_sha": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
-        "path": "tool/release-evidence/catalogs/manual-talkback.v1.json",
-        "sha256": "449088fd119b6c8c4a247f0cf8019580da7aee6351c1e88394a61a318c3d2244",
-        "case_count": 4,
-        "provenance_sha256": "905ed4794991e9e16872fc08090f158cd50ab93e892d58398d63f785d112ef51"
       }
     },
     "frontend_projection_contract": {
@@ -382,23 +374,6 @@
           ]
         }
       ]
-    },
-    "mobile_test_artifacts": {
-      "schema_version": "leva.mission-spine.signed-android-build-binding.v2",
-      "repository": "DevPathAi/devpath-frontend",
-      "source_sha": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
-      "event": "workflow_dispatch",
-      "workflow_path": ".github/workflows/mission-spine-signed-mobile-build.yml",
-      "workflow_sha256": "35dd62bd6ac4efba41b67347d6aa0fc7efc87c3a6f8a19d8a60c381530fb1c56",
-      "workflow_run_id": 110,
-      "run_attempt": 1,
-      "artifact_id": 212,
-      "artifact_name": "ms-20990101-contract-fixture-signed-android-build-run-110-attempt-1",
-      "artifact_archive_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "build_provenance_file": "build-provenance.v2.json",
-      "build_provenance_sha256": "6666666666666666666666666666666666666666666666666666666666666666",
-      "signed_apk_file": "mobile/android/leva-release.apk",
-      "signed_apk_sha256": "7777777777777777777777777777777777777777777777777777777777777777"
     }
   },
   "rollout": {
