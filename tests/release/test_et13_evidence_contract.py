@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts" / "release"
 if str(SCRIPTS) not in __import__("sys").path:
     __import__("sys").path.insert(0, str(SCRIPTS))
+import frontend_et13_contract  # noqa: E402
 CANDIDATE_FIXTURE = ROOT / "tests" / "release" / "fixtures" / "valid-candidate-spec.json"
 RELEASE_FIXTURE = ROOT / "tests" / "release" / "fixtures" / "valid-release.json"
 VALIDATOR = ROOT / "scripts" / "release" / "validate_release_manifest.py"
@@ -18,40 +19,28 @@ ARTIFACT_VERIFIER = ROOT / "scripts" / "release" / "verify_release_artifacts.py"
 SEALER = ROOT / "scripts" / "release" / "seal_release_manifest.py"
 SCHEMA = ROOT / "release-manifests" / "schema-v1.json"
 VALIDATION_WORKFLOW = ROOT / ".github" / "workflows" / "mission-spine-validate.yml"
-FINAL_FRONTEND_SHA = "dbc1cc9010dea56471e8eec462a0c52cee946d15"
+FINAL_FRONTEND_SHA = frontend_et13_contract.SOURCE_SHA
 FINAL_HOME_SOURCE_SHA = "dc5f37cb495f99cdfd43c6957db9958ddad7def7"
 FINAL_HOME_TREE_SHA256 = "64e51e148bde2962f1abdd06feffb2745fe062d47e6efbc9608c618fe9835368"
-STALE_FRONTEND_SHA = "a18aee3d31e61dcd3935" "17ef68125224eeb76c7a"
+STALE_FRONTEND_SHAS = (
+    "a18aee3d31e61dcd3935" "17ef68125224eeb76c7a",
+    "dbc1cc9010dea56471e8" "eec462a0c52cee946d15",
+)
 STALE_HOME_SOURCE_SHA = "6821ab90b6625a15752f" "831cdce183dc0ffaa86f"
 STALE_HOME_TREE_SHA256 = (
     "9f7f2c06c7caa9e77a155163654cc810" "7670fe8c9d9cc059d1f4a6ca427bcf25"
 )
 HOME_LOCAL_CANDIDATE_SHA = "90b" "988"
-FRONTEND_FIXTURE_IDS = [
-    "web-today-available",
-    "web-path-current-week",
-    "web-content-reading",
-    "web-workspace-idle",
-    "web-review-loaded",
-    "web-mentor-context-preview",
-    "admin-kpi-dashboard",
-    "admin-support-long-wire",
-    "mobile-today-available",
-    "mobile-content-reading",
-    "dp-design-mission-ledger",
-    "dp-design-context-payload-preview",
-]
-FRONTEND_PROJECTION_SHA256 = (
-    "c66d08b6425628a06b27d07e08d648cfb3568d9db7c8d8aca2371172ccf4bde3"
-)
+FRONTEND_FIXTURE_IDS = list(frontend_et13_contract.FIXTURE_IDS)
+FRONTEND_PROJECTION_SHA256 = frontend_et13_contract.PROJECTION_CONTRACT_SHA256
 FRONTEND_CATALOG_CONTRACTS = {
     "frontend-visual": {
         "path": "evidence/et13/generated/visual-cases.v1.json",
         "case_catalog_version": "leva.et13.catalog.v1",
         "case_catalog_schema_version": "leva.et13.visual-cases.v1",
         "projection_contract_sha256": FRONTEND_PROJECTION_SHA256,
-        "case_count": 96,
-        "surface_case_counts": {"web": 48, "admin": 16, "mobile": 16, "dp_design": 16},
+        "case_count": frontend_et13_contract.CASE_COUNTS["frontend-visual"],
+        "surface_case_counts": frontend_et13_contract.SURFACE_CASE_COUNTS["frontend-visual"],
         "capture_surface": "flutter_web_release_projection",
         "device_evidence": False,
         "evidence_mode": "release_ready",
@@ -61,8 +50,8 @@ FRONTEND_CATALOG_CONTRACTS = {
         "case_catalog_version": "leva.et13.catalog.v1",
         "case_catalog_schema_version": "leva.et13.a11y-cases.v1",
         "projection_contract_sha256": FRONTEND_PROJECTION_SHA256,
-        "case_count": 24,
-        "surface_case_counts": {"web": 12, "admin": 4, "mobile": 4, "dp_design": 4},
+        "case_count": frontend_et13_contract.CASE_COUNTS["frontend-automated-a11y"],
+        "surface_case_counts": frontend_et13_contract.SURFACE_CASE_COUNTS["frontend-automated-a11y"],
         "capture_surface": "flutter_web_release_projection",
         "device_evidence": False,
         "evidence_mode": "release_ready",
@@ -88,11 +77,11 @@ class Et13EvidenceContractTest(unittest.TestCase):
         cls.release = json.loads(RELEASE_FIXTURE.read_text(encoding="utf-8"))
         cls.candidate_sha = hashlib.sha256(CANDIDATE_FIXTURE.read_bytes()).hexdigest()
 
-    def test_candidate_prebinds_exact_catalogs_and_signed_mobile_builds(self):
+    def test_candidate_prebinds_exact_catalogs(self):
         inputs = self.candidate["quality_evidence_inputs"]
         self.assertEqual(
             set(inputs),
-            {"catalogs", "frontend_projection_contract", "mobile_test_artifacts"},
+            {"catalogs", "frontend_projection_contract"},
         )
         self.assertEqual(
             inputs["frontend_projection_contract"]["projection_contract_sha256"],
@@ -120,12 +109,6 @@ class Et13EvidenceContractTest(unittest.TestCase):
         self.assertNotEqual(home["rendered_product_sha"], home["source_sha"])
         for field in ("rendered_product_tree_sha256", "font_manifest_sha256"):
             self.assertRegex(home[field], r"^[0-9a-f]{64}$")
-        self.assertEqual(
-            inputs["mobile_test_artifacts"]["source_sha"],
-            self.candidate["frontend"]["source_sha"],
-        )
-        for field in ("build_provenance_sha256", "signed_apk_sha256"):
-            self.assertRegex(inputs["mobile_test_artifacts"][field], r"^[0-9a-f]{64}$")
         self.validator.validate_candidate_spec(copy.deepcopy(self.candidate), CANDIDATE_FIXTURE)
 
         invalid = copy.deepcopy(self.candidate)
@@ -133,12 +116,6 @@ class Et13EvidenceContractTest(unittest.TestCase):
             "provenance_sha256"
         ] = "0" * 64
         with self.assertRaisesRegex(ValueError, "same combined catalog and render provenance"):
-            self.validator.validate_candidate_spec(invalid, CANDIDATE_FIXTURE)
-
-        invalid = copy.deepcopy(self.candidate)
-        mobile = invalid["quality_evidence_inputs"]["mobile_test_artifacts"]
-        mobile["signed_apk_sha256"] = mobile["build_provenance_sha256"]
-        with self.assertRaisesRegex(ValueError, "must be distinct"):
             self.validator.validate_candidate_spec(invalid, CANDIDATE_FIXTURE)
 
     def test_final_source_rebind_is_exact_and_removes_every_stale_pin(self):
@@ -179,12 +156,11 @@ class Et13EvidenceContractTest(unittest.TestCase):
                     catalog["font_manifest_sha256"],
                     "9598c1a9656d3df6b48b7ff4038765e139cec8dd73cef0432f03a46cd1ebb662",
                 )
-        self.assertEqual(inputs["mobile_test_artifacts"]["source_sha"], FINAL_FRONTEND_SHA)
 
         candidate_text = CANDIDATE_FIXTURE.read_text(encoding="utf-8")
         release_text = RELEASE_FIXTURE.read_text(encoding="utf-8")
         for stale in (
-            STALE_FRONTEND_SHA,
+            *STALE_FRONTEND_SHAS,
             STALE_HOME_SOURCE_SHA,
             STALE_HOME_TREE_SHA256,
             HOME_LOCAL_CANDIDATE_SHA,
@@ -214,7 +190,7 @@ class Et13EvidenceContractTest(unittest.TestCase):
                     collect_candidate_hashes(nested)
 
         collect_candidate_hashes(self.release)
-        self.assertEqual(len(bound_candidate_hashes), 13)
+        self.assertEqual(len(bound_candidate_hashes), 12)
         self.assertEqual(set(bound_candidate_hashes), {self.candidate_sha})
         self.assertEqual(
             (CANDIDATE_FIXTURE.with_suffix(".sha256")).read_text(encoding="utf-8").split(),
@@ -264,10 +240,11 @@ class Et13EvidenceContractTest(unittest.TestCase):
             {"const": "workflow_dispatch"},
         )
 
-    def test_final_manifest_has_six_distinct_source_pinned_artifacts(self):
+    def test_final_manifest_has_five_distinct_source_pinned_artifacts(self):
         quality = self.release["quality_evidence"]
         self.assertEqual(set(quality), set(self.validator.QUALITY_EVIDENCE_KEYS))
-        self.assertEqual(len(quality), 6)
+        self.assertEqual(len(quality), len(self.validator.QUALITY_EVIDENCE_KEYS))
+        self.assertEqual(len(quality), 5)
         self.assertEqual(
             quality["home_visual"]["artifact_id"],
             quality["home_axe_browser_a11y"]["artifact_id"],
@@ -358,7 +335,6 @@ class Et13EvidenceContractTest(unittest.TestCase):
         mutations = (
             ("manual_nvda", "artifact_name", "ms-20990101-fixture-nvda-evidence"),
             ("manual_nvda", "workflow_path", ".github/workflows/ci.yml"),
-            ("manual_talkback", "artifact_name", "talkback-evidence-copy"),
         )
         for key, field, value in mutations:
             with self.subTest(key=key, field=field):
@@ -425,10 +401,7 @@ class Et13EvidenceContractTest(unittest.TestCase):
         else:
             environment, job_name = self.artifacts.PROTECTED_APPROVAL_CONTRACTS[label]
             payload.update({
-                "assistive_technology": {
-                    "manual-nvda": "NVDA+Chromium",
-                    "manual-talkback": "TalkBack+Android",
-                }[label],
+                "assistive_technology": "NVDA+Chromium",
                 "test_provenance_sha256": catalog["provenance_sha256"],
                 "approval_environment": environment,
                 "approval_environment_id": 701,
@@ -437,10 +410,6 @@ class Et13EvidenceContractTest(unittest.TestCase):
                 "approved_by_id": 702,
                 "approval_effective_at": "2026-08-16T10:15:00Z",
             })
-            if label == "manual-talkback":
-                mobile = self.candidate["quality_evidence_inputs"]["mobile_test_artifacts"]
-                payload["build_provenance_sha256"] = mobile["build_provenance_sha256"]
-                payload["signed_apk_sha256"] = mobile["signed_apk_sha256"]
         return payload
 
     def _home_payload(self, kind, catalog):
@@ -535,18 +504,27 @@ class Et13EvidenceContractTest(unittest.TestCase):
                 )
 
     def test_frontend_catalog_totals_and_surface_splits_are_not_self_asserted(self):
+        def drifted(counts):
+            mutated = dict(counts)
+            first, second = sorted(mutated)[:2]
+            mutated[first] -= 1
+            mutated[second] += 1
+            return mutated
+
+        counts = frontend_et13_contract.CASE_COUNTS
+        surfaces = frontend_et13_contract.SURFACE_CASE_COUNTS
         mutations = (
-            ("frontend-visual", "case_count", 128),
+            ("frontend-visual", "case_count", counts["frontend-visual"] + 1),
             (
                 "frontend-visual",
                 "surface_case_counts",
-                {"web": 47, "admin": 17, "mobile": 16, "dp_design": 16},
+                drifted(surfaces["frontend-visual"]),
             ),
-            ("frontend-automated-a11y", "case_count", 25),
+            ("frontend-automated-a11y", "case_count", counts["frontend-automated-a11y"] + 1),
             (
                 "frontend-automated-a11y",
                 "surface_case_counts",
-                {"web": 11, "admin": 5, "mobile": 4, "dp_design": 4},
+                drifted(surfaces["frontend-automated-a11y"]),
             ),
         )
         for label, field, value in mutations:
@@ -645,7 +623,7 @@ class Et13EvidenceContractTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "invalid key set"):
             self.artifacts.validate_evidence_payload(
-                "manual-talkback",
+                "manual-nvda",
                 self._base_payload("frontend-automated-a11y"),
                 self.candidate_sha,
                 self.candidate,
@@ -707,20 +685,6 @@ class Et13EvidenceContractTest(unittest.TestCase):
                 "home-visual", payload, self.candidate_sha, self.candidate
             )
 
-    def test_mobile_manual_evidence_binds_exact_signed_artifact_and_build(self):
-        mutations = (
-            ("manual-talkback", "signed_apk_sha256"),
-            ("manual-talkback", "build_provenance_sha256"),
-        )
-        for label, field in mutations:
-            with self.subTest(label=label, field=field):
-                payload = self._base_payload(label)
-                payload[field] = "0" * 64
-                with self.assertRaisesRegex(ValueError, field):
-                    self.artifacts.validate_evidence_payload(
-                        label, payload, self.candidate_sha, self.candidate
-                    )
-
     def test_producer_workflow_allowlist_is_exact_per_artifact(self):
         expected = {
             "frontend-visual": ".github/workflows/et13-evidence.yml",
@@ -728,7 +692,6 @@ class Et13EvidenceContractTest(unittest.TestCase):
             "frontend-automated-a11y": ".github/workflows/et13-evidence.yml",
             "home-axe-browser-a11y": ".github/workflows/mission-spine-validate.yml",
             "manual-nvda": ".github/workflows/mission-spine-manual-at-evidence.yml",
-            "manual-talkback": ".github/workflows/mission-spine-manual-at-evidence.yml",
         }
         self.assertEqual(
             {label: self.validator.PRODUCER_WORKFLOWS[label] for label in expected},
