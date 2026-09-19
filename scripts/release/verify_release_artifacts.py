@@ -241,7 +241,8 @@ def _validate_quality_counts(value: dict[str, Any], catalog: dict[str, Any], lab
 
 
 def _validate_surface_counts(value: Any, case_count: int, label: str) -> None:
-    counts = _exact_payload(value, {"web", "admin", "mobile", "dp_design"}, f"{label} surfaces")
+    surfaces = set(FRONTEND_CATALOG_CONTRACTS["frontend-visual"]["surface_case_counts"])
+    counts = _exact_payload(value, surfaces, f"{label} surfaces")
     parsed = [_positive_int(count, f"{label} surface {surface}") for surface, count in counts.items()]
     if sum(parsed) != case_count:
         raise ValueError(f"{label} surface counts must sum to the exact catalog count")
@@ -1121,8 +1122,6 @@ def _frontend_surface(fixture_id: str) -> str:
         return "web"
     if fixture_id.startswith("admin-"):
         return "admin"
-    if fixture_id.startswith("mobile-"):
-        return "mobile"
     return "dp_design"
 
 

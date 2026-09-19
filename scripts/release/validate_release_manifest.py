@@ -18,6 +18,11 @@ import sys
 from typing import Any, Iterable
 from urllib.parse import urlsplit
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import frontend_et13_contract  # noqa: E402
 
 RELEASE_ID = re.compile(r"^ms-[0-9]{8}-[a-z0-9][a-z0-9-]{2,40}$")
 ZERO_SHA256 = "0" * 64
@@ -95,123 +100,11 @@ FRONTEND_EVIDENCE_FILES = {
     ),
 }
 
-FRONTEND_FIXTURE_IDS = (
-    "web-today-available",
-    "web-path-current-week",
-    "web-content-reading",
-    "web-workspace-idle",
-    "web-review-loaded",
-    "web-mentor-context-preview",
-    "admin-kpi-dashboard",
-    "admin-support-long-wire",
-    "mobile-today-available",
-    "mobile-content-reading",
-    "dp-design-mission-ledger",
-    "dp-design-context-payload-preview",
-)
+FRONTEND_FIXTURE_IDS = frontend_et13_contract.FIXTURE_IDS
 
 FRONTEND_PROJECTION_CONTRACT_VERSION = "leva.et13.projection-contract.v1"
-FRONTEND_PROJECTION_CONTRACT_SHA256 = (
-    "c66d08b6425628a06b27d07e08d648cfb3568d9db7c8d8aca2371172ccf4bde3"
-)
-FRONTEND_PROJECTION_MATRIX = [
-    {
-        "fixture_id": "web-today-available",
-        "capture_scope": "body_projection",
-        "source_widget": "TodayMissionSection",
-        "substitutions": [
-            "controller/provider state replaced by approved deterministic fixture"
-        ],
-    },
-    {
-        "fixture_id": "web-path-current-week",
-        "capture_scope": "body_projection",
-        "source_widget": "MissionPathPlanView",
-        "substitutions": [
-            "controller/provider state replaced by approved deterministic fixture"
-        ],
-    },
-    {
-        "fixture_id": "web-content-reading",
-        "capture_scope": "body_projection",
-        "source_widget": "WebContentProjection",
-        "substitutions": [
-            "AdSense slot replaced by explicit offline blocked-network evidence slot"
-        ],
-    },
-    {
-        "fixture_id": "web-workspace-idle",
-        "capture_scope": "body_projection",
-        "source_widget": "SandboxLayout",
-        "substitutions": [
-            "controller state replaced by approved deterministic fixture",
-            "Monaco callbacks disabled except production readiness",
-        ],
-    },
-    {
-        "fixture_id": "web-review-loaded",
-        "capture_scope": "component_projection",
-        "source_widget": "WebReviewProjection",
-        "substitutions": [
-            "controller state replaced by approved deterministic fixture"
-        ],
-    },
-    {
-        "fixture_id": "web-mentor-context-preview",
-        "capture_scope": "body_projection",
-        "source_widget": "WebMentorContextProjection",
-        "substitutions": [
-            "controller/provider state replaced by approved deterministic fixture"
-        ],
-    },
-    {
-        "fixture_id": "admin-kpi-dashboard",
-        "capture_scope": "body_projection",
-        "source_widget": "AdminKpiDashboardProjection",
-        "substitutions": [
-            "controller/provider state replaced by approved deterministic fixture"
-        ],
-    },
-    {
-        "fixture_id": "admin-support-long-wire",
-        "capture_scope": "component_projection",
-        "source_widget": "AdminSupportDetailProjection",
-        "substitutions": [
-            "live provider and dialog shell replaced by deterministic AlertDialog host"
-        ],
-    },
-    {
-        "fixture_id": "mobile-today-available",
-        "capture_scope": "body_projection",
-        "source_widget": "MobileTodayProjection",
-        "substitutions": [
-            "native AppBar and route shell omitted",
-            "controller/provider state replaced by approved deterministic fixture",
-        ],
-    },
-    {
-        "fixture_id": "mobile-content-reading",
-        "capture_scope": "body_projection",
-        "source_widget": "MobileContentProjection",
-        "substitutions": [
-            "native AppBar and route shell omitted",
-            "periodic dwell timer frozen",
-            "controller/provider state replaced by approved deterministic fixture",
-        ],
-    },
-    {
-        "fixture_id": "dp-design-mission-ledger",
-        "capture_scope": "component_projection",
-        "source_widget": "DpEt13MissionLedgerFixture",
-        "substitutions": ["hosted by the Flutter Web production distribution"],
-    },
-    {
-        "fixture_id": "dp-design-context-payload-preview",
-        "capture_scope": "component_projection",
-        "source_widget": "DpEt13ContextPayloadPreviewFixture",
-        "substitutions": ["hosted by the Flutter Web production distribution"],
-    },
-]
+FRONTEND_PROJECTION_CONTRACT_SHA256 = frontend_et13_contract.PROJECTION_CONTRACT_SHA256
+FRONTEND_PROJECTION_MATRIX = frontend_et13_contract.PROJECTION_MATRIX
 
 FRONTEND_CATALOG_CONTRACTS = {
     "frontend-visual": {
@@ -219,8 +112,8 @@ FRONTEND_CATALOG_CONTRACTS = {
         "case_catalog_version": "leva.et13.catalog.v1",
         "case_catalog_schema_version": "leva.et13.visual-cases.v1",
         "projection_contract_sha256": FRONTEND_PROJECTION_CONTRACT_SHA256,
-        "case_count": 96,
-        "surface_case_counts": {"web": 48, "admin": 16, "mobile": 16, "dp_design": 16},
+        "case_count": frontend_et13_contract.CASE_COUNTS["frontend-visual"],
+        "surface_case_counts": frontend_et13_contract.SURFACE_CASE_COUNTS["frontend-visual"],
         "capture_surface": "flutter_web_release_projection",
         "device_evidence": False,
         "evidence_mode": "release_ready",
@@ -230,8 +123,8 @@ FRONTEND_CATALOG_CONTRACTS = {
         "case_catalog_version": "leva.et13.catalog.v1",
         "case_catalog_schema_version": "leva.et13.a11y-cases.v1",
         "projection_contract_sha256": FRONTEND_PROJECTION_CONTRACT_SHA256,
-        "case_count": 24,
-        "surface_case_counts": {"web": 12, "admin": 4, "mobile": 4, "dp_design": 4},
+        "case_count": frontend_et13_contract.CASE_COUNTS["frontend-automated-a11y"],
+        "surface_case_counts": frontend_et13_contract.SURFACE_CASE_COUNTS["frontend-automated-a11y"],
         "capture_surface": "flutter_web_release_projection",
         "device_evidence": False,
         "evidence_mode": "release_ready",
@@ -777,7 +670,7 @@ def _validate_quality_evidence_inputs(value: Any, candidate: dict[str, Any]) -> 
     )
     matrix = projection["projection_matrix"]
     if matrix != FRONTEND_PROJECTION_MATRIX:
-        _fail(projection_path, "projection contract must contain the exact ordered 12-row matrix")
+        _fail(projection_path, "projection contract must contain the exact ordered approved matrix")
     if (
         projection_sha != FRONTEND_PROJECTION_CONTRACT_SHA256
         or _canonical_sha256(matrix) != projection_sha
@@ -875,7 +768,7 @@ def _validate_quality_evidence_inputs(value: Any, candidate: dict[str, Any]) -> 
             )
             _exact_keys(
                 surface_counts,
-                {"web", "admin", "mobile", "dp_design"},
+                frontend_et13_contract.SURFACES,
                 f"{catalog_path}.surface_case_counts",
             )
             for surface, count in surface_counts.items():
