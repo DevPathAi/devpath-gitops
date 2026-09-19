@@ -14,7 +14,7 @@
   "services": {
     "devpath-admin": {
       "repository": "DevPathAi/devpath-frontend",
-      "source_sha": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
+      "source_sha": "9607627616fdd1f369ff58d3fd86440ef6c171f3",
       "image_repository": "ghcr.io/devpathai/devpath-admin",
       "image_digest": "sha256:1010101010101010101010101010101010101010101010101010101010101010"
     },
@@ -80,16 +80,16 @@
   },
   "frontend": {
     "repository": "DevPathAi/devpath-frontend",
-    "source_sha": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
+    "source_sha": "9607627616fdd1f369ff58d3fd86440ef6c171f3",
     "app_version": "ms-20990101-contract-fixture",
     "analytics_contract_version": "mission-spine.analytics.v1",
     "flag_contract_version": "mission-spine.flag.v1",
     "mission_off": {
-      "tag": "dbc1cc9010dea56471e8eec462a0c52cee946d15-mission-off",
+      "tag": "9607627616fdd1f369ff58d3fd86440ef6c171f3-mission-off",
       "image_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     },
     "mission_on": {
-      "tag": "dbc1cc9010dea56471e8eec462a0c52cee946d15-mission-on",
+      "tag": "9607627616fdd1f369ff58d3fd86440ef6c171f3-mission-on",
       "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     },
     "selected_on_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -177,12 +177,12 @@
     "catalogs": {
       "frontend-visual": {
         "repository": "DevPathAi/devpath-frontend",
-        "source_sha": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
+        "source_sha": "9607627616fdd1f369ff58d3fd86440ef6c171f3",
         "path": "evidence/et13/generated/visual-cases.v1.json",
-        "sha256": "1f21427cec099ba1d5465d0207fd3f8261084d1e69d94827f02fa44341272e1b",
+        "sha256": "acd368d92e9850cb51d67dc2d3cc9a6ae7c96e48f58da28f0e353ca0edc741ce",
         "case_catalog_version": "leva.et13.catalog.v1",
         "case_catalog_schema_version": "leva.et13.visual-cases.v1",
-        "projection_contract_sha256": "c66d08b6425628a06b27d07e08d648cfb3568d9db7c8d8aca2371172ccf4bde3",
+        "projection_contract_sha256": "158fdc882238c9459995c0572536a3cec3704e92bd1b28fa2d80907fc0435b78",
         "fixture_ids": [
           "web-today-available",
           "web-path-current-week",
@@ -192,13 +192,14 @@
           "web-mentor-context-preview",
           "admin-kpi-dashboard",
           "admin-support-long-wire",
-          "mobile-today-available",
-          "mobile-content-reading",
           "dp-design-mission-ledger",
-          "dp-design-context-payload-preview"
+          "dp-design-context-payload-preview",
+          "web-community-free",
+          "web-community-qna",
+          "web-community-feedback"
         ],
-        "case_count": 96,
-        "surface_case_counts": {"web": 48, "admin": 16, "mobile": 16, "dp_design": 16},
+        "case_count": 104,
+        "surface_case_counts": {"web": 72, "admin": 16, "dp_design": 16},
         "capture_surface": "flutter_web_release_projection",
         "device_evidence": false,
         "evidence_mode": "release_ready",
@@ -221,12 +222,12 @@
       },
       "frontend-automated-a11y": {
         "repository": "DevPathAi/devpath-frontend",
-        "source_sha": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
+        "source_sha": "9607627616fdd1f369ff58d3fd86440ef6c171f3",
         "path": "evidence/et13/generated/a11y-cases.v1.json",
-        "sha256": "2a76815be997178a6eeb9d54eb609a998fec33538803fd94e44127bdf390897c",
+        "sha256": "cf664d46f5e0b0ea9ab789dbf4afca4dbc71778eff0db05779c3a48392622929",
         "case_catalog_version": "leva.et13.catalog.v1",
         "case_catalog_schema_version": "leva.et13.a11y-cases.v1",
-        "projection_contract_sha256": "c66d08b6425628a06b27d07e08d648cfb3568d9db7c8d8aca2371172ccf4bde3",
+        "projection_contract_sha256": "158fdc882238c9459995c0572536a3cec3704e92bd1b28fa2d80907fc0435b78",
         "fixture_ids": [
           "web-today-available",
           "web-path-current-week",
@@ -236,13 +237,14 @@
           "web-mentor-context-preview",
           "admin-kpi-dashboard",
           "admin-support-long-wire",
-          "mobile-today-available",
-          "mobile-content-reading",
           "dp-design-mission-ledger",
-          "dp-design-context-payload-preview"
+          "dp-design-context-payload-preview",
+          "web-community-free",
+          "web-community-qna",
+          "web-community-feedback"
         ],
-        "case_count": 24,
-        "surface_case_counts": {"web": 12, "admin": 4, "mobile": 4, "dp_design": 4},
+        "case_count": 26,
+        "surface_case_counts": {"web": 18, "admin": 4, "dp_design": 4},
         "capture_surface": "flutter_web_release_projection",
         "device_evidence": false,
         "evidence_mode": "release_ready",
@@ -262,7 +264,7 @@
       },
       "manual-nvda": {
         "repository": "DevPathAi/devpath-frontend",
-        "source_sha": "dbc1cc9010dea56471e8eec462a0c52cee946d15",
+        "source_sha": "9607627616fdd1f369ff58d3fd86440ef6c171f3",
         "path": "tool/release-evidence/catalogs/manual-nvda.v1.json",
         "sha256": "f900678464064d0f481ab736d682fea1587622fb633ab19d5f7566cdc47974e2",
         "case_count": 2,
@@ -271,7 +273,7 @@
     },
     "frontend_projection_contract": {
       "schema_version": "leva.et13.projection-contract.v1",
-      "projection_contract_sha256": "c66d08b6425628a06b27d07e08d648cfb3568d9db7c8d8aca2371172ccf4bde3",
+      "projection_contract_sha256": "158fdc882238c9459995c0572536a3cec3704e92bd1b28fa2d80907fc0435b78",
       "projection_matrix": [
         {
           "fixture_id": "web-today-available",
@@ -339,25 +341,6 @@
           ]
         },
         {
-          "fixture_id": "mobile-today-available",
-          "capture_scope": "body_projection",
-          "source_widget": "MobileTodayProjection",
-          "substitutions": [
-            "native AppBar and route shell omitted",
-            "controller/provider state replaced by approved deterministic fixture"
-          ]
-        },
-        {
-          "fixture_id": "mobile-content-reading",
-          "capture_scope": "body_projection",
-          "source_widget": "MobileContentProjection",
-          "substitutions": [
-            "native AppBar and route shell omitted",
-            "periodic dwell timer frozen",
-            "controller/provider state replaced by approved deterministic fixture"
-          ]
-        },
-        {
           "fixture_id": "dp-design-mission-ledger",
           "capture_scope": "component_projection",
           "source_widget": "DpEt13MissionLedgerFixture",
@@ -371,6 +354,30 @@
           "source_widget": "DpEt13ContextPayloadPreviewFixture",
           "substitutions": [
             "hosted by the Flutter Web production distribution"
+          ]
+        },
+        {
+          "fixture_id": "web-community-free",
+          "capture_scope": "body_projection",
+          "source_widget": "WebCommunityBoardProjection",
+          "substitutions": [
+            "controller/provider state replaced by approved deterministic fixture"
+          ]
+        },
+        {
+          "fixture_id": "web-community-qna",
+          "capture_scope": "body_projection",
+          "source_widget": "WebCommunityBoardProjection",
+          "substitutions": [
+            "controller/provider state replaced by approved deterministic fixture"
+          ]
+        },
+        {
+          "fixture_id": "web-community-feedback",
+          "capture_scope": "body_projection",
+          "source_widget": "WebCommunityBoardProjection",
+          "substitutions": [
+            "controller/provider state replaced by approved deterministic fixture"
           ]
         }
       ]
