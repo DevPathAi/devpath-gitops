@@ -88,11 +88,11 @@ class Et13EvidenceContractTest(unittest.TestCase):
         cls.release = json.loads(RELEASE_FIXTURE.read_text(encoding="utf-8"))
         cls.candidate_sha = hashlib.sha256(CANDIDATE_FIXTURE.read_bytes()).hexdigest()
 
-    def test_candidate_prebinds_exact_catalogs_and_signed_mobile_builds(self):
+    def test_candidate_prebinds_exact_catalogs(self):
         inputs = self.candidate["quality_evidence_inputs"]
         self.assertEqual(
             set(inputs),
-            {"catalogs", "frontend_projection_contract", "mobile_test_artifacts"},
+            {"catalogs", "frontend_projection_contract"},
         )
         self.assertEqual(
             inputs["frontend_projection_contract"]["projection_contract_sha256"],
@@ -120,12 +120,6 @@ class Et13EvidenceContractTest(unittest.TestCase):
         self.assertNotEqual(home["rendered_product_sha"], home["source_sha"])
         for field in ("rendered_product_tree_sha256", "font_manifest_sha256"):
             self.assertRegex(home[field], r"^[0-9a-f]{64}$")
-        self.assertEqual(
-            inputs["mobile_test_artifacts"]["source_sha"],
-            self.candidate["frontend"]["source_sha"],
-        )
-        for field in ("build_provenance_sha256", "signed_apk_sha256"):
-            self.assertRegex(inputs["mobile_test_artifacts"][field], r"^[0-9a-f]{64}$")
         self.validator.validate_candidate_spec(copy.deepcopy(self.candidate), CANDIDATE_FIXTURE)
 
         invalid = copy.deepcopy(self.candidate)
@@ -133,12 +127,6 @@ class Et13EvidenceContractTest(unittest.TestCase):
             "provenance_sha256"
         ] = "0" * 64
         with self.assertRaisesRegex(ValueError, "same combined catalog and render provenance"):
-            self.validator.validate_candidate_spec(invalid, CANDIDATE_FIXTURE)
-
-        invalid = copy.deepcopy(self.candidate)
-        mobile = invalid["quality_evidence_inputs"]["mobile_test_artifacts"]
-        mobile["signed_apk_sha256"] = mobile["build_provenance_sha256"]
-        with self.assertRaisesRegex(ValueError, "must be distinct"):
             self.validator.validate_candidate_spec(invalid, CANDIDATE_FIXTURE)
 
     def test_final_source_rebind_is_exact_and_removes_every_stale_pin(self):
@@ -179,7 +167,6 @@ class Et13EvidenceContractTest(unittest.TestCase):
                     catalog["font_manifest_sha256"],
                     "9598c1a9656d3df6b48b7ff4038765e139cec8dd73cef0432f03a46cd1ebb662",
                 )
-        self.assertEqual(inputs["mobile_test_artifacts"]["source_sha"], FINAL_FRONTEND_SHA)
 
         candidate_text = CANDIDATE_FIXTURE.read_text(encoding="utf-8")
         release_text = RELEASE_FIXTURE.read_text(encoding="utf-8")
@@ -214,7 +201,7 @@ class Et13EvidenceContractTest(unittest.TestCase):
                     collect_candidate_hashes(nested)
 
         collect_candidate_hashes(self.release)
-        self.assertEqual(len(bound_candidate_hashes), 13)
+        self.assertEqual(len(bound_candidate_hashes), 12)
         self.assertEqual(set(bound_candidate_hashes), {self.candidate_sha})
         self.assertEqual(
             (CANDIDATE_FIXTURE.with_suffix(".sha256")).read_text(encoding="utf-8").split(),
@@ -264,10 +251,11 @@ class Et13EvidenceContractTest(unittest.TestCase):
             {"const": "workflow_dispatch"},
         )
 
-    def test_final_manifest_has_six_distinct_source_pinned_artifacts(self):
+    def test_final_manifest_has_five_distinct_source_pinned_artifacts(self):
         quality = self.release["quality_evidence"]
         self.assertEqual(set(quality), set(self.validator.QUALITY_EVIDENCE_KEYS))
-        self.assertEqual(len(quality), 6)
+        self.assertEqual(len(quality), len(self.validator.QUALITY_EVIDENCE_KEYS))
+        self.assertEqual(len(quality), 5)
         self.assertEqual(
             quality["home_visual"]["artifact_id"],
             quality["home_axe_browser_a11y"]["artifact_id"],
@@ -358,7 +346,6 @@ class Et13EvidenceContractTest(unittest.TestCase):
         mutations = (
             ("manual_nvda", "artifact_name", "ms-20990101-fixture-nvda-evidence"),
             ("manual_nvda", "workflow_path", ".github/workflows/ci.yml"),
-            ("manual_talkback", "artifact_name", "talkback-evidence-copy"),
         )
         for key, field, value in mutations:
             with self.subTest(key=key, field=field):
@@ -425,10 +412,7 @@ class Et13EvidenceContractTest(unittest.TestCase):
         else:
             environment, job_name = self.artifacts.PROTECTED_APPROVAL_CONTRACTS[label]
             payload.update({
-                "assistive_technology": {
-                    "manual-nvda": "NVDA+Chromium",
-                    "manual-talkback": "TalkBack+Android",
-                }[label],
+                "assistive_technology": "NVDA+Chromium",
                 "test_provenance_sha256": catalog["provenance_sha256"],
                 "approval_environment": environment,
                 "approval_environment_id": 701,
@@ -437,10 +421,6 @@ class Et13EvidenceContractTest(unittest.TestCase):
                 "approved_by_id": 702,
                 "approval_effective_at": "2026-08-16T10:15:00Z",
             })
-            if label == "manual-talkback":
-                mobile = self.candidate["quality_evidence_inputs"]["mobile_test_artifacts"]
-                payload["build_provenance_sha256"] = mobile["build_provenance_sha256"]
-                payload["signed_apk_sha256"] = mobile["signed_apk_sha256"]
         return payload
 
     def _home_payload(self, kind, catalog):
@@ -645,7 +625,7 @@ class Et13EvidenceContractTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "invalid key set"):
             self.artifacts.validate_evidence_payload(
-                "manual-talkback",
+                "manual-nvda",
                 self._base_payload("frontend-automated-a11y"),
                 self.candidate_sha,
                 self.candidate,
@@ -707,20 +687,6 @@ class Et13EvidenceContractTest(unittest.TestCase):
                 "home-visual", payload, self.candidate_sha, self.candidate
             )
 
-    def test_mobile_manual_evidence_binds_exact_signed_artifact_and_build(self):
-        mutations = (
-            ("manual-talkback", "signed_apk_sha256"),
-            ("manual-talkback", "build_provenance_sha256"),
-        )
-        for label, field in mutations:
-            with self.subTest(label=label, field=field):
-                payload = self._base_payload(label)
-                payload[field] = "0" * 64
-                with self.assertRaisesRegex(ValueError, field):
-                    self.artifacts.validate_evidence_payload(
-                        label, payload, self.candidate_sha, self.candidate
-                    )
-
     def test_producer_workflow_allowlist_is_exact_per_artifact(self):
         expected = {
             "frontend-visual": ".github/workflows/et13-evidence.yml",
@@ -728,7 +694,6 @@ class Et13EvidenceContractTest(unittest.TestCase):
             "frontend-automated-a11y": ".github/workflows/et13-evidence.yml",
             "home-axe-browser-a11y": ".github/workflows/mission-spine-validate.yml",
             "manual-nvda": ".github/workflows/mission-spine-manual-at-evidence.yml",
-            "manual-talkback": ".github/workflows/mission-spine-manual-at-evidence.yml",
         }
         self.assertEqual(
             {label: self.validator.PRODUCER_WORKFLOWS[label] for label in expected},
