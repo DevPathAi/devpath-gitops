@@ -902,8 +902,8 @@ images:
                 "capture_surface": "flutter_web_release_projection",
                 "device_evidence": False,
                 "evidence_mode": "release_ready",
-                "case_count": 24,
-                "passed_case_count": 24,
+                "case_count": self.candidate["quality_evidence_inputs"]["catalogs"]["frontend-automated-a11y"]["case_count"],
+                "passed_case_count": self.candidate["quality_evidence_inputs"]["catalogs"]["frontend-automated-a11y"]["case_count"],
                 "failed_case_count": 0,
                 "surface_case_counts": dict(self.candidate["quality_evidence_inputs"]["catalogs"]["frontend-automated-a11y"]["surface_case_counts"]),
                 "input_provenance_sha256": self.candidate["quality_evidence_inputs"][
