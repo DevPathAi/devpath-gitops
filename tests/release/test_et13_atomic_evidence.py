@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts" / "release"
 if str(SCRIPTS) not in __import__("sys").path:
     __import__("sys").path.insert(0, str(SCRIPTS))
+import frontend_et13_contract  # noqa: E402
 CANDIDATE_FIXTURE = ROOT / "tests" / "release" / "fixtures" / "valid-candidate-spec.json"
 RELEASE_FIXTURE = ROOT / "tests" / "release" / "fixtures" / "valid-release.json"
 VALIDATOR = SCRIPTS / "validate_release_manifest.py"
@@ -19,121 +20,11 @@ VERIFIER = SCRIPTS / "verify_release_artifacts.py"
 SEALER = SCRIPTS / "seal_release_manifest.py"
 SCHEMA = ROOT / "release-manifests" / "schema-v1.json"
 
-FIXTURE_IDS = [
-    "web-today-available",
-    "web-path-current-week",
-    "web-content-reading",
-    "web-workspace-idle",
-    "web-review-loaded",
-    "web-mentor-context-preview",
-    "admin-kpi-dashboard",
-    "admin-support-long-wire",
-    "mobile-today-available",
-    "mobile-content-reading",
-    "dp-design-mission-ledger",
-    "dp-design-context-payload-preview",
-]
+FIXTURE_IDS = list(frontend_et13_contract.FIXTURE_IDS)
 CATALOG_VERSION = "leva.et13.catalog.v1"
 PROJECTION_CONTRACT_VERSION = "leva.et13.projection-contract.v1"
-PROJECTION_MATRIX = [
-    {
-        "fixture_id": "web-today-available",
-        "capture_scope": "body_projection",
-        "source_widget": "TodayMissionSection",
-        "substitutions": [
-            "controller/provider state replaced by approved deterministic fixture"
-        ],
-    },
-    {
-        "fixture_id": "web-path-current-week",
-        "capture_scope": "body_projection",
-        "source_widget": "MissionPathPlanView",
-        "substitutions": [
-            "controller/provider state replaced by approved deterministic fixture"
-        ],
-    },
-    {
-        "fixture_id": "web-content-reading",
-        "capture_scope": "body_projection",
-        "source_widget": "WebContentProjection",
-        "substitutions": [
-            "AdSense slot replaced by explicit offline blocked-network evidence slot"
-        ],
-    },
-    {
-        "fixture_id": "web-workspace-idle",
-        "capture_scope": "body_projection",
-        "source_widget": "SandboxLayout",
-        "substitutions": [
-            "controller state replaced by approved deterministic fixture",
-            "Monaco callbacks disabled except production readiness",
-        ],
-    },
-    {
-        "fixture_id": "web-review-loaded",
-        "capture_scope": "component_projection",
-        "source_widget": "WebReviewProjection",
-        "substitutions": [
-            "controller state replaced by approved deterministic fixture"
-        ],
-    },
-    {
-        "fixture_id": "web-mentor-context-preview",
-        "capture_scope": "body_projection",
-        "source_widget": "WebMentorContextProjection",
-        "substitutions": [
-            "controller/provider state replaced by approved deterministic fixture"
-        ],
-    },
-    {
-        "fixture_id": "admin-kpi-dashboard",
-        "capture_scope": "body_projection",
-        "source_widget": "AdminKpiDashboardProjection",
-        "substitutions": [
-            "controller/provider state replaced by approved deterministic fixture"
-        ],
-    },
-    {
-        "fixture_id": "admin-support-long-wire",
-        "capture_scope": "component_projection",
-        "source_widget": "AdminSupportDetailProjection",
-        "substitutions": [
-            "live provider and dialog shell replaced by deterministic AlertDialog host"
-        ],
-    },
-    {
-        "fixture_id": "mobile-today-available",
-        "capture_scope": "body_projection",
-        "source_widget": "MobileTodayProjection",
-        "substitutions": [
-            "native AppBar and route shell omitted",
-            "controller/provider state replaced by approved deterministic fixture",
-        ],
-    },
-    {
-        "fixture_id": "mobile-content-reading",
-        "capture_scope": "body_projection",
-        "source_widget": "MobileContentProjection",
-        "substitutions": [
-            "native AppBar and route shell omitted",
-            "periodic dwell timer frozen",
-            "controller/provider state replaced by approved deterministic fixture",
-        ],
-    },
-    {
-        "fixture_id": "dp-design-mission-ledger",
-        "capture_scope": "component_projection",
-        "source_widget": "DpEt13MissionLedgerFixture",
-        "substitutions": ["hosted by the Flutter Web production distribution"],
-    },
-    {
-        "fixture_id": "dp-design-context-payload-preview",
-        "capture_scope": "component_projection",
-        "source_widget": "DpEt13ContextPayloadPreviewFixture",
-        "substitutions": ["hosted by the Flutter Web production distribution"],
-    },
-]
-PROJECTION_SHA256 = "c66d08b6425628a06b27d07e08d648cfb3568d9db7c8d8aca2371172ccf4bde3"
+PROJECTION_MATRIX = frontend_et13_contract.PROJECTION_MATRIX
+PROJECTION_SHA256 = frontend_et13_contract.PROJECTION_CONTRACT_SHA256
 LANES = {
     "frontend-visual": {
         "kind": "visual",
@@ -141,8 +32,8 @@ LANES = {
         "manifest_schema": "leva.et13.visual-manifest.v1",
         "catalog_file": "evidence/et13/generated/visual-cases.v1.json",
         "manifest_file": "artifacts/et13/visual-manifest.v1.json",
-        "count": 96,
-        "surfaces": {"web": 48, "admin": 16, "mobile": 16, "dp_design": 16},
+        "count": frontend_et13_contract.CASE_COUNTS["frontend-visual"],
+        "surfaces": frontend_et13_contract.SURFACE_CASE_COUNTS["frontend-visual"],
     },
     "frontend-automated-a11y": {
         "kind": "a11y",
@@ -150,8 +41,8 @@ LANES = {
         "manifest_schema": "leva.et13.a11y-manifest.v1",
         "catalog_file": "evidence/et13/generated/a11y-cases.v1.json",
         "manifest_file": "artifacts/et13/a11y-manifest.v1.json",
-        "count": 24,
-        "surfaces": {"web": 12, "admin": 4, "mobile": 4, "dp_design": 4},
+        "count": frontend_et13_contract.CASE_COUNTS["frontend-automated-a11y"],
+        "surfaces": frontend_et13_contract.SURFACE_CASE_COUNTS["frontend-automated-a11y"],
     },
 }
 
@@ -187,8 +78,6 @@ def surface_for(fixture_id):
         return "web"
     if fixture_id.startswith("admin-"):
         return "admin"
-    if fixture_id.startswith("mobile-"):
-        return "mobile"
     return "dp_design"
 
 

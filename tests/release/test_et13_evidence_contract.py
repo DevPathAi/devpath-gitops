@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts" / "release"
 if str(SCRIPTS) not in __import__("sys").path:
     __import__("sys").path.insert(0, str(SCRIPTS))
+import frontend_et13_contract  # noqa: E402
 CANDIDATE_FIXTURE = ROOT / "tests" / "release" / "fixtures" / "valid-candidate-spec.json"
 RELEASE_FIXTURE = ROOT / "tests" / "release" / "fixtures" / "valid-release.json"
 VALIDATOR = ROOT / "scripts" / "release" / "validate_release_manifest.py"
@@ -18,40 +19,28 @@ ARTIFACT_VERIFIER = ROOT / "scripts" / "release" / "verify_release_artifacts.py"
 SEALER = ROOT / "scripts" / "release" / "seal_release_manifest.py"
 SCHEMA = ROOT / "release-manifests" / "schema-v1.json"
 VALIDATION_WORKFLOW = ROOT / ".github" / "workflows" / "mission-spine-validate.yml"
-FINAL_FRONTEND_SHA = "dbc1cc9010dea56471e8eec462a0c52cee946d15"
+FINAL_FRONTEND_SHA = frontend_et13_contract.SOURCE_SHA
 FINAL_HOME_SOURCE_SHA = "dc5f37cb495f99cdfd43c6957db9958ddad7def7"
 FINAL_HOME_TREE_SHA256 = "64e51e148bde2962f1abdd06feffb2745fe062d47e6efbc9608c618fe9835368"
-STALE_FRONTEND_SHA = "a18aee3d31e61dcd3935" "17ef68125224eeb76c7a"
+STALE_FRONTEND_SHAS = (
+    "a18aee3d31e61dcd3935" "17ef68125224eeb76c7a",
+    "dbc1cc9010dea56471e8" "eec462a0c52cee946d15",
+)
 STALE_HOME_SOURCE_SHA = "6821ab90b6625a15752f" "831cdce183dc0ffaa86f"
 STALE_HOME_TREE_SHA256 = (
     "9f7f2c06c7caa9e77a155163654cc810" "7670fe8c9d9cc059d1f4a6ca427bcf25"
 )
 HOME_LOCAL_CANDIDATE_SHA = "90b" "988"
-FRONTEND_FIXTURE_IDS = [
-    "web-today-available",
-    "web-path-current-week",
-    "web-content-reading",
-    "web-workspace-idle",
-    "web-review-loaded",
-    "web-mentor-context-preview",
-    "admin-kpi-dashboard",
-    "admin-support-long-wire",
-    "mobile-today-available",
-    "mobile-content-reading",
-    "dp-design-mission-ledger",
-    "dp-design-context-payload-preview",
-]
-FRONTEND_PROJECTION_SHA256 = (
-    "c66d08b6425628a06b27d07e08d648cfb3568d9db7c8d8aca2371172ccf4bde3"
-)
+FRONTEND_FIXTURE_IDS = list(frontend_et13_contract.FIXTURE_IDS)
+FRONTEND_PROJECTION_SHA256 = frontend_et13_contract.PROJECTION_CONTRACT_SHA256
 FRONTEND_CATALOG_CONTRACTS = {
     "frontend-visual": {
         "path": "evidence/et13/generated/visual-cases.v1.json",
         "case_catalog_version": "leva.et13.catalog.v1",
         "case_catalog_schema_version": "leva.et13.visual-cases.v1",
         "projection_contract_sha256": FRONTEND_PROJECTION_SHA256,
-        "case_count": 96,
-        "surface_case_counts": {"web": 48, "admin": 16, "mobile": 16, "dp_design": 16},
+        "case_count": frontend_et13_contract.CASE_COUNTS["frontend-visual"],
+        "surface_case_counts": frontend_et13_contract.SURFACE_CASE_COUNTS["frontend-visual"],
         "capture_surface": "flutter_web_release_projection",
         "device_evidence": False,
         "evidence_mode": "release_ready",
@@ -61,8 +50,8 @@ FRONTEND_CATALOG_CONTRACTS = {
         "case_catalog_version": "leva.et13.catalog.v1",
         "case_catalog_schema_version": "leva.et13.a11y-cases.v1",
         "projection_contract_sha256": FRONTEND_PROJECTION_SHA256,
-        "case_count": 24,
-        "surface_case_counts": {"web": 12, "admin": 4, "mobile": 4, "dp_design": 4},
+        "case_count": frontend_et13_contract.CASE_COUNTS["frontend-automated-a11y"],
+        "surface_case_counts": frontend_et13_contract.SURFACE_CASE_COUNTS["frontend-automated-a11y"],
         "capture_surface": "flutter_web_release_projection",
         "device_evidence": False,
         "evidence_mode": "release_ready",
@@ -171,7 +160,7 @@ class Et13EvidenceContractTest(unittest.TestCase):
         candidate_text = CANDIDATE_FIXTURE.read_text(encoding="utf-8")
         release_text = RELEASE_FIXTURE.read_text(encoding="utf-8")
         for stale in (
-            STALE_FRONTEND_SHA,
+            *STALE_FRONTEND_SHAS,
             STALE_HOME_SOURCE_SHA,
             STALE_HOME_TREE_SHA256,
             HOME_LOCAL_CANDIDATE_SHA,
@@ -515,18 +504,27 @@ class Et13EvidenceContractTest(unittest.TestCase):
                 )
 
     def test_frontend_catalog_totals_and_surface_splits_are_not_self_asserted(self):
+        def drifted(counts):
+            mutated = dict(counts)
+            first, second = sorted(mutated)[:2]
+            mutated[first] -= 1
+            mutated[second] += 1
+            return mutated
+
+        counts = frontend_et13_contract.CASE_COUNTS
+        surfaces = frontend_et13_contract.SURFACE_CASE_COUNTS
         mutations = (
-            ("frontend-visual", "case_count", 128),
+            ("frontend-visual", "case_count", counts["frontend-visual"] + 1),
             (
                 "frontend-visual",
                 "surface_case_counts",
-                {"web": 47, "admin": 17, "mobile": 16, "dp_design": 16},
+                drifted(surfaces["frontend-visual"]),
             ),
-            ("frontend-automated-a11y", "case_count", 25),
+            ("frontend-automated-a11y", "case_count", counts["frontend-automated-a11y"] + 1),
             (
                 "frontend-automated-a11y",
                 "surface_case_counts",
-                {"web": 11, "admin": 5, "mobile": 4, "dp_design": 4},
+                drifted(surfaces["frontend-automated-a11y"]),
             ),
         )
         for label, field, value in mutations:
