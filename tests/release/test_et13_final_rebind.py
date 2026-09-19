@@ -10,16 +10,17 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts" / "release"
 if str(SCRIPTS) not in __import__("sys").path:
     __import__("sys").path.insert(0, str(SCRIPTS))
+import frontend_et13_contract  # noqa: E402
 CANDIDATE = ROOT / "tests" / "release" / "fixtures" / "valid-candidate-spec.json"
 RELEASE = ROOT / "tests" / "release" / "fixtures" / "valid-release.json"
 CONTRACT = ROOT / "release-manifests" / "contracts" / "frontend-et13"
 VERIFIER = ROOT / "scripts" / "release" / "verify_release_artifacts.py"
 
-FRONTEND_SHA = "dbc1cc9010dea56471e8eec462a0c52cee946d15"
-DIAGNOSTIC_FRONTEND_SHA = "dbc1cc9010dea56471e8eec462a0c52cee946d15"
-CATALOG_SHA = "fa9067a499793499f67bf4db49184e58727706ee7013d624168fc7ef811d981f"
-PROJECTION_SHA = "c66d08b6425628a06b27d07e08d648cfb3568d9db7c8d8aca2371172ccf4bde3"
-ASSETS_LOCK_SHA = "a36c5b407ddd702778876b7a787b55aa20ebbbb720ddd46d19b0c238f7be9eeb"
+FRONTEND_SHA = frontend_et13_contract.SOURCE_SHA
+DIAGNOSTIC_FRONTEND_SHA = frontend_et13_contract.SOURCE_SHA
+CATALOG_SHA = frontend_et13_contract.CATALOG_SHA256
+PROJECTION_SHA = frontend_et13_contract.PROJECTION_CONTRACT_SHA256
+ASSETS_LOCK_SHA = "eb6f4dfdd108781ebf4e2a44f9f5489ca1b8db6f611a0b907f41fe8c24051378"
 RENDERER_LOCK_SHA = "af71b829ec7ba56a5a89ca2e11ea940136b70153cbd4f995c725d047d98cf20b"
 AI_SOURCE_SHA = "b7203bcb000edfc0030f77a4c05dd8e1a83f7ce6"
 AI_WORKFLOW_SHA = "08d4592c21abc5d314ef87f489c5a4d1bef651f7aa2892d6e669d9a7958f6ea9"
@@ -32,33 +33,30 @@ DOCUMENTS_SOURCE_SHA = "9dc2abb0cd0a1d3ba09c18884f3c5798bdf30de1"
 DOCUMENTS_WORKFLOW_SHA = (
     "8c35b1d36c2f1c203a2ac02cec92ea928ebb26c217498d040d10b7aabe2d5e15"
 )
+# The generated-case hashes follow the pinned files. The five observation hashes per lane are
+# literals on purpose: they independently pin diagnostic-producer-snapshot.v1.json, which was
+# read from frontend et13-evidence run 35434688375 (push to main at SOURCE_SHA).
 LANES = {
     "frontend-visual": {
         "kind": "visual",
-        "case_sha": "1f21427cec099ba1d5465d0207fd3f8261084d1e69d94827f02fa44341272e1b",
-        "canonical_provenance_sha": "c084af31b89a178d906aa89afb4ce0a9b36b2758ad07321a0ee860de9bede17c",
-        "raw_provenance_sha": "0a53222b8aabbf65839477a9d176b10a33b078b0632efe69469d0ed417839925",
-        "manifest_sha": "b87b4c7639067118424ce9f3eb00aabfb04a6a08ee9b4af10ed947bd73fc71e4",
-        "evidence_sha": "ce1a04d132c06064cb900ab9d2af545ecd692cf5ea0f7ec97285fcd27b0aa492",
-        "local_candidate_sha": "d237c4ceb16852d3e3f370d06fda75398138046ed3604e5bfe5b1bbdaed3c0a6",
+        "case_sha": frontend_et13_contract.GENERATED_SHA256["frontend-visual"],
+        "canonical_provenance_sha": "2da01b47a8b1d317cc872d5aca9aec8ab4ebdf10f21d7dbab6106a59a27d8a9f",
+        "raw_provenance_sha": "0ba6d3fab1b76d1c62e4ec5bae02cf7b3e812e54c914e66880a32fb5676e88a7",
+        "manifest_sha": "33046d1b45432f9c58030d20fc8db93d72af1ba6d582511539d1fa45dcfccdb2",
+        "evidence_sha": "78d6724a3120adbedc1f2b1083face8b046add06e336ea6ac8918b27ef004228",
+        "local_candidate_sha": "b02923d07456f08ff405b5a7e93f064cf95c56450c12a911d45dff011a3065f1",
     },
     "frontend-automated-a11y": {
         "kind": "a11y",
-        "case_sha": "2a76815be997178a6eeb9d54eb609a998fec33538803fd94e44127bdf390897c",
-        "canonical_provenance_sha": "1496c1eeaef7f5e99ba6b5c2e61a6e3573d34b32e1cf84375ff1b7d83583ffee",
-        "raw_provenance_sha": "8eeae50c59575c6e77c5d913e0456e5ec868c65d7f0a2b579a2c0d106c2df478",
-        "manifest_sha": "96566b941df23c08950c7da0cc655e77abed462646d0bbbddadcb125515852eb",
-        "evidence_sha": "4d76b8abcb0640cabff1553d8cc58975e06bcf41ec43b1ae67701d15e573c199",
-        "local_candidate_sha": "ee6b09a246cd1d2cd231f68d5aa813dab4f8d53a4fdbaca597e75675312af04c",
+        "case_sha": frontend_et13_contract.GENERATED_SHA256["frontend-automated-a11y"],
+        "canonical_provenance_sha": "084280622acfbf680149ee09dac11f6ad8bcee44c28c7cd6c679d46f69e31edd",
+        "raw_provenance_sha": "50baed168fe0ec13c4ac13db1f9c4ef033dec83e04997603f7c85f144a3f83ac",
+        "manifest_sha": "df7675df976e99c60a30c62e11b97dd85e6e2f92ce8b6b49661511b12f1b2a4c",
+        "evidence_sha": "a71290cb4dc1d32fcc0b1faa57eb395cb81fa2624d1db53664ff9ce65f8612cc",
+        "local_candidate_sha": "793a31cb2d0f169f138b5ce80c96fa968d78e63d35a0bb583e884f29acad0b5b",
     },
 }
-GOLDEN_HASHES = {
-    "catalog.schema.json": "c2d03fa6a1d2dd7d07ff1e8fe485da761f8f0bbef5cfef6d64099a377a5a15a9",
-    "generated-cases.schema.json": "2443100f54598e862158535dca855e68c6443c2e0951b6bfed95da61e0419162",
-    "manifest.schema.json": "fe9f63be423da0e027120bf120e2435da193587786250ea0d2848caf674a01b1",
-    "evidence.schema.json": "b34616cf6ddcac50ecf05e87484298fb00ee6d45db6dc58b1d470917d3257e3e",
-    "release-bundle.v1.json": "b46cbc3903924267dfa9d44ea66d138ecceee22195c96c0f4fc29b0db6cfd411",
-}
+GOLDEN_HASHES = dict(frontend_et13_contract.GOLDEN_SHA256)
 
 
 def load_module(path: Path, name: str):
