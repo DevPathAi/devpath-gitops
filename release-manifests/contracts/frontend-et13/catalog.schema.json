@@ -33,7 +33,7 @@
       "items": {"$ref": "#/$defs/projectionRow"}
     },
     "projection_contract_sha256": {
-      "const": "c66d08b6425628a06b27d07e08d648cfb3568d9db7c8d8aca2371172ccf4bde3"
+      "const": "158fdc882238c9459995c0572536a3cec3704e92bd1b28fa2d80907fc0435b78"
     },
     "visual_matrix": {"$ref": "#/$defs/visualMatrix"},
     "a11y_matrix": {

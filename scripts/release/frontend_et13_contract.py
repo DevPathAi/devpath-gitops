@@ -25,7 +25,7 @@ PINNED_SHA256 = {
     "catalog.v1.json": "c5acc346a770f5890c6dd06ce616ffc1105eba12b7605e8ad985897e91b00c96",
     "visual-cases.v1.json": "acd368d92e9850cb51d67dc2d3cc9a6ae7c96e48f58da28f0e353ca0edc741ce",
     "a11y-cases.v1.json": "cf664d46f5e0b0ea9ab789dbf4afca4dbc71778eff0db05779c3a48392622929",
-    "catalog.schema.json": "8e0bee6a1f99f2293c7fed5a4b19d89f855cc51da47793c9f88336daf7013726",
+    "catalog.schema.json": "0906bb040327de5c3cd9263009223edd626ef452766ae3a97805de9fa7c56b64",
     "evidence.schema.json": "acf5b914d1a45838772bac5f9e912534343931e36be51f742cdf6bc3172032c1",
     "generated-cases.schema.json": "86d26364027e1e3a2bf178754ede042096f738c203220b83e6fc0d9c4ff1e8a7",
     "manifest.schema.json": "e201fd195299ed7eddea7ceeaa2ee15eadfab634a49a284b4c23d13defdff5eb",

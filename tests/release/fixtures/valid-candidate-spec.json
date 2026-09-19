@@ -14,7 +14,7 @@
   "services": {
     "devpath-admin": {
       "repository": "DevPathAi/devpath-frontend",
-      "source_sha": "9607627616fdd1f369ff58d3fd86440ef6c171f3",
+      "source_sha": "31a7785d5f3c73563c8ddb61b69a7a0e07f65f16",
       "image_repository": "ghcr.io/devpathai/devpath-admin",
       "image_digest": "sha256:1010101010101010101010101010101010101010101010101010101010101010"
     },
@@ -80,16 +80,16 @@
   },
   "frontend": {
     "repository": "DevPathAi/devpath-frontend",
-    "source_sha": "9607627616fdd1f369ff58d3fd86440ef6c171f3",
+    "source_sha": "31a7785d5f3c73563c8ddb61b69a7a0e07f65f16",
     "app_version": "ms-20990101-contract-fixture",
     "analytics_contract_version": "mission-spine.analytics.v1",
     "flag_contract_version": "mission-spine.flag.v1",
     "mission_off": {
-      "tag": "9607627616fdd1f369ff58d3fd86440ef6c171f3-mission-off",
+      "tag": "31a7785d5f3c73563c8ddb61b69a7a0e07f65f16-mission-off",
       "image_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     },
     "mission_on": {
-      "tag": "9607627616fdd1f369ff58d3fd86440ef6c171f3-mission-on",
+      "tag": "31a7785d5f3c73563c8ddb61b69a7a0e07f65f16-mission-on",
       "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     },
     "selected_on_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -177,7 +177,7 @@
     "catalogs": {
       "frontend-visual": {
         "repository": "DevPathAi/devpath-frontend",
-        "source_sha": "9607627616fdd1f369ff58d3fd86440ef6c171f3",
+        "source_sha": "31a7785d5f3c73563c8ddb61b69a7a0e07f65f16",
         "path": "evidence/et13/generated/visual-cases.v1.json",
         "sha256": "acd368d92e9850cb51d67dc2d3cc9a6ae7c96e48f58da28f0e353ca0edc741ce",
         "case_catalog_version": "leva.et13.catalog.v1",
@@ -222,7 +222,7 @@
       },
       "frontend-automated-a11y": {
         "repository": "DevPathAi/devpath-frontend",
-        "source_sha": "9607627616fdd1f369ff58d3fd86440ef6c171f3",
+        "source_sha": "31a7785d5f3c73563c8ddb61b69a7a0e07f65f16",
         "path": "evidence/et13/generated/a11y-cases.v1.json",
         "sha256": "cf664d46f5e0b0ea9ab789dbf4afca4dbc71778eff0db05779c3a48392622929",
         "case_catalog_version": "leva.et13.catalog.v1",
@@ -264,7 +264,7 @@
       },
       "manual-nvda": {
         "repository": "DevPathAi/devpath-frontend",
-        "source_sha": "9607627616fdd1f369ff58d3fd86440ef6c171f3",
+        "source_sha": "31a7785d5f3c73563c8ddb61b69a7a0e07f65f16",
         "path": "tool/release-evidence/catalogs/manual-nvda.v1.json",
         "sha256": "f900678464064d0f481ab736d682fea1587622fb633ab19d5f7566cdc47974e2",
         "case_count": 2,

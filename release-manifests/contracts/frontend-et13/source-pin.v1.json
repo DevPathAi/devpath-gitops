@@ -1,7 +1,7 @@
 {
   "schema_version": "leva.et13.source-pin.v1",
   "repository": "DevPathAi/devpath-frontend",
-  "source_sha": "9607627616fdd1f369ff58d3fd86440ef6c171f3",
+  "source_sha": "31a7785d5f3c73563c8ddb61b69a7a0e07f65f16",
   "files": {
     "catalog.v1.json": {
       "source_path": "evidence/et13/catalog.v1.json",
@@ -17,7 +17,7 @@
     },
     "catalog.schema.json": {
       "source_path": "evidence/et13/catalog.schema.json",
-      "sha256": "8e0bee6a1f99f2293c7fed5a4b19d89f855cc51da47793c9f88336daf7013726"
+      "sha256": "0906bb040327de5c3cd9263009223edd626ef452766ae3a97805de9fa7c56b64"
     },
     "evidence.schema.json": {
       "source_path": "evidence/et13/evidence.schema.json",
