@@ -86,8 +86,8 @@
           "pixel_diff_percent"
         ],
         "properties": {
-          "case_count": {"const": 96},
-          "passed_case_count": {"const": 96},
+          "case_count": {"const": 104},
+          "passed_case_count": {"const": 104},
           "surface_case_counts": {"$ref": "#/$defs/visualCounts"}
         },
         "not": {
@@ -101,8 +101,8 @@
       "else": {
         "required": ["standard", "critical_violations", "serious_violations"],
         "properties": {
-          "case_count": {"const": 24},
-          "passed_case_count": {"const": 24},
+          "case_count": {"const": 26},
+          "passed_case_count": {"const": 26},
           "surface_case_counts": {"$ref": "#/$defs/a11yCounts"}
         },
         "not": {
@@ -148,8 +148,8 @@
     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "fixtureIds": {
       "type": "array",
-      "minItems": 12,
-      "maxItems": 12,
+      "minItems": 13,
+      "maxItems": 13,
       "prefixItems": [
         {"const": "web-today-available"},
         {"const": "web-path-current-week"},
@@ -159,32 +159,31 @@
         {"const": "web-mentor-context-preview"},
         {"const": "admin-kpi-dashboard"},
         {"const": "admin-support-long-wire"},
-        {"const": "mobile-today-available"},
-        {"const": "mobile-content-reading"},
         {"const": "dp-design-mission-ledger"},
-        {"const": "dp-design-context-payload-preview"}
+        {"const": "dp-design-context-payload-preview"},
+        {"const": "web-community-free"},
+        {"const": "web-community-qna"},
+        {"const": "web-community-feedback"}
       ],
       "items": false
     },
     "visualCounts": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["web", "admin", "mobile", "dp_design"],
+      "required": ["web", "admin", "dp_design"],
       "properties": {
-        "web": {"const": 48},
+        "web": {"const": 72},
         "admin": {"const": 16},
-        "mobile": {"const": 16},
         "dp_design": {"const": 16}
       }
     },
     "a11yCounts": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["web", "admin", "mobile", "dp_design"],
+      "required": ["web", "admin", "dp_design"],
       "properties": {
-        "web": {"const": 12},
+        "web": {"const": 18},
         "admin": {"const": 4},
-        "mobile": {"const": 4},
         "dp_design": {"const": 4}
       }
     }

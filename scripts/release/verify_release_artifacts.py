@@ -31,9 +31,6 @@ from validate_release_manifest import (
     QUALITY_EVIDENCE,
     SHA40,
     SHA64,
-    SIGNED_MOBILE_BINDING_VERSION,
-    SIGNED_MOBILE_FILES,
-    SIGNED_MOBILE_WORKFLOW,
     _validate_sanitized,
     ai_eval_artifact_name,
     home_dist_artifact_name,
@@ -52,8 +49,6 @@ MAX_HOME_TAR_BYTES = 100 * 1024 * 1024
 MAX_HOME_ARTIFACT_ZIP_BYTES = 105 * 1024 * 1024
 MAX_HOME_ARCHIVE_FILES = 10_000
 MAX_AI_ARTIFACT_ZIP_BYTES = 1024 * 1024
-MAX_SIGNED_MOBILE_BINARY_BYTES = 500 * 1024 * 1024
-MAX_SIGNED_MOBILE_ARCHIVE_BYTES = 550 * 1024 * 1024
 CANDIDATE_REPOSITORY = "DevPathAi/devpath-gitops"
 CANDIDATE_WORKFLOW = ".github/workflows/mission-spine-candidate.yml"
 AI_RENDER_PATH = "apps/devpath-ai-svc/base"
@@ -141,10 +136,6 @@ PROTECTED_APPROVAL_CONTRACTS = {
         "et13-baseline-approval",
         "Approve exact ET13 visual baseline",
     ),
-    "signed-mobile-android": (
-        "mission-spine-mobile-signing-android",
-        "Sign Android release",
-    ),
     "ai-release-eval": (
         "mission-spine-ai-release-eval",
         "Run AI release evaluation",
@@ -158,26 +149,6 @@ PROTECTED_APPROVAL_CONTRACTS = {
         "deploy",
     ),
     "manual-nvda": ("manual-at-nvda", "Approve manual NVDA evidence"),
-    "manual-talkback": (
-        "manual-at-talkback",
-        "Approve manual TalkBack evidence",
-    ),
-}
-SIGNED_MOBILE_PROVENANCE_KEYS = {
-    "schema_version",
-    "release_id",
-    "repository",
-    "source_sha",
-    "event",
-    "workflow_path",
-    "workflow_sha256",
-    "producer_run_id",
-    "producer_run_attempt",
-    "pubspec_lock_sha256",
-    "toolchain",
-    "build_configuration",
-    "android",
-    "approvals",
 }
 MANUAL_CATALOG_KEYS = {
     "schema_version",
@@ -270,7 +241,8 @@ def _validate_quality_counts(value: dict[str, Any], catalog: dict[str, Any], lab
 
 
 def _validate_surface_counts(value: Any, case_count: int, label: str) -> None:
-    counts = _exact_payload(value, {"web", "admin", "mobile", "dp_design"}, f"{label} surfaces")
+    surfaces = set(FRONTEND_CATALOG_CONTRACTS["frontend-visual"]["surface_case_counts"])
+    counts = _exact_payload(value, surfaces, f"{label} surfaces")
     parsed = [_positive_int(count, f"{label} surface {surface}") for surface, count in counts.items()]
     if sum(parsed) != case_count:
         raise ValueError(f"{label} surface counts must sum to the exact catalog count")
@@ -401,123 +373,6 @@ def validate_approval_claim(label: str, value: Any) -> dict[str, Any]:
         raise ValueError(f"{label} approved_by is invalid")
     _utc_z(claim["approval_effective_at"], f"{label} approval_effective_at")
     return claim
-
-
-def validate_signed_mobile_provenance(
-    value: Any,
-    candidate: dict[str, Any],
-) -> dict[str, dict[str, Any]]:
-    """Validate the exact protected Android build-provenance document."""
-    _validate_sanitized(value, "signed-mobile provenance")
-    provenance = _exact_payload(
-        value,
-        SIGNED_MOBILE_PROVENANCE_KEYS,
-        "signed-mobile provenance",
-    )
-    mobile = candidate["quality_evidence_inputs"]["mobile_test_artifacts"]
-    expected_top = {
-        "schema_version": "leva.mission-spine.signed-android-build.v2",
-        "release_id": candidate["release_id"],
-        "repository": mobile["repository"],
-        "source_sha": mobile["source_sha"],
-        "event": mobile["event"],
-        "workflow_path": mobile["workflow_path"],
-        "workflow_sha256": mobile["workflow_sha256"],
-        "producer_run_id": mobile["workflow_run_id"],
-        "producer_run_attempt": mobile["run_attempt"],
-    }
-    for field, expected in expected_top.items():
-        if provenance[field] != expected:
-            raise ValueError(f"signed-mobile provenance {field} mismatch")
-    if not isinstance(provenance["pubspec_lock_sha256"], str) or SHA64.fullmatch(
-        provenance["pubspec_lock_sha256"]
-    ) is None:
-        raise ValueError("signed-mobile provenance pubspec_lock_sha256 is invalid")
-
-    toolchain = _exact_payload(
-        provenance["toolchain"],
-        {"flutter_version", "flutter_revision", "dart_sdk_version", "android"},
-        "signed-mobile toolchain",
-    )
-    expected_toolchain = {
-        "flutter_version": "3.44.1",
-        "flutter_revision": "924134a44c189315be2148659913dda1671cbe99",
-        "dart_sdk_version": "3.12.1",
-    }
-    for field, expected in expected_toolchain.items():
-        if toolchain[field] != expected:
-            raise ValueError(f"signed-mobile toolchain {field} mismatch")
-    android_toolchain = _exact_payload(
-        toolchain["android"],
-        {"java_runtime", "compile_sdk"},
-        "signed-mobile Android toolchain",
-    )
-    if android_toolchain != {
-        "java_runtime": (
-            "OpenJDK Runtime Environment Temurin-17.0.20+8 (build 17.0.20+8)"
-        ),
-        "compile_sdk": 36,
-    }:
-        raise ValueError("signed-mobile Android toolchain mismatch")
-    configuration = _exact_payload(
-        provenance["build_configuration"],
-        {"use_mock", "api_base_url", "web_app_url"},
-        "signed-mobile build configuration",
-    )
-    if configuration != {
-        "use_mock": False,
-        "api_base_url": "https://api.leva.ai.kr",
-        "web_app_url": "https://app.leva.ai.kr",
-    }:
-        raise ValueError("signed-mobile build configuration is not production")
-
-    android = _exact_payload(
-        provenance["android"],
-        {
-            "artifact_path",
-            "sha256",
-            "bytes",
-            "application_id",
-            "version_name",
-            "version_code",
-            "signature_verified",
-            "signing_classification",
-            "play_app_signing",
-            "signing_certificate_sha256",
-        },
-        "signed-mobile Android provenance",
-    )
-    android_expected = {
-        "artifact_path": mobile["signed_apk_file"],
-        "sha256": mobile["signed_apk_sha256"],
-        "application_id": "ai.devpath.devpath_mobile",
-        "signature_verified": True,
-        "signing_classification": "org_keystore_release_test_distribution",
-        "play_app_signing": False,
-    }
-    for field, expected in android_expected.items():
-        if android[field] != expected:
-            raise ValueError(f"signed-mobile Android {field} mismatch")
-    _positive_int(android["bytes"], "signed-mobile Android bytes")
-    _positive_int(android["version_code"], "signed-mobile Android version_code")
-    if not isinstance(android["version_name"], str) or not android["version_name"].strip():
-        raise ValueError("signed-mobile Android version_name is invalid")
-    if not isinstance(android["signing_certificate_sha256"], str) or SHA64.fullmatch(
-        android["signing_certificate_sha256"]
-    ) is None:
-        raise ValueError("signed-mobile Android signing certificate is invalid")
-
-    approvals = _exact_payload(
-        provenance["approvals"],
-        {"android"},
-        "signed-mobile approvals",
-    )
-    validated_approvals = {
-        "signed-mobile-android": validate_approval_claim(
-            "signed-mobile-android", approvals["android"]
-        ),
-    }
-    return validated_approvals
 
 
 def validate_manual_catalog_bundle(
@@ -1125,180 +980,6 @@ def download_candidate_spec_archive(
     )
 
 
-def _extract_signed_mobile_archive(
-    archive_path: Path,
-    destination: Path,
-    candidate: dict[str, Any],
-) -> None:
-    """Inspect and extract the signed bundle without trusting ZIP paths or file types."""
-    mobile = candidate["quality_evidence_inputs"]["mobile_test_artifacts"]
-    expected_files = {
-        mobile["build_provenance_file"],
-        mobile["signed_apk_file"],
-    }
-    expected_directories = {
-        parent.as_posix()
-        for filename in expected_files
-        for parent in PurePosixPath(filename).parents
-        if parent != PurePosixPath(".")
-    }
-    try:
-        archive = zipfile.ZipFile(archive_path)
-    except (OSError, zipfile.BadZipFile) as exc:
-        raise ValueError("signed-mobile: artifact archive is not a valid ZIP") from exc
-    with archive:
-        infos = archive.infolist()
-        actual_files: set[str] = set()
-        seen_entries: set[str] = set()
-        total_uncompressed = 0
-        for info in infos:
-            name = info.filename
-            if (
-                not name
-                or "\\" in name
-                or "\x00" in name
-                or name.startswith("/")
-                or re.match(r"^[A-Za-z]:", name)
-            ):
-                raise ValueError("signed-mobile: artifact archive path is unsafe")
-            normalized = name[:-1] if name.endswith("/") else name
-            parts = PurePosixPath(normalized).parts
-            if not normalized or any(part in {"", ".", ".."} for part in parts):
-                raise ValueError("signed-mobile: artifact archive path is unsafe")
-            if normalized in seen_entries:
-                raise ValueError("signed-mobile: artifact archive contains duplicate entries")
-            seen_entries.add(normalized)
-            mode = (info.external_attr >> 16) & 0xFFFF
-            kind = stat.S_IFMT(mode)
-            if info.is_dir():
-                if kind not in {0, stat.S_IFDIR}:
-                    raise ValueError("signed-mobile: artifact archive directory type is unsafe")
-                if normalized not in expected_directories:
-                    raise ValueError(
-                        "signed-mobile: artifact archive contains an unexpected directory"
-                    )
-                continue
-            if kind not in {0, stat.S_IFREG}:
-                raise ValueError("signed-mobile: artifact archive may not contain links")
-            if info.flag_bits & 0x1:
-                raise ValueError("signed-mobile: encrypted artifact entries are forbidden")
-            if normalized not in expected_files:
-                raise ValueError("signed-mobile: artifact archive contains an unexpected file")
-            limit = (
-                MAX_EVIDENCE_BYTES
-                if normalized == mobile["build_provenance_file"]
-                else MAX_SIGNED_MOBILE_BINARY_BYTES
-            )
-            if info.file_size <= 0 or info.file_size > limit:
-                raise ValueError("signed-mobile: artifact archive entry size is invalid")
-            total_uncompressed += info.file_size
-            if total_uncompressed > MAX_SIGNED_MOBILE_ARCHIVE_BYTES:
-                raise ValueError("signed-mobile: artifact archive expands beyond the safety limit")
-            actual_files.add(normalized)
-        if actual_files != expected_files:
-            raise ValueError("signed-mobile: artifact archive file set is not canonical")
-
-        destination.mkdir(parents=True, exist_ok=False)
-        for info in infos:
-            if info.is_dir():
-                continue
-            relative = info.filename
-            target = destination.joinpath(*PurePosixPath(relative).parts)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            written = 0
-            with archive.open(info, "r") as source, target.open("xb") as output:
-                while chunk := source.read(1024 * 1024):
-                    written += len(chunk)
-                    if written > info.file_size:
-                        raise ValueError("signed-mobile: artifact entry size changed while reading")
-                    output.write(chunk)
-            if written != info.file_size:
-                raise ValueError("signed-mobile: artifact entry size mismatch")
-
-
-def _download_signed_mobile_archive(
-    command_env: dict[str, str],
-    repository: str,
-    artifact_id: int,
-    expected_sha256: str,
-    destination: Path,
-    candidate: dict[str, Any],
-) -> None:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(
-        prefix="mission-spine-signed-mobile-archive-",
-        dir=destination.parent,
-    ) as temp_dir:
-        archive_path = Path(temp_dir) / "artifact.zip"
-        with archive_path.open("xb") as output:
-            download = subprocess.run(
-                [
-                    "gh",
-                    "api",
-                    "-H",
-                    "Accept: application/vnd.github+json",
-                    f"repos/{repository}/actions/artifacts/{artifact_id}/zip",
-                ],
-                stdout=output,
-                stderr=subprocess.DEVNULL,
-                env=command_env,
-                check=False,
-            )
-        if download.returncode != 0:
-            raise ValueError("signed-mobile: artifact archive download failed")
-        size = archive_path.stat().st_size
-        if size <= 0 or size > MAX_SIGNED_MOBILE_ARCHIVE_BYTES:
-            raise ValueError("signed-mobile: artifact archive size is invalid")
-        if _sha256_file(archive_path) != expected_sha256:
-            raise ValueError("signed-mobile: downloaded artifact archive digest mismatch")
-        _extract_signed_mobile_archive(archive_path, destination, candidate)
-
-
-def validate_signed_mobile_bundle(
-    root: Path,
-    candidate: dict[str, Any],
-) -> dict[str, dict[str, Any]]:
-    """Verify exact extracted file layout, raw hashes, sizes, and provenance."""
-    mobile = candidate["quality_evidence_inputs"]["mobile_test_artifacts"]
-    expected_entries = sorted(
-        {
-            mobile["build_provenance_file"],
-            "mobile",
-            "mobile/android",
-            mobile["signed_apk_file"],
-        }
-    )
-    entries = sorted(path.relative_to(root).as_posix() for path in root.rglob("*"))
-    if entries != expected_entries:
-        raise ValueError("signed-mobile artifact contains an unexpected file set")
-    for relative in ("mobile", "mobile/android"):
-        directory = root / relative
-        if not directory.is_dir() or directory.is_symlink():
-            raise ValueError("signed-mobile artifact directories must not be links")
-    for field, hash_field in (
-        ("build_provenance_file", "build_provenance_sha256"),
-        ("signed_apk_file", "signed_apk_sha256"),
-    ):
-        path = root / mobile[field]
-        if not path.is_file() or path.is_symlink():
-            raise ValueError(f"signed-mobile {field} must be a regular file")
-        size = path.stat().st_size
-        limit = MAX_EVIDENCE_BYTES if field == "build_provenance_file" else MAX_SIGNED_MOBILE_BINARY_BYTES
-        if size <= 0 or size > limit:
-            raise ValueError(f"signed-mobile {field} size is invalid")
-        if _sha256_file(path) != mobile[hash_field]:
-            raise ValueError(f"signed-mobile {hash_field} mismatch")
-    provenance_path = root / mobile["build_provenance_file"]
-    try:
-        provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError("signed-mobile build provenance is not valid UTF-8 JSON") from exc
-    approvals = validate_signed_mobile_provenance(provenance, candidate)
-    if provenance["android"]["bytes"] != (root / mobile["signed_apk_file"]).stat().st_size:
-        raise ValueError("signed-mobile Android byte count mismatch")
-    return approvals
-
-
 def validate_protected_approval(
     label: str,
     claim_value: Any,
@@ -1436,30 +1117,11 @@ def validate_protected_approval(
         raise ValueError(f"{label}: protected approval job is outside the live run interval")
 
 
-def validate_manual_chronology(
-    label: str,
-    signed_provenance: dict[str, Any],
-    signed_run: dict[str, Any],
-    manual_run: dict[str, Any],
-    approval_claim: dict[str, Any],
-) -> None:
-    signed_completed = _utc_z(
-        signed_run.get("updated_at"), "signed-mobile run updated_at"
-    )
-    manual_started = _utc_z(
-        manual_run.get("run_started_at"), f"{label} run_started_at"
-    )
-    if signed_completed >= manual_started:
-        raise ValueError(f"{label}: manual run started before signed-mobile completion")
-
-
 def _frontend_surface(fixture_id: str) -> str:
     if fixture_id.startswith("web-"):
         return "web"
     if fixture_id.startswith("admin-"):
         return "admin"
-    if fixture_id.startswith("mobile-"):
-        return "mobile"
     return "dp_design"
 
 
@@ -2114,12 +1776,6 @@ def validate_evidence_payload(
                 "test_provenance_sha256",
                 *PROTECTED_APPROVAL_KEYS,
             }
-        elif label == "manual-talkback":
-            extras = {
-                "assistive_technology", "test_provenance_sha256",
-                "build_provenance_sha256", "signed_apk_sha256",
-                *PROTECTED_APPROVAL_KEYS,
-            }
         else:  # Home labels return above.
             raise ValueError(f"unknown evidence kind: {label}")
         value = _exact_payload(payload, common_keys | extras, label)
@@ -2213,13 +1869,6 @@ def validate_evidence_payload(
                 label,
                 {field: value[field] for field in PROTECTED_APPROVAL_KEYS},
             )
-        if label == "manual-talkback":
-            mobile = candidate["quality_evidence_inputs"]["mobile_test_artifacts"]
-            for field in ("build_provenance_sha256",):
-                if value[field] != mobile[field]:
-                    raise ValueError(f"{label} {field} mismatch")
-            if value["signed_apk_sha256"] != mobile["signed_apk_sha256"]:
-                raise ValueError(f"{label} signed_apk_sha256 mismatch")
         return
     raise ValueError(f"unknown evidence kind: {label}")
 
@@ -3251,8 +2900,6 @@ def select_unique_protected_producer_run(
             return (ai_eval_artifact_name(release_id, run_id, 1),)
         if kind == "privacy-approval":
             return (privacy_approval_artifact_name(release_id, run_id, 1),)
-        if kind == "signed-mobile":
-            return (f"{release_id}-signed-android-build-run-{run_id}-attempt-1",)
         if kind == "frontend-baseline":
             return (
                 f"{release_id}-frontend-visual-approved-baseline-run-{run_id}-attempt-1",
@@ -3563,140 +3210,6 @@ def verify_manual_catalog_inputs(
         validate_manual_catalog_bundle(label, catalog_raw, provenance_raw, candidate)
 
 
-def _parse_mobile_version(pubspec_raw: bytes) -> tuple[str, int]:
-    try:
-        text = pubspec_raw.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise ValueError("mobile pubspec.yaml is not UTF-8") from exc
-    matches = re.findall(r"(?m)^version:\s*([0-9]+(?:\.[0-9]+){2})\+([1-9][0-9]*)\s*$", text)
-    if len(matches) != 1:
-        raise ValueError("mobile pubspec.yaml must contain one canonical version")
-    return matches[0][0], int(matches[0][1])
-
-
-def verify_signed_mobile_artifact(
-    command_env: dict[str, str],
-    candidate: dict[str, Any],
-    destination: Path,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Authenticate and materialize the exact candidate-prebound signed-mobile bundle."""
-    mobile = candidate["quality_evidence_inputs"]["mobile_test_artifacts"]
-    repository = mobile["repository"]
-    run_id = mobile["workflow_run_id"]
-    run_attempt = mobile["run_attempt"]
-    if run_attempt != 1:
-        raise ValueError("signed-mobile: protected signing attempt must be 1")
-    metadata = _run_json(
-        ["gh", "api", f"repos/{repository}/actions/artifacts/{mobile['artifact_id']}"],
-        command_env,
-    )
-    if (
-        metadata.get("id") != mobile["artifact_id"]
-        or metadata.get("name") != mobile["artifact_name"]
-        or metadata.get("expired") is not False
-        or (metadata.get("workflow_run") or {}).get("id") != run_id
-    ):
-        raise ValueError("signed-mobile: artifact identity or lifetime mismatch")
-    if metadata.get("digest") != f"sha256:{mobile['artifact_archive_sha256']}":
-        raise ValueError("signed-mobile: GitHub artifact archive digest mismatch")
-    current_run = _run_json(
-        ["gh", "api", f"repos/{repository}/actions/runs/{run_id}"],
-        command_env,
-    )
-    if current_run.get("run_attempt") != run_attempt:
-        raise ValueError("signed-mobile: stale or rerun attempt is not sealable")
-    run = _run_json(
-        [
-            "gh",
-            "api",
-            f"repos/{repository}/actions/runs/{run_id}/attempts/{run_attempt}",
-        ],
-        command_env,
-    )
-    workflow_raw = _workflow_bytes(
-        repository,
-        SIGNED_MOBILE_WORKFLOW,
-        mobile["source_sha"],
-        command_env,
-    )
-    validate_workflow_dispatch_inputs(
-        workflow_raw,
-        {"release_id"},
-        "signed-mobile",
-    )
-    run_reference = {**mobile, "head_sha": mobile["source_sha"]}
-    validate_run_provenance(
-        "signed-mobile",
-        run,
-        run_reference,
-        mobile["source_sha"],
-        SIGNED_MOBILE_WORKFLOW,
-        workflow_raw,
-        "workflow_dispatch",
-    )
-    if hashlib.sha256(workflow_raw).hexdigest() != mobile["workflow_sha256"]:
-        raise ValueError("signed-mobile: candidate workflow SHA-256 mismatch")
-    if run.get("head_branch") != "main" or (run.get("repository") or {}).get(
-        "full_name"
-    ) != repository:
-        raise ValueError("signed-mobile: protected run must bind frontend main")
-    assert_unique_protected_producer_run(
-        command_env,
-        repository,
-        mobile["source_sha"],
-        SIGNED_MOBILE_WORKFLOW,
-        candidate["release_id"],
-        "signed-mobile",
-        run_id,
-    )
-
-    pubspec_lock_raw = _repository_file_bytes(
-        repository,
-        "pubspec.lock",
-        mobile["source_sha"],
-        command_env,
-    )
-    mobile_pubspec_raw = _repository_file_bytes(
-        repository,
-        "apps/mobile/pubspec.yaml",
-        mobile["source_sha"],
-        command_env,
-    )
-    version_name, version_code = _parse_mobile_version(mobile_pubspec_raw)
-
-    _download_signed_mobile_archive(
-        command_env,
-        repository,
-        mobile["artifact_id"],
-        mobile["artifact_archive_sha256"],
-        destination,
-        candidate,
-    )
-    approvals = validate_signed_mobile_bundle(destination, candidate)
-    provenance = json.loads(
-        (destination / mobile["build_provenance_file"]).read_text(encoding="utf-8")
-    )
-    if provenance["pubspec_lock_sha256"] != hashlib.sha256(pubspec_lock_raw).hexdigest():
-        raise ValueError("signed-mobile: pubspec.lock SHA-256 mismatch")
-    if (
-        provenance["android"]["version_name"] != version_name
-        or provenance["android"]["version_code"] != version_code
-    ):
-        raise ValueError("signed-mobile: packaged version does not match mobile pubspec.yaml")
-    for label, claim in approvals.items():
-        verify_live_protected_approval(
-            command_env,
-            repository,
-            run_id,
-            run_attempt,
-            run,
-            label,
-            claim,
-            mobile["source_sha"],
-        )
-    return provenance, run
-
-
 def _artifact_entries(release: dict[str, Any]) -> list[tuple[str, dict[str, Any], bool, bool]]:
     entries = [
         ("home-dist", release["home_dist_artifact"], False, True),
@@ -3848,11 +3361,6 @@ def verify_artifacts(root: Path, release_id: str, materialize_home: Path | None 
     with tempfile.TemporaryDirectory(prefix="mission-spine-evidence-") as temp_dir:
         temp = Path(temp_dir)
         verify_manual_catalog_inputs(command_env, candidate)
-        signed_mobile_provenance, signed_mobile_run = verify_signed_mobile_artifact(
-            command_env,
-            candidate,
-            temp / "signed-mobile",
-        )
         manual_reference = release["quality_evidence"][QUALITY_EVIDENCE["manual-nvda"]]
         assert_unique_protected_producer_run(
             command_env,
@@ -4071,13 +3579,6 @@ def verify_artifacts(root: Path, release_id: str, materialize_home: Path | None 
             )
             if label in MANUAL_CATALOG_CONTRACTS:
                 claim = {field: payload[field] for field in PROTECTED_APPROVAL_KEYS}
-                validate_manual_chronology(
-                    label,
-                    signed_mobile_provenance,
-                    signed_mobile_run,
-                    run,
-                    claim,
-                )
                 verify_live_protected_approval(
                     command_env,
                     repository,

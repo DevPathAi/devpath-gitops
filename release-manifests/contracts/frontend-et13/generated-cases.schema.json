@@ -24,8 +24,8 @@
     "projection_contract_sha256": {"$ref": "#/$defs/sha256"},
     "projection_matrix": {
       "type": "array",
-      "minItems": 12,
-      "maxItems": 12,
+      "minItems": 13,
+      "maxItems": 13,
       "items": {"$ref": "#/$defs/projectionRow"}
     },
     "fixture_ids": {"$ref": "#/$defs/fixtureIds"},
@@ -42,22 +42,22 @@
       },
       "then": {
         "properties": {
-          "case_count": {"const": 96},
+          "case_count": {"const": 104},
           "surface_case_counts": {"$ref": "#/$defs/visualCounts"},
           "cases": {
-            "minItems": 96,
-            "maxItems": 96,
+            "minItems": 104,
+            "maxItems": 104,
             "items": {"$ref": "#/$defs/visualCase"}
           }
         }
       },
       "else": {
         "properties": {
-          "case_count": {"const": 24},
+          "case_count": {"const": 26},
           "surface_case_counts": {"$ref": "#/$defs/a11yCounts"},
           "cases": {
-            "minItems": 24,
-            "maxItems": 24,
+            "minItems": 26,
+            "maxItems": 26,
             "items": {"$ref": "#/$defs/a11yCase"}
           }
         }
@@ -68,8 +68,8 @@
     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "fixtureIds": {
       "type": "array",
-      "minItems": 12,
-      "maxItems": 12,
+      "minItems": 13,
+      "maxItems": 13,
       "prefixItems": [
         {"const": "web-today-available"},
         {"const": "web-path-current-week"},
@@ -79,10 +79,11 @@
         {"const": "web-mentor-context-preview"},
         {"const": "admin-kpi-dashboard"},
         {"const": "admin-support-long-wire"},
-        {"const": "mobile-today-available"},
-        {"const": "mobile-content-reading"},
         {"const": "dp-design-mission-ledger"},
-        {"const": "dp-design-context-payload-preview"}
+        {"const": "dp-design-context-payload-preview"},
+        {"const": "web-community-free"},
+        {"const": "web-community-qna"},
+        {"const": "web-community-feedback"}
       ],
       "items": false
     },
@@ -135,8 +136,8 @@
       "properties": {
         "case_id": {"type": "string"},
         "fixture_id": {"type": "string", "pattern": "^[a-z0-9-]+$"},
-        "owner": {"enum": ["web", "admin", "mobile", "dp_design"]},
-        "distribution": {"enum": ["web", "admin", "mobile"]},
+        "owner": {"enum": ["web", "admin", "dp_design"]},
+        "distribution": {"enum": ["web", "admin"]},
         "route": {"type": "string", "pattern": "^/\\?fixture=[a-z0-9-]+$"},
         "ready_semantics_label": {
           "type": "string",
@@ -177,7 +178,7 @@
             },
             "text_scale_percent": {"const": 100},
             "artifact_path": {
-              "pattern": "^visual/(?:web|admin|mobile|dp_design)/[a-z0-9.-]+\\.png$"
+              "pattern": "^visual/(?:web|admin|dp_design)/[a-z0-9.-]+\\.png$"
             }
           }
         }
@@ -197,7 +198,7 @@
             "width": {"enum": [320, 1240]},
             "text_scale_percent": {"const": 200},
             "artifact_path": {
-              "pattern": "^a11y/(?:web|admin|mobile|dp_design)/[a-z0-9.-]+\\.json$"
+              "pattern": "^a11y/(?:web|admin|dp_design)/[a-z0-9.-]+\\.json$"
             }
           }
         }
@@ -206,22 +207,20 @@
     "visualCounts": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["web", "admin", "mobile", "dp_design"],
+      "required": ["web", "admin", "dp_design"],
       "properties": {
-        "web": {"const": 48},
+        "web": {"const": 72},
         "admin": {"const": 16},
-        "mobile": {"const": 16},
         "dp_design": {"const": 16}
       }
     },
     "a11yCounts": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["web", "admin", "mobile", "dp_design"],
+      "required": ["web", "admin", "dp_design"],
       "properties": {
-        "web": {"const": 12},
+        "web": {"const": 18},
         "admin": {"const": 4},
-        "mobile": {"const": 4},
         "dp_design": {"const": 4}
       }
     }

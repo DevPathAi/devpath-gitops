@@ -1,0 +1,736 @@
+{
+  "schema_version": "leva.et13.a11y-cases.v1",
+  "case_catalog_version": "leva.et13.catalog.v1",
+  "catalog_sha256": "c5acc346a770f5890c6dd06ce616ffc1105eba12b7605e8ad985897e91b00c96",
+  "projection_contract_sha256": "158fdc882238c9459995c0572536a3cec3704e92bd1b28fa2d80907fc0435b78",
+  "projection_matrix": [
+    {
+      "fixture_id": "web-today-available",
+      "capture_scope": "body_projection",
+      "source_widget": "TodayMissionSection",
+      "substitutions": [
+        "controller/provider state replaced by approved deterministic fixture"
+      ]
+    },
+    {
+      "fixture_id": "web-path-current-week",
+      "capture_scope": "body_projection",
+      "source_widget": "MissionPathPlanView",
+      "substitutions": [
+        "controller/provider state replaced by approved deterministic fixture"
+      ]
+    },
+    {
+      "fixture_id": "web-content-reading",
+      "capture_scope": "body_projection",
+      "source_widget": "WebContentProjection",
+      "substitutions": [
+        "AdSense slot replaced by explicit offline blocked-network evidence slot"
+      ]
+    },
+    {
+      "fixture_id": "web-workspace-idle",
+      "capture_scope": "body_projection",
+      "source_widget": "SandboxLayout",
+      "substitutions": [
+        "controller state replaced by approved deterministic fixture",
+        "Monaco callbacks disabled except production readiness"
+      ]
+    },
+    {
+      "fixture_id": "web-review-loaded",
+      "capture_scope": "component_projection",
+      "source_widget": "WebReviewProjection",
+      "substitutions": [
+        "controller state replaced by approved deterministic fixture"
+      ]
+    },
+    {
+      "fixture_id": "web-mentor-context-preview",
+      "capture_scope": "body_projection",
+      "source_widget": "WebMentorContextProjection",
+      "substitutions": [
+        "controller/provider state replaced by approved deterministic fixture"
+      ]
+    },
+    {
+      "fixture_id": "admin-kpi-dashboard",
+      "capture_scope": "body_projection",
+      "source_widget": "AdminKpiDashboardProjection",
+      "substitutions": [
+        "controller/provider state replaced by approved deterministic fixture"
+      ]
+    },
+    {
+      "fixture_id": "admin-support-long-wire",
+      "capture_scope": "component_projection",
+      "source_widget": "AdminSupportDetailProjection",
+      "substitutions": [
+        "live provider and dialog shell replaced by deterministic AlertDialog host"
+      ]
+    },
+    {
+      "fixture_id": "dp-design-mission-ledger",
+      "capture_scope": "component_projection",
+      "source_widget": "DpEt13MissionLedgerFixture",
+      "substitutions": [
+        "hosted by the Flutter Web production distribution"
+      ]
+    },
+    {
+      "fixture_id": "dp-design-context-payload-preview",
+      "capture_scope": "component_projection",
+      "source_widget": "DpEt13ContextPayloadPreviewFixture",
+      "substitutions": [
+        "hosted by the Flutter Web production distribution"
+      ]
+    },
+    {
+      "fixture_id": "web-community-free",
+      "capture_scope": "body_projection",
+      "source_widget": "WebCommunityBoardProjection",
+      "substitutions": [
+        "controller/provider state replaced by approved deterministic fixture"
+      ]
+    },
+    {
+      "fixture_id": "web-community-qna",
+      "capture_scope": "body_projection",
+      "source_widget": "WebCommunityBoardProjection",
+      "substitutions": [
+        "controller/provider state replaced by approved deterministic fixture"
+      ]
+    },
+    {
+      "fixture_id": "web-community-feedback",
+      "capture_scope": "body_projection",
+      "source_widget": "WebCommunityBoardProjection",
+      "substitutions": [
+        "controller/provider state replaced by approved deterministic fixture"
+      ]
+    }
+  ],
+  "fixture_ids": [
+    "web-today-available",
+    "web-path-current-week",
+    "web-content-reading",
+    "web-workspace-idle",
+    "web-review-loaded",
+    "web-mentor-context-preview",
+    "admin-kpi-dashboard",
+    "admin-support-long-wire",
+    "dp-design-mission-ledger",
+    "dp-design-context-payload-preview",
+    "web-community-free",
+    "web-community-qna",
+    "web-community-feedback"
+  ],
+  "case_count": 26,
+  "surface_case_counts": {
+    "web": 18,
+    "admin": 4,
+    "dp_design": 4
+  },
+  "cases": [
+    {
+      "case_id": "web-today-available--a11y--w320--light--text200",
+      "fixture_id": "web-today-available",
+      "owner": "web",
+      "distribution": "web",
+      "route": "/?fixture=web-today-available",
+      "ready_semantics_label": "ET13_READY:web-today-available",
+      "surface_label": "web-today-available",
+      "capture_scope": "body_projection",
+      "source_widget": "TodayMissionSection",
+      "substitutions": [
+        "controller/provider state replaced by approved deterministic fixture"
+      ],
+      "width": 320,
+      "height": 900,
+      "device_pixel_ratio": 1,
+      "theme": "light",
+      "text_scale_percent": 200,
+      "locale": "ko-KR",
+      "timezone": "UTC",
+      "reduced_motion": true,
+      "artifact_path": "a11y/web/web-today-available--a11y--w320--light--text200.json"
+    },
+    {
+      "case_id": "web-today-available--a11y--w1240--dark--text200",
+      "fixture_id": "web-today-available",
+      "owner": "web",
+      "distribution": "web",
+      "route": "/?fixture=web-today-available",
+      "ready_semantics_label": "ET13_READY:web-today-available",
+      "surface_label": "web-today-available",
+      "capture_scope": "body_projection",
+      "source_widget": "TodayMissionSection",
+      "substitutions": [
+        "controller/provider state replaced by approved deterministic fixture"
+      ],
+      "width": 1240,
+      "height": 900,
+      "device_pixel_ratio": 1,
+      "theme": "dark",
+      "text_scale_percent": 200,
+      "locale": "ko-KR",
+      "timezone": "UTC",
+      "reduced_motion": true,
+      "artifact_path": "a11y/web/web-today-available--a11y--w1240--dark--text200.json"
+    },
+    {
+      "case_id": "web-path-current-week--a11y--w320--light--text200",
+      "fixture_id": "web-path-current-week",
+      "owner": "web",
+      "distribution": "web",
+      "route": "/?fixture=web-path-current-week",
+      "ready_semantics_label": "ET13_READY:web-path-current-week",
+      "surface_label": "web-path-current-week",
+      "capture_scope": "body_projection",
+      "source_widget": "MissionPathPlanView",
+      "substitutions": [
+        "controller/provider state replaced by approved deterministic fixture"
+      ],
+      "width": 320,
+      "height": 900,
+      "device_pixel_ratio": 1,
+      "theme": "light",
+      "text_scale_percent": 200,
+      "locale": "ko-KR",
+      "timezone": "UTC",
+      "reduced_motion": true,
+      "artifact_path": "a11y/web/web-path-current-week--a11y--w320--light--text200.json"
+    },
+    {
+      "case_id": "web-path-current-week--a11y--w1240--dark--text200",
+      "fixture_id": "web-path-current-week",
+      "owner": "web",
+      "distribution": "web",
+      "route": "/?fixture=web-path-current-week",
+      "ready_semantics_label": "ET13_READY:web-path-current-week",
+      "surface_label": "web-path-current-week",
+      "capture_scope": "body_projection",
+      "source_widget": "MissionPathPlanView",
+      "substitutions": [
+        "controller/provider state replaced by approved deterministic fixture"
+      ],
+      "width": 1240,
+      "height": 900,
+      "device_pixel_ratio": 1,
+      "theme": "dark",
+      "text_scale_percent": 200,
+      "locale": "ko-KR",
+      "timezone": "UTC",
+      "reduced_motion": true,
+      "artifact_path": "a11y/web/web-path-current-week--a11y--w1240--dark--text200.json"
+    },
+    {
+      "case_id": "web-content-reading--a11y--w320--light--text200",
+      "fixture_id": "web-content-reading",
+      "owner": "web",
+      "distribution": "web",
+      "route": "/?fixture=web-content-reading",
+      "ready_semantics_label": "ET13_READY:web-content-reading",
+      "surface_label": "web-content-reading",
+      "capture_scope": "body_projection",
+      "source_widget": "WebContentProjection",
+      "substitutions": [
+        "AdSense slot replaced by explicit offline blocked-network evidence slot"
+      ],
+      "width": 320,
+      "height": 900,
+      "device_pixel_ratio": 1,
+      "theme": "light",
+      "text_scale_percent": 200,
+      "locale": "ko-KR",
+      "timezone": "UTC",
+      "reduced_motion": true,
+      "artifact_path": "a11y/web/web-content-reading--a11y--w320--light--text200.json"
+    },
+    {
+      "case_id": "web-content-reading--a11y--w1240--dark--text200",
+      "fixture_id": "web-content-reading",
+      "owner": "web",
+      "distribution": "web",
+      "route": "/?fixture=web-content-reading",
+      "ready_semantics_label": "ET13_READY:web-content-reading",
+      "surface_label": "web-content-reading",
+      "capture_scope": "body_projection",
+      "source_widget": "WebContentProjection",
+      "substitutions": [
+        "AdSense slot replaced by explicit offline blocked-network evidence slot"
+      ],
+      "width": 1240,
+      "height": 900,
+      "device_pixel_ratio": 1,
+      "theme": "dark",
+      "text_scale_percent": 200,
+      "locale": "ko-KR",
+      "timezone": "UTC",
+      "reduced_motion": true,
+      "artifact_path": "a11y/web/web-content-reading--a11y--w1240--dark--text200.json"
+    },
+    {
+      "case_id": "web-workspace-idle--a11y--w320--light--text200",
+      "fixture_id": "web-workspace-idle",
+      "owner": "web",
+      "distribution": "web",
+      "route": "/?fixture=web-workspace-idle",
+      "ready_semantics_label": "ET13_READY:web-workspace-idle",
+      "surface_label": "web-workspace-idle",
+      "capture_scope": "body_projection",
+      "source_widget": "SandboxLayout",
+      "substitutions": [
+        "controller state replaced by approved deterministic fixture",
+        "Monaco callbacks disabled except production readiness"
+      ],
+      "width": 320,
+      "height": 900,
+      "device_pixel_ratio": 1,
+      "theme": "light",
+      "text_scale_percent": 200,
+      "locale": "ko-KR",
+      "timezone": "UTC",
+      "reduced_motion": true,
+      "artifact_path": "a11y/web/web-workspace-idle--a11y--w320--light--text200.json"
+    },
+    {
+      "case_id": "web-workspace-idle--a11y--w1240--dark--text200",
+      "fixture_id": "web-workspace-idle",
+      "owner": "web",
+      "distribution": "web",
+      "route": "/?fixture=web-workspace-idle",
+      "ready_semantics_label": "ET13_READY:web-workspace-idle",
+      "surface_label": "web-workspace-idle",
+      "capture_scope": "body_projection",
+      "source_widget": "SandboxLayout",
+      "substitutions": [
+        "controller state replaced by approved deterministic fixture",
+        "Monaco callbacks disabled except production readiness"
+      ],
+      "width": 1240,
+      "height": 900,
+      "device_pixel_ratio": 1,
+      "theme": "dark",
+      "text_scale_percent": 200,
+      "locale": "ko-KR",
+      "timezone": "UTC",
+      "reduced_motion": true,
+      "artifact_path": "a11y/web/web-workspace-idle--a11y--w1240--dark--text200.json"
+    },
+    {
+      "case_id": "web-review-loaded--a11y--w320--light--text200",
+      "fixture_id": "web-review-loaded",
+      "owner": "web",
+      "distribution": "web",
+      "route": "/?fixture=web-review-loaded",
+      "ready_semantics_label": "ET13_READY:web-review-loaded",
+      "surface_label": "web-review-loaded",
+      "capture_scope": "component_projection",
+      "source_widget": "WebReviewProjection",
+      "substitutions": [
+        "controller state replaced by approved deterministic fixture"
+      ],
+      "width": 320,
+      "height": 900,
+      "device_pixel_ratio": 1,
+      "theme": "light",
+      "text_scale_percent": 200,
+      "locale": "ko-KR",
+      "timezone": "UTC",
+      "reduced_motion": true,
+      "artifact_path": "a11y/web/web-review-loaded--a11y--w320--light--text200.json"
+    },
+    {
+      "case_id": "web-review-loaded--a11y--w1240--dark--text200",
+      "fixture_id": "web-review-loaded",
+      "owner": "web",
+      "distribution": "web",
+      "route": "/?fixture=web-review-loaded",
+      "ready_semantics_label": "ET13_READY:web-review-loaded",
+      "surface_label": "web-review-loaded",
+      "capture_scope": "component_projection",
+      "source_widget": "WebReviewProjection",
+      "substitutions": [
+        "controller state replaced by approved deterministic fixture"
+      ],
+      "width": 1240,
+      "height": 900,
+      "device_pixel_ratio": 1,
+      "theme": "dark",
+      "text_scale_percent": 200,
+      "locale": "ko-KR",
+      "timezone": "UTC",
+      "reduced_motion": true,
+      "artifact_path": "a11y/web/web-review-loaded--a11y--w1240--dark--text200.json"
+    },
+    {
+      "case_id": "web-mentor-context-preview--a11y--w320--light--text200",
+      "fixture_id": "web-mentor-context-preview",
+      "owner": "web",
+      "distribution": "web",
+      "route": "/?fixture=web-mentor-context-preview",
+      "ready_semantics_label": "ET13_READY:web-mentor-context-preview",
+      "surface_label": "web-mentor-context-preview",
+      "capture_scope": "body_projection",
+      "source_widget": "WebMentorContextProjection",
+      "substitutions": [
+        "controller/provider state replaced by approved deterministic fixture"
+      ],
+      "width": 320,
+      "height": 900,
+      "device_pixel_ratio": 1,
+      "theme": "light",
+      "text_scale_percent": 200,
+      "locale": "ko-KR",
+      "timezone": "UTC",
+      "reduced_motion": true,
+      "artifact_path": "a11y/web/web-mentor-context-preview--a11y--w320--light--text200.json"
+    },
+    {
+      "case_id": "web-mentor-context-preview--a11y--w1240--dark--text200",
+      "fixture_id": "web-mentor-context-preview",
+      "owner": "web",
+      "distribution": "web",
+      "route": "/?fixture=web-mentor-context-preview",
+      "ready_semantics_label": "ET13_READY:web-mentor-context-preview",
+      "surface_label": "web-mentor-context-preview",
+      "capture_scope": "body_projection",
+      "source_widget": "WebMentorContextProjection",
+      "substitutions": [
+        "controller/provider state replaced by approved deterministic fixture"
+      ],
+      "width": 1240,
+      "height": 900,
+      "device_pixel_ratio": 1,
+      "theme": "dark",
+      "text_scale_percent": 200,
+      "locale": "ko-KR",
+      "timezone": "UTC",
+      "reduced_motion": true,
+      "artifact_path": "a11y/web/web-mentor-context-preview--a11y--w1240--dark--text200.json"
+    },
+    {
+      "case_id": "admin-kpi-dashboard--a11y--w320--light--text200",
+      "fixture_id": "admin-kpi-dashboard",
+      "owner": "admin",
+      "distribution": "admin",
+      "route": "/?fixture=admin-kpi-dashboard",
+      "ready_semantics_label": "ET13_READY:admin-kpi-dashboard",
+      "surface_label": "admin-kpi-dashboard",
+      "capture_scope": "body_projection",
+      "source_widget": "AdminKpiDashboardProjection",
+      "substitutions": [
+        "controller/provider state replaced by approved deterministic fixture"
+      ],
+      "width": 320,
+      "height": 900,
+      "device_pixel_ratio": 1,
+      "theme": "light",
+      "text_scale_percent": 200,
+      "locale": "ko-KR",
+      "timezone": "UTC",
+      "reduced_motion": true,
+      "artifact_path": "a11y/admin/admin-kpi-dashboard--a11y--w320--light--text200.json"
+    },
+    {
+      "case_id": "admin-kpi-dashboard--a11y--w1240--dark--text200",
+      "fixture_id": "admin-kpi-dashboard",
+      "owner": "admin",
+      "distribution": "admin",
+      "route": "/?fixture=admin-kpi-dashboard",
+      "ready_semantics_label": "ET13_READY:admin-kpi-dashboard",
+      "surface_label": "admin-kpi-dashboard",
+      "capture_scope": "body_projection",
+      "source_widget": "AdminKpiDashboardProjection",
+      "substitutions": [
+        "controller/provider state replaced by approved deterministic fixture"
+      ],
+      "width": 1240,
+      "height": 900,
+      "device_pixel_ratio": 1,
+      "theme": "dark",
+      "text_scale_percent": 200,
+      "locale": "ko-KR",
+      "timezone": "UTC",
+      "reduced_motion": true,
+      "artifact_path": "a11y/admin/admin-kpi-dashboard--a11y--w1240--dark--text200.json"
+    },
+    {
+      "case_id": "admin-support-long-wire--a11y--w320--light--text200",
+      "fixture_id": "admin-support-long-wire",
+      "owner": "admin",
+      "distribution": "admin",
+      "route": "/?fixture=admin-support-long-wire",
+      "ready_semantics_label": "ET13_READY:admin-support-long-wire",
+      "surface_label": "admin-support-long-wire",
+      "capture_scope": "component_projection",
+      "source_widget": "AdminSupportDetailProjection",
+      "substitutions": [
+        "live provider and dialog shell replaced by deterministic AlertDialog host"
+      ],
+      "width": 320,
+      "height": 900,
+      "device_pixel_ratio": 1,
+      "theme": "light",
+      "text_scale_percent": 200,
+      "locale": "ko-KR",
+      "timezone": "UTC",
+      "reduced_motion": true,
+      "artifact_path": "a11y/admin/admin-support-long-wire--a11y--w320--light--text200.json"
+    },
+    {
+      "case_id": "admin-support-long-wire--a11y--w1240--dark--text200",
+      "fixture_id": "admin-support-long-wire",
+      "owner": "admin",
+      "distribution": "admin",
+      "route": "/?fixture=admin-support-long-wire",
+      "ready_semantics_label": "ET13_READY:admin-support-long-wire",
+      "surface_label": "admin-support-long-wire",
+      "capture_scope": "component_projection",
+      "source_widget": "AdminSupportDetailProjection",
+      "substitutions": [
+        "live provider and dialog shell replaced by deterministic AlertDialog host"
+      ],
+      "width": 1240,
+      "height": 900,
+      "device_pixel_ratio": 1,
+      "theme": "dark",
+      "text_scale_percent": 200,
+      "locale": "ko-KR",
+      "timezone": "UTC",
+      "reduced_motion": true,
+      "artifact_path": "a11y/admin/admin-support-long-wire--a11y--w1240--dark--text200.json"
+    },
+    {
+      "case_id": "dp-design-mission-ledger--a11y--w320--light--text200",
+      "fixture_id": "dp-design-mission-ledger",
+      "owner": "dp_design",
+      "distribution": "web",
+      "route": "/?fixture=dp-design-mission-ledger",
+      "ready_semantics_label": "ET13_READY:dp-design-mission-ledger",
+      "surface_label": "dp-design-mission-ledger",
+      "capture_scope": "component_projection",
+      "source_widget": "DpEt13MissionLedgerFixture",
+      "substitutions": [
+        "hosted by the Flutter Web production distribution"
+      ],
+      "width": 320,
+      "height": 900,
+      "device_pixel_ratio": 1,
+      "theme": "light",
+      "text_scale_percent": 200,
+      "locale": "ko-KR",
+      "timezone": "UTC",
+      "reduced_motion": true,
+      "artifact_path": "a11y/dp_design/dp-design-mission-ledger--a11y--w320--light--text200.json"
+    },
+    {
+      "case_id": "dp-design-mission-ledger--a11y--w1240--dark--text200",
+      "fixture_id": "dp-design-mission-ledger",
+      "owner": "dp_design",
+      "distribution": "web",
+      "route": "/?fixture=dp-design-mission-ledger",
+      "ready_semantics_label": "ET13_READY:dp-design-mission-ledger",
+      "surface_label": "dp-design-mission-ledger",
+      "capture_scope": "component_projection",
+      "source_widget": "DpEt13MissionLedgerFixture",
+      "substitutions": [
+        "hosted by the Flutter Web production distribution"
+      ],
+      "width": 1240,
+      "height": 900,
+      "device_pixel_ratio": 1,
+      "theme": "dark",
+      "text_scale_percent": 200,
+      "locale": "ko-KR",
+      "timezone": "UTC",
+      "reduced_motion": true,
+      "artifact_path": "a11y/dp_design/dp-design-mission-ledger--a11y--w1240--dark--text200.json"
+    },
+    {
+      "case_id": "dp-design-context-payload-preview--a11y--w320--light--text200",
+      "fixture_id": "dp-design-context-payload-preview",
+      "owner": "dp_design",
+      "distribution": "web",
+      "route": "/?fixture=dp-design-context-payload-preview",
+      "ready_semantics_label": "ET13_READY:dp-design-context-payload-preview",
+      "surface_label": "dp-design-context-payload-preview",
+      "capture_scope": "component_projection",
+      "source_widget": "DpEt13ContextPayloadPreviewFixture",
+      "substitutions": [
+        "hosted by the Flutter Web production distribution"
+      ],
+      "width": 320,
+      "height": 900,
+      "device_pixel_ratio": 1,
+      "theme": "light",
+      "text_scale_percent": 200,
+      "locale": "ko-KR",
+      "timezone": "UTC",
+      "reduced_motion": true,
+      "artifact_path": "a11y/dp_design/dp-design-context-payload-preview--a11y--w320--light--text200.json"
+    },
+    {
+      "case_id": "dp-design-context-payload-preview--a11y--w1240--dark--text200",
+      "fixture_id": "dp-design-context-payload-preview",
+      "owner": "dp_design",
+      "distribution": "web",
+      "route": "/?fixture=dp-design-context-payload-preview",
+      "ready_semantics_label": "ET13_READY:dp-design-context-payload-preview",
+      "surface_label": "dp-design-context-payload-preview",
+      "capture_scope": "component_projection",
+      "source_widget": "DpEt13ContextPayloadPreviewFixture",
+      "substitutions": [
+        "hosted by the Flutter Web production distribution"
+      ],
+      "width": 1240,
+      "height": 900,
+      "device_pixel_ratio": 1,
+      "theme": "dark",
+      "text_scale_percent": 200,
+      "locale": "ko-KR",
+      "timezone": "UTC",
+      "reduced_motion": true,
+      "artifact_path": "a11y/dp_design/dp-design-context-payload-preview--a11y--w1240--dark--text200.json"
+    },
+    {
+      "case_id": "web-community-free--a11y--w320--light--text200",
+      "fixture_id": "web-community-free",
+      "owner": "web",
+      "distribution": "web",
+      "route": "/?fixture=web-community-free",
+      "ready_semantics_label": "ET13_READY:web-community-free",
+      "surface_label": "web-community-free",
+      "capture_scope": "body_projection",
+      "source_widget": "WebCommunityBoardProjection",
+      "substitutions": [
+        "controller/provider state replaced by approved deterministic fixture"
+      ],
+      "width": 320,
+      "height": 900,
+      "device_pixel_ratio": 1,
+      "theme": "light",
+      "text_scale_percent": 200,
+      "locale": "ko-KR",
+      "timezone": "UTC",
+      "reduced_motion": true,
+      "artifact_path": "a11y/web/web-community-free--a11y--w320--light--text200.json"
+    },
+    {
+      "case_id": "web-community-free--a11y--w1240--dark--text200",
+      "fixture_id": "web-community-free",
+      "owner": "web",
+      "distribution": "web",
+      "route": "/?fixture=web-community-free",
+      "ready_semantics_label": "ET13_READY:web-community-free",
+      "surface_label": "web-community-free",
+      "capture_scope": "body_projection",
+      "source_widget": "WebCommunityBoardProjection",
+      "substitutions": [
+        "controller/provider state replaced by approved deterministic fixture"
+      ],
+      "width": 1240,
+      "height": 900,
+      "device_pixel_ratio": 1,
+      "theme": "dark",
+      "text_scale_percent": 200,
+      "locale": "ko-KR",
+      "timezone": "UTC",
+      "reduced_motion": true,
+      "artifact_path": "a11y/web/web-community-free--a11y--w1240--dark--text200.json"
+    },
+    {
+      "case_id": "web-community-qna--a11y--w320--light--text200",
+      "fixture_id": "web-community-qna",
+      "owner": "web",
+      "distribution": "web",
+      "route": "/?fixture=web-community-qna",
+      "ready_semantics_label": "ET13_READY:web-community-qna",
+      "surface_label": "web-community-qna",
+      "capture_scope": "body_projection",
+      "source_widget": "WebCommunityBoardProjection",
+      "substitutions": [
+        "controller/provider state replaced by approved deterministic fixture"
+      ],
+      "width": 320,
+      "height": 900,
+      "device_pixel_ratio": 1,
+      "theme": "light",
+      "text_scale_percent": 200,
+      "locale": "ko-KR",
+      "timezone": "UTC",
+      "reduced_motion": true,
+      "artifact_path": "a11y/web/web-community-qna--a11y--w320--light--text200.json"
+    },
+    {
+      "case_id": "web-community-qna--a11y--w1240--dark--text200",
+      "fixture_id": "web-community-qna",
+      "owner": "web",
+      "distribution": "web",
+      "route": "/?fixture=web-community-qna",
+      "ready_semantics_label": "ET13_READY:web-community-qna",
+      "surface_label": "web-community-qna",
+      "capture_scope": "body_projection",
+      "source_widget": "WebCommunityBoardProjection",
+      "substitutions": [
+        "controller/provider state replaced by approved deterministic fixture"
+      ],
+      "width": 1240,
+      "height": 900,
+      "device_pixel_ratio": 1,
+      "theme": "dark",
+      "text_scale_percent": 200,
+      "locale": "ko-KR",
+      "timezone": "UTC",
+      "reduced_motion": true,
+      "artifact_path": "a11y/web/web-community-qna--a11y--w1240--dark--text200.json"
+    },
+    {
+      "case_id": "web-community-feedback--a11y--w320--light--text200",
+      "fixture_id": "web-community-feedback",
+      "owner": "web",
+      "distribution": "web",
+      "route": "/?fixture=web-community-feedback",
+      "ready_semantics_label": "ET13_READY:web-community-feedback",
+      "surface_label": "web-community-feedback",
+      "capture_scope": "body_projection",
+      "source_widget": "WebCommunityBoardProjection",
+      "substitutions": [
+        "controller/provider state replaced by approved deterministic fixture"
+      ],
+      "width": 320,
+      "height": 900,
+      "device_pixel_ratio": 1,
+      "theme": "light",
+      "text_scale_percent": 200,
+      "locale": "ko-KR",
+      "timezone": "UTC",
+      "reduced_motion": true,
+      "artifact_path": "a11y/web/web-community-feedback--a11y--w320--light--text200.json"
+    },
+    {
+      "case_id": "web-community-feedback--a11y--w1240--dark--text200",
+      "fixture_id": "web-community-feedback",
+      "owner": "web",
+      "distribution": "web",
+      "route": "/?fixture=web-community-feedback",
+      "ready_semantics_label": "ET13_READY:web-community-feedback",
+      "surface_label": "web-community-feedback",
+      "capture_scope": "body_projection",
+      "source_widget": "WebCommunityBoardProjection",
+      "substitutions": [
+        "controller/provider state replaced by approved deterministic fixture"
+      ],
+      "width": 1240,
+      "height": 900,
+      "device_pixel_ratio": 1,
+      "theme": "dark",
+      "text_scale_percent": 200,
+      "locale": "ko-KR",
+      "timezone": "UTC",
+      "reduced_motion": true,
+      "artifact_path": "a11y/web/web-community-feedback--a11y--w1240--dark--text200.json"
+    }
+  ]
+}
