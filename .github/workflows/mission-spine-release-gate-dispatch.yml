@@ -1,0 +1,34 @@
+---
+# Dispatch nonce: pipeline defects main publisher attempt 1.
+name: Mission Spine Release Gate Dispatch
+
+'on':
+  push:
+    branches:
+      - automation/dispatch-pipeline-defects-main-publish
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    name: Dispatch protected release gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch the pipeline defects main publisher as GitHub Actions automation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/mission-spine-auth-smoke.yml/dispatches" \
+            --input - <<'JSON'
+          {
+            "ref": "chore/pipeline-defects-publish-20260921",
+            "inputs": {
+              "full": "true"
+            }
+          }
+          JSON
