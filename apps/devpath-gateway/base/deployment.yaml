@@ -57,6 +57,13 @@ spec:
               value: "http://devpath-notification-svc.devpath.svc:8080"
             - name: LCS_SVC_URI
               value: "http://devpath-lcs-svc.devpath.svc:8080"
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness

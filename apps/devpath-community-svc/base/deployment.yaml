@@ -52,6 +52,13 @@ spec:
             # 계속 동작한다(검색만 실패). 키 이름은 application.yml 의 ${ES_URIS} 와 일치.
             - name: ES_URIS
               value: "http://elasticsearch.devpath.svc:9200"
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness

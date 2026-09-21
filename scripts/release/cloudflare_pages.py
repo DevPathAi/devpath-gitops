@@ -307,6 +307,32 @@ def _probe(origin: str) -> None:
         raise ValueError("Landing probe failed") from exc
 
 
+API_SMOKE_PATH = "/api/invite-rounds"
+MAX_API_SMOKE_BYTES = 65536
+
+
+def _probe_api(origin: str) -> None:
+    # The sealed dist must carry the Pages Functions (dist/_worker.js). A dist-only deploy that
+    # lost them still serves "/" and the marker, so probe one side-effect-free Functions route.
+    request = Request(
+        f"{origin.rstrip('/')}{API_SMOKE_PATH}",
+        headers={"Accept": "application/json", "User-Agent": "devpath-landing-canary/3"},
+    )
+    try:
+        with _NO_REDIRECT_OPENER.open(request, timeout=10) as response:
+            if response.status != 200:
+                raise ValueError("Landing API smoke returned a non-200 status")
+            raw = response.read(MAX_API_SMOKE_BYTES + 1)
+    except OSError as exc:
+        raise ValueError("Landing API smoke failed") from exc
+    if len(raw) > MAX_API_SMOKE_BYTES:
+        raise ValueError("Landing API smoke response is too large")
+    try:
+        json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("Landing API smoke response is not UTF-8 JSON") from exc
+
+
 def validate_public_marker(
     payload: object,
     release_id: str,
@@ -472,7 +498,10 @@ def execute(
         _successful(deployed, "production", source_sha)
         _probe_marker(landing_origin, release_id, candidate_hash, dist_sha256)
         _probe(landing_origin)
-        print("verified exact new Landing deployment, public dist marker, and smoke")
+        _probe_api(landing_origin)
+        print(
+            "verified exact new Landing deployment, public dist marker, page smoke, and API smoke"
+        )
         return
 
     if action == "rollback-prior":
