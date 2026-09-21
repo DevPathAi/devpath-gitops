@@ -6,4 +6,4 @@ resources:
 images:
 - name: ghcr.io/devpathai/devpath-community-svc
   newName: ghcr.io/devpathai/devpath-community-svc
-  digest: sha256:500fab3b728e67576ac677a3e20bf45f77d4f071cf7a8537ffdf93a6c200a94d
+  digest: sha256:eedf0999e860aff53b5750953c7bc326a17058c02b5b43b459576136f2d3f175
