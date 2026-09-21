@@ -8,10 +8,10 @@ configMapGenerator:
 - name: devpath-web-release-identity
   literals:
   - MISSION_RELEASE_READY=true
-  - MISSION_RELEASE_ID=ms-20260916-community-ia
-  - MISSION_CANDIDATE_SPEC_SHA256=a60c112f66cea0217757488c913700c1a323217ba8bc7c4ad28084335de9b93c
-  - MISSION_IMAGE_DIGEST=sha256:a204810fb509a9e68090b078d5720a23aab1feba53625943de038290733f839e
+  - MISSION_RELEASE_ID=ms-20260920-community-flat-pages-r3
+  - MISSION_CANDIDATE_SPEC_SHA256=b5ede99fa46a753202d9a4da1218c6fb9de1e7f0516063211648a4fd4c84cbcd
+  - MISSION_IMAGE_DIGEST=sha256:c140b9a4cd7f19291d30933140a7a1d342b2f44dcbb40e57155270334ea0551f
 images:
 - name: ghcr.io/devpathai/devpath-web
   newName: ghcr.io/devpathai/devpath-web
-  digest: sha256:a204810fb509a9e68090b078d5720a23aab1feba53625943de038290733f839e
+  digest: sha256:c140b9a4cd7f19291d30933140a7a1d342b2f44dcbb40e57155270334ea0551f
