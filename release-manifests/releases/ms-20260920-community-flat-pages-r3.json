@@ -1,0 +1,178 @@
+{
+  "$schema": "../schema-v1.json",
+  "ai_release_eval": {
+    "baseline_delta_points": -0.333333,
+    "evidence": {
+      "artifact_id": 10627082211,
+      "artifact_name": "ms-20260920-community-flat-pages-r3-ai-eval-run-35573198282-attempt-1",
+      "candidate_spec_sha256": "b5ede99fa46a753202d9a4da1218c6fb9de1e7f0516063211648a4fd4c84cbcd",
+      "event": "workflow_dispatch",
+      "evidence_file": "evidence.json",
+      "head_sha": "54f634b845befc7085e4b974a8b66120bf6c8856",
+      "repository": "DevPathAi/devpath-ai-svc",
+      "run_attempt": 1,
+      "sha256": "28bc0b40407e7c28e4bf58430e8e7f5e1cccf29741f410925962646e233f3593",
+      "workflow_path": ".github/workflows/mission-spine-release-eval.yml",
+      "workflow_run_id": 35573198282,
+      "workflow_sha256": "6cb2df387f7889618c458146b7e00fc31ead905886217cbd62fc4d549a5b688e"
+    },
+    "hard_invariants_percent": 100.0,
+    "usefulness_percent": 91.666667
+  },
+  "analytics_privacy_approval": {
+    "approved_at": "2026-09-21T07:30:55Z",
+    "evidence": {
+      "artifact_id": 10626707395,
+      "artifact_name": "ms-20260920-community-flat-pages-r3-privacy-approval-run-35573184227-attempt-1",
+      "candidate_spec_sha256": "b5ede99fa46a753202d9a4da1218c6fb9de1e7f0516063211648a4fd4c84cbcd",
+      "event": "workflow_dispatch",
+      "evidence_file": "evidence.json",
+      "head_sha": "7f732ac5ba31a91e81ea4e557cb7f67c8ee5ca36",
+      "repository": "DevPathAi/documents",
+      "run_attempt": 1,
+      "sha256": "fd654b3993299ecc4f78276fa6c699600f340bce932a4ed7e126beb8bf116405",
+      "workflow_path": ".github/workflows/mission-spine-privacy-approval.yml",
+      "workflow_run_id": 35573184227,
+      "workflow_sha256": "70cfd446f5989d5cae6661aa60297dfc7bf372069eaeea5d6ebbc5fc0b61edfb"
+    }
+  },
+  "candidate_spec": {
+    "path": "release-manifests/candidates/ms-20260920-community-flat-pages-r3.candidate-spec.json",
+    "sha256": "b5ede99fa46a753202d9a4da1218c6fb9de1e7f0516063211648a4fd4c84cbcd"
+  },
+  "created_at": "2026-09-21T07:50:38Z",
+  "document_type": "release-manifest",
+  "home_dist_artifact": {
+    "artifact_id": 10626737227,
+    "artifact_name": "ms-20260920-community-flat-pages-r3-home-dist-run-35573198376-attempt-1",
+    "candidate_spec_sha256": "b5ede99fa46a753202d9a4da1218c6fb9de1e7f0516063211648a4fd4c84cbcd",
+    "event": "workflow_dispatch",
+    "evidence_file": "evidence.json",
+    "head_sha": "5b9d6e38b8cc47028a409962ba563fe3555e50cb",
+    "payload_file": "dist.tar.gz",
+    "payload_sha256": "0247938747ab1d601fb1f7b8531b05b3b181ea6a4a427b7cc4f19a9868bbe412",
+    "repository": "DevPathAi/devpath-home-page",
+    "run_attempt": 1,
+    "sha256": "da520833ecc4a308fc4ea026797e555e7e28a68d22c98c6d5f72358fa7423a1e",
+    "workflow_path": ".github/workflows/mission-spine-home-dist.yml",
+    "workflow_run_id": 35573198376,
+    "workflow_sha256": "f2c138572583773732d02f0957d00305db0f92793a3a20e9563cfb232e2ec1b7"
+  },
+  "journeys": {
+    "activation": {
+      "artifact_id": 10627625762,
+      "artifact_name": "ms-20260920-community-flat-pages-r3-journey-activation-attempt-1",
+      "candidate_spec_sha256": "b5ede99fa46a753202d9a4da1218c6fb9de1e7f0516063211648a4fd4c84cbcd",
+      "event": "workflow_dispatch",
+      "evidence_file": "evidence.json",
+      "head_sha": "fcf97cf686df8e8bad56597d4679f9a96fd597fc",
+      "repository": "DevPathAi/devpath-gitops",
+      "run_attempt": 1,
+      "sha256": "d1ab2e807ed7f4c0797388708c9f5da245b7401ca406c66826198a09735fc2ad",
+      "workflow_path": ".github/workflows/mission-spine-validate.yml",
+      "workflow_run_id": 35574301865,
+      "workflow_sha256": "196190621847cd779044c824e35e9c08117c785c881b59f1443867bd8ed5a79f"
+    },
+    "contextual_practice": {
+      "artifact_id": 10626489885,
+      "artifact_name": "ms-20260920-community-flat-pages-r3-journey-contextual-practice-attempt-1",
+      "candidate_spec_sha256": "b5ede99fa46a753202d9a4da1218c6fb9de1e7f0516063211648a4fd4c84cbcd",
+      "event": "workflow_dispatch",
+      "evidence_file": "evidence.json",
+      "head_sha": "fcf97cf686df8e8bad56597d4679f9a96fd597fc",
+      "repository": "DevPathAi/devpath-gitops",
+      "run_attempt": 1,
+      "sha256": "f5695edda3268b50b429727a7cebbb8257f3aeafb6f5143130b96e8b8fd9a2af",
+      "workflow_path": ".github/workflows/mission-spine-validate.yml",
+      "workflow_run_id": 35574301865,
+      "workflow_sha256": "196190621847cd779044c824e35e9c08117c785c881b59f1443867bd8ed5a79f"
+    }
+  },
+  "quality_evidence": {
+    "frontend_automated_a11y": {
+      "artifact_id": 10627437362,
+      "artifact_name": "ms-20260920-community-flat-pages-r3-frontend-automated-a11y-run-35573205914-attempt-1",
+      "candidate_spec_sha256": "b5ede99fa46a753202d9a4da1218c6fb9de1e7f0516063211648a4fd4c84cbcd",
+      "event": "workflow_dispatch",
+      "evidence_file": "evidence.json",
+      "head_sha": "31a7785d5f3c73563c8ddb61b69a7a0e07f65f16",
+      "repository": "DevPathAi/devpath-frontend",
+      "run_attempt": 1,
+      "sha256": "8f4f943b7bed22e7f5551f6c7aedd87634b109b8f7b54ae6c75b82899770bb96",
+      "workflow_path": ".github/workflows/et13-evidence.yml",
+      "workflow_run_id": 35573205914,
+      "workflow_sha256": "71ba5845635677793d97d1b30d01a7ad58fed2e8ca2e2e9cc1a437f89b7d323e"
+    },
+    "frontend_visual": {
+      "artifact_id": 10627392546,
+      "artifact_name": "ms-20260920-community-flat-pages-r3-frontend-visual-run-35573205914-attempt-1",
+      "candidate_spec_sha256": "b5ede99fa46a753202d9a4da1218c6fb9de1e7f0516063211648a4fd4c84cbcd",
+      "event": "workflow_dispatch",
+      "evidence_file": "evidence.json",
+      "head_sha": "31a7785d5f3c73563c8ddb61b69a7a0e07f65f16",
+      "repository": "DevPathAi/devpath-frontend",
+      "run_attempt": 1,
+      "sha256": "d330749de2ef4aee4bf8fec7df2f6f8db8c5e646ae408833286dd127baea11c9",
+      "workflow_path": ".github/workflows/et13-evidence.yml",
+      "workflow_run_id": 35573205914,
+      "workflow_sha256": "71ba5845635677793d97d1b30d01a7ad58fed2e8ca2e2e9cc1a437f89b7d323e"
+    },
+    "home_axe_browser_a11y": {
+      "artifact_id": 10626589151,
+      "artifact_name": "ms-20260920-community-flat-pages-r3-home-visual-a11y-attempt-1",
+      "candidate_spec_sha256": "b5ede99fa46a753202d9a4da1218c6fb9de1e7f0516063211648a4fd4c84cbcd",
+      "event": "workflow_dispatch",
+      "evidence_file": "a11y-evidence.v2.json",
+      "head_sha": "fcf97cf686df8e8bad56597d4679f9a96fd597fc",
+      "repository": "DevPathAi/devpath-gitops",
+      "run_attempt": 1,
+      "sha256": "09fed29dc4c56ff1ee38d3787742a8fc62684bec460f67569f5c2576d079f4d2",
+      "workflow_path": ".github/workflows/mission-spine-validate.yml",
+      "workflow_run_id": 35574301865,
+      "workflow_sha256": "196190621847cd779044c824e35e9c08117c785c881b59f1443867bd8ed5a79f"
+    },
+    "home_visual": {
+      "artifact_id": 10626589151,
+      "artifact_name": "ms-20260920-community-flat-pages-r3-home-visual-a11y-attempt-1",
+      "candidate_spec_sha256": "b5ede99fa46a753202d9a4da1218c6fb9de1e7f0516063211648a4fd4c84cbcd",
+      "event": "workflow_dispatch",
+      "evidence_file": "visual-evidence.v2.json",
+      "head_sha": "fcf97cf686df8e8bad56597d4679f9a96fd597fc",
+      "repository": "DevPathAi/devpath-gitops",
+      "run_attempt": 1,
+      "sha256": "2a1f16c04fb46ad1c8d3c67ec0655b2baba2ea2bf265bc602ee7be9c8313cb4a",
+      "workflow_path": ".github/workflows/mission-spine-validate.yml",
+      "workflow_run_id": 35574301865,
+      "workflow_sha256": "196190621847cd779044c824e35e9c08117c785c881b59f1443867bd8ed5a79f"
+    },
+    "manual_nvda": {
+      "artifact_id": 10627271313,
+      "artifact_name": "ms-20260920-community-flat-pages-r3-manual-nvda-run-35573207617-attempt-1",
+      "candidate_spec_sha256": "b5ede99fa46a753202d9a4da1218c6fb9de1e7f0516063211648a4fd4c84cbcd",
+      "event": "workflow_dispatch",
+      "evidence_file": "evidence.json",
+      "head_sha": "31a7785d5f3c73563c8ddb61b69a7a0e07f65f16",
+      "repository": "DevPathAi/devpath-frontend",
+      "run_attempt": 1,
+      "sha256": "1147e5310fb57e5a41bf60cd8c9d86dd796003437f7063cc719d7c1e51a2895c",
+      "workflow_path": ".github/workflows/mission-spine-manual-at-evidence.yml",
+      "workflow_run_id": 35573207617,
+      "workflow_sha256": "1f22ce198545bc7c3c1caa5e6220312e5c198559ef40d6ff5fb694d373b6c0c1"
+    }
+  },
+  "release_id": "ms-20260920-community-flat-pages-r3",
+  "schema_version": 1,
+  "validation_attestation": {
+    "activation_sha256": "d1ab2e807ed7f4c0797388708c9f5da245b7401ca406c66826198a09735fc2ad",
+    "candidate_spec_sha256": "b5ede99fa46a753202d9a4da1218c6fb9de1e7f0516063211648a4fd4c84cbcd",
+    "contextual_practice_sha256": "f5695edda3268b50b429727a7cebbb8257f3aeafb6f5143130b96e8b8fd9a2af",
+    "home_source_sha": "5b9d6e38b8cc47028a409962ba563fe3555e50cb",
+    "validator_event": "workflow_dispatch",
+    "validator_head_sha": "fcf97cf686df8e8bad56597d4679f9a96fd597fc",
+    "validator_repository": "DevPathAi/devpath-gitops",
+    "validator_run_attempt": 1,
+    "validator_run_id": 35574301865,
+    "validator_workflow_path": ".github/workflows/mission-spine-validate.yml",
+    "validator_workflow_sha256": "196190621847cd779044c824e35e9c08117c785c881b59f1443867bd8ed5a79f"
+  }
+}
