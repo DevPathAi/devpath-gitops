@@ -10,8 +10,8 @@ configMapGenerator:
   - MISSION_RELEASE_READY=true
   - MISSION_RELEASE_ID=ms-20260920-community-flat-pages-r3
   - MISSION_CANDIDATE_SPEC_SHA256=b5ede99fa46a753202d9a4da1218c6fb9de1e7f0516063211648a4fd4c84cbcd
-  - MISSION_IMAGE_DIGEST=sha256:c140b9a4cd7f19291d30933140a7a1d342b2f44dcbb40e57155270334ea0551f
+  - MISSION_IMAGE_DIGEST=sha256:a6466f5de1714e12b7fcd01766e0fc0e4f61cf4dab4e6155ea0948ee3fb1c4e1
 images:
 - name: ghcr.io/devpathai/devpath-web
   newName: ghcr.io/devpathai/devpath-web
-  digest: sha256:c140b9a4cd7f19291d30933140a7a1d342b2f44dcbb40e57155270334ea0551f
+  digest: sha256:a6466f5de1714e12b7fcd01766e0fc0e4f61cf4dab4e6155ea0948ee3fb1c4e1
