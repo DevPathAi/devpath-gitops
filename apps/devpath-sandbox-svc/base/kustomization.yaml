@@ -8,6 +8,3 @@ images:
 - name: ghcr.io/devpathai/devpath-sandbox-svc
   newName: ghcr.io/devpathai/devpath-sandbox-svc
   digest: sha256:b331bacc59a56206b445604cfc249911ba0315bb0a79c2d7084f3f2c444ae45a
-replicas:
-- name: devpath-sandbox-svc
-  count: 0
