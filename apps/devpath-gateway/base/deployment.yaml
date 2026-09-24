@@ -31,6 +31,11 @@ spec:
             # 프록시 뒤에서 OAuth redirect_uri baseUrl을 올바르게 생성하기 위함
             - name: SPRING_CLOUD_GATEWAY_SERVER_WEBFLUX_DEFAULT_FILTERS_0
               value: "PreserveHostHeader"
+            # Spring Boot 는 상위 소스(env)의 리스트가 yml 리스트를 통째로 대체한다 — 위 _0 만 두면 이미지
+            # application.yml 의 DedupeResponseHeader 가 사라져 공개 경로 응답에 Access-Control-Allow-Origin 이
+            # 두 번 실린다(2026-09-24 운영 실측, /mentor-access/invite-rounds). 이미지와 같은 dedupe 를 env 에도 싣는다.
+            - name: SPRING_CLOUD_GATEWAY_SERVER_WEBFLUX_DEFAULT_FILTERS_1
+              value: "DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials Vary, RETAIN_UNIQUE"
             # SCG의 X-Forwarded 재작성을 끔 — Traefik이 넣은 원본(X-Forwarded-Proto=https 등)이
             # 그대로 platform에 전달되어야 baseUrl 스킴이 https로 생성됨
             - name: SPRING_CLOUD_GATEWAY_SERVER_WEBFLUX_XFORWARDED_ENABLED
