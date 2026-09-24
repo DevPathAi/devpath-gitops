@@ -145,6 +145,7 @@ class PromotionChainTest(unittest.TestCase):
             *MIGRATION_WRITER_FENCE_RUNTIME_FIX_PATHS,
             *self.chain.SERVICE_STATUS_IMAGE_FIX_PATHS,
             *self.chain.SERVICE_SOURCE_STATUS_FIX_PATHS,
+            *self.chain.SERVICE_APPLIED_REVISION_FIX_PATHS,
             *self.chain.CANARY_RUNTIME_FORM_FIX_PATHS,
             *WEB_APPLIED_REVISION_FIX_PATHS,
             *self.chain.LANDING_DIRECT_UPLOAD_SOURCE_FIX_PATHS,
@@ -353,6 +354,20 @@ class PromotionChainTest(unittest.TestCase):
             )
         git(self.root, "add", *paths)
         git(self.root, "commit", "-m", self.chain.SERVICE_SOURCE_STATUS_FIX_SUBJECT)
+        return git(self.root, "rev-parse", "HEAD")
+
+    def commit_service_applied_revision_fix(self, *, suffix: str = "") -> str:
+        paths = self.chain.SERVICE_APPLIED_REVISION_FIX_PATHS
+        for relative in paths:
+            path = self.root / relative
+            path.write_text(
+                path.read_text(encoding="utf-8")
+                + f"\n# service-applied-revision-fix{suffix}\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+        git(self.root, "add", *paths)
+        git(self.root, "commit", "-m", self.chain.SERVICE_APPLIED_REVISION_FIX_SUBJECT)
         return git(self.root, "rev-parse", "HEAD")
 
     def commit_canary_runtime_form_fix(self, *, suffix: str = "") -> str:
@@ -1046,6 +1061,52 @@ class PromotionChainTest(unittest.TestCase):
         identity = git(self.root, "rev-parse", "HEAD")
         with self.assertRaisesRegex(ValueError, "path set is not exact"):
             self.inspect(identity)
+
+    def test_exact_service_applied_revision_fix_is_phase_transparent_and_cannot_repeat(self):
+        self.set_migration()
+        migration = self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        self.set_services()
+        services = self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        applied_fix = self.commit_service_applied_revision_fix()
+
+        state = self.inspect(applied_fix)
+        self.assertEqual("services", state["phase"])
+        self.assertEqual("base", state["web_phase"])
+        self.assertEqual(migration, state["migration_commit"])
+        self.assertEqual(services, state["services_commit"])
+        self.assertEqual(applied_fix, state["service_applied_revision_fix_commit"])
+        self.assertEqual(applied_fix, state["current_commit"])
+
+        repeated = self.commit_service_applied_revision_fix(suffix="-repeated")
+        with self.assertRaisesRegex(ValueError, "directly follow services"):
+            self.inspect(repeated)
+
+    def test_service_applied_revision_fix_requires_services_and_exact_paths(self):
+        self.set_migration()
+        self.commit(
+            f"deploy(devpath-migration): {self.candidate['release_id']} sealed {self.release_hash}"
+        )
+        early = self.commit_service_applied_revision_fix()
+        with self.assertRaisesRegex(ValueError, "directly follow services"):
+            self.inspect(early)
+
+        git(self.root, "reset", "--hard", "HEAD^")
+        self.set_services()
+        self.commit(
+            f"release(services): promote {self.candidate['release_id']} additive-services"
+        )
+        omitted = self.chain.SERVICE_APPLIED_REVISION_FIX_PATHS[-1]
+        self.commit_service_applied_revision_fix()
+        git(self.root, "checkout", "HEAD^", "--", omitted)
+        git(self.root, "add", omitted)
+        git(self.root, "commit", "--amend", "--no-edit")
+        applied_fix = git(self.root, "rev-parse", "HEAD")
+        with self.assertRaisesRegex(ValueError, "path set is not exact"):
+            self.inspect(applied_fix)
 
     def test_exact_service_status_image_fix_is_phase_transparent_and_cannot_repeat(self):
         self.set_migration()
