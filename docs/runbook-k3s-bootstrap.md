@@ -190,6 +190,41 @@ aws rds delete-db-instance --region ap-northeast-2 --db-instance-identifier devp
 - 테인트 격리 확인: GPU 노드에 뜬 파드는 `ollama-gpu` 와 device plugin **둘뿐**이었다.
 - 생성 성능: **66 t/s(순간 97 t/s)** — 운영 CPU 4.2 t/s 대비 약 16배. 12주 한국어 경로 1건이 ai-svc 왕복 포함 **86초**(CPU 는 12분).
 
+### 스팟 회수 후 복구 (2026-10-01 실측)
+
+2026-09-08 에 GPU 스팟 노드(`ip-172-31-52-213`)가 회수됐고 **23일 동안 아무도 알지 못했다.**
+`ollama-gpu` 서비스가 엔드포인트 0개인 채로 남아 학습경로 생성이 잠복 고장 상태였다
+(그 사이 트래픽이 없어 사용자 영향은 없었다). 복구는 아래 순서여야 한다 —
+**새 노드만 띄우면 파드는 여전히 Pending 이다.**
+
+1. 선결 조건 재확인(2026-10-01 실측): 스팟 쿼터 `L-3819A6DF` = **4 vCPU 승인됨**(기본 0 에서 증설 완료) ·
+   SG self-referencing 3규칙 유지 · AMI `ami-09d3bdf0648512f52` 유효 · 서브넷 퍼블릭(IGW).
+   **스팟 시세는 2026-08-17 의 $0.2824/h 에서 $0.4587/h 로 올랐다**(온디맨드 $0.9896/h 대비 46%).
+2. 인스턴스 기동 → 위 「절차」 3·4 로 조인(토큰은 scp 후 삭제).
+3. **죽은 노드 오브젝트를 지운다**: `kubectl delete node <old>`. 지우지 않으면 `dueProbes` 류 집계와
+   스케줄러 메시지가 계속 그 노드를 센다.
+4. **`Terminating` 으로 멈춘 옛 파드를 강제 삭제한다**: `kubectl delete pod -n devpath <old-pod>
+   --force --grace-period=0`. 노드 오브젝트를 지워도 이 파드는 남고, 그게 PVC 의
+   `kubernetes.io/pvc-protection` finalizer 를 붙들어 다음 단계가 막힌다.
+5. ★**PVC 를 지운다**★ — `ollama-gpu-models` 의 PV 는 local-path 라
+   `nodeAffinity: kubernetes.io/hostname In [<old-node>]` 로 **죽은 노드에 고정**돼 있다.
+   그대로 두면 새 GPU 노드가 Ready 여도 파드는 영원히 Pending 이다. 모델 캐시는 노드와 함께
+   이미 사라졌으므로 버려도 된다(reclaim policy = Delete). 지우면 ArgoCD 가 매니페스트로
+   재생성하고 새 노드에 새 PV 가 붙는다.
+6. 검증: `nvidia.com/gpu` allocatable = 1 · 파드 안 `nvidia-smi` · 엔드포인트 ready=true ·
+   생성 속도. **2026-10-01 실측 58.8 tok/s**(CPU Ollama 4.9 tok/s 대비 12배).
+
+### ⚠ 탐지 공백 — 아직 메워지지 않았다
+
+클러스터에 모니터링·알림 스택이 없고(`kubectl get ns` 에 monitoring 없음, CronJob 0개)
+스팟 회수를 알려 주는 경로가 **하나도 없다**. 23일 무인지의 직접 원인이다. 선택지:
+
+| 방안 | 범위 | 비고 |
+|---|---|---|
+| EventBridge `EC2 Spot Instance Interruption Warning` → SNS | AWS 리소스 3개, 클러스터 무변경 | 회수 2분 전 통지. 알림 수신처를 정해야 한다(사람 결정) |
+| `ollama-gpu` 엔드포인트 0 감시 | 원인 불문 모든 중단을 잡는다 | 알림 전달 수단이 없어 위와 같은 결정이 선행 |
+| 스팟 ASG(capacity 1)로 자동 재기동 | 토큰을 SSM SecureString + 인스턴스 프로파일로 옮겨야 한다 | 런북 3번(「user-data 에 토큰을 넣지 않는다」)의 재설계가 필요 |
+
 ### 함정
 
 | 증상 | 원인 | 해법 |

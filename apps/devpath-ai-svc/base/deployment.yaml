@@ -79,6 +79,25 @@ spec:
               value: "claude"
             - name: RETENTION_PROVIDER
               value: "claude"
+            # Claude 가 막히면(429·5xx·401) 재참여 문구를 CPU Ollama 가 이어받는다.
+            # 세 기능 중 retention 만 켠다 — 2026-10-01 운영 CPU Ollama(qwen2.5:3b) 실측:
+            #   retention       콜드 30.4초 · 웜 16.6초, 한국어 문구 정상        → 타임아웃(60초) 안
+            #   community-seed  29.5초인데 질문에 답하지 않고 되물었다            → 공개 게시물이라 불가
+            #   review          콜드 70.6초로 타임아웃 초과 + 한국어 지시에 영어 출력 → 불가
+            # 뒤의 둘은 저장·공개되는 산출물이라 스펙 §4.1 의 「가짜 산출물이 사용자 기록에
+            # 영구히 남는 것은 실패보다 나쁘다」에 걸린다. 7b 는 노드 메모리가 막는다
+            # (t3.xlarge 가용 3.7GB, q4 7b 는 약 5GB 필요 — 디스크가 아니라 메모리가 한계).
+            #
+            # 재참여 문구는 휘발성이고 호출측(notification-svc)에 이미 고정 폴백 문구가 있어,
+            # 폴백이 또 실패해도 최악이 현상 유지다 — 상방만 있는 변경이다.
+            # GPU Ollama 로 보내지 않는다: 그쪽은 스팟 노드라 회수될 수 있고, 그때 멈추는 것은
+            # 비동기인 학습경로 생성뿐이어야 한다(위 OLLAMA_PATH_BASE_URL 주석과 같은 원칙).
+            - name: RETENTION_FALLBACK
+              value: "ollama"
+            # 코드 기본값은 qwen2.5:7b 인데 CPU Ollama 에 받아 둔 것은 3b 뿐이다.
+            # 명시하지 않으면 폴백이 「model not found」404 로 떨어진다.
+            - name: RETENTION_OLLAMA_MODEL
+              value: "qwen2.5:3b"
             # 클러스터 내 Ollama 게이트웨이 — path 생성·임베딩 라우팅(코드 기본 localhost:11434는 파드 내 없음)
             - name: OLLAMA_BASE_URL
               value: "http://ollama.devpath.svc:11434"
