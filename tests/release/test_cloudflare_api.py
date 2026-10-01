@@ -1,9 +1,12 @@
+from email.message import Message
 import importlib.util
+import io
 import json
 from pathlib import Path
 import sys
 import unittest
 from unittest import mock
+from urllib.error import HTTPError
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -89,9 +92,10 @@ class LandingApiSmokeTest(unittest.TestCase):
     ORIGIN = "https://leva.example.test"
 
     def probe(self, response=None, side_effect=None):
+        # _probe_api retries propagation-shaped failures, so skip the real backoff sleeps here.
         with mock.patch.object(
             module._NO_REDIRECT_OPENER, "open", return_value=response, side_effect=side_effect
-        ) as opened:
+        ) as opened, mock.patch.object(module.time, "sleep", lambda _seconds: None):
             module._probe_api(f"{self.ORIGIN}/")
         return opened
 
@@ -119,11 +123,16 @@ class LandingApiSmokeTest(unittest.TestCase):
 
     def test_wraps_the_errors_the_no_redirect_opener_really_raises(self):
         # The opener raises HTTPError (an OSError) for 3xx/4xx instead of returning a response.
-        from urllib.error import HTTPError
+        def http_error(status, reason):
+            error = HTTPError(
+                f"{self.ORIGIN}/api/invite-rounds", status, reason, Message(), io.BytesIO(b"")
+            )
+            self.addCleanup(error.close)
+            return error
 
         for failure in (
-            HTTPError(f"{self.ORIGIN}/api/invite-rounds", 404, "Not Found", None, None),
-            HTTPError(f"{self.ORIGIN}/api/invite-rounds", 308, "Permanent Redirect", None, None),
+            http_error(404, "Not Found"),
+            http_error(308, "Permanent Redirect"),
             OSError("connection reset"),
         ):
             with self.assertRaisesRegex(ValueError, "Landing API smoke failed"):
@@ -136,6 +145,120 @@ class LandingApiSmokeTest(unittest.TestCase):
         self.assertLess(
             branch.index("_probe(landing_origin)"), branch.index("_probe_api(landing_origin)")
         )
+
+
+class LandingProbePropagationTest(unittest.TestCase):
+    """2026-10-01: the landing gate probed the public dist marker 1.17s after wrangler reported
+    "Deployment complete!", got a 404, and failed release ms-20260930-s3-web-redesign-r3 — while the
+    deployment was in fact correct and answered moments later. Propagation-shaped failures must be
+    retried, and a 404 must not read as a connection failure."""
+
+    ORIGIN = "https://leva.example.test"
+    RELEASE = "ms-20260930-s3-web-redesign-r3"
+    CANDIDATE = "e" * 64
+    DIST = "d" * 64
+
+    def http_error(self, status):
+        # HTTPError inherits addinfourl -> tempfile._TemporaryFileWrapper, whose __del__ warns
+        # unless the response was closed. Register the close so the suite output stays pristine.
+        error = HTTPError(
+            "https://leva.example.test/x", status, "boom", Message(), io.BytesIO(b"")
+        )
+        self.addCleanup(error.close)
+        return error
+
+    def marker(self, release_id=None):
+        return FakeResponse(
+            json.dumps(
+                {
+                    "candidate_spec_sha256": self.CANDIDATE,
+                    "dist_sha256": self.DIST,
+                    "release_id": release_id or self.RELEASE,
+                },
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode()
+        )
+
+    def drive(self, *outcomes):
+        """Give _probe_marker one outcome per attempt; return (opener, recorded sleeps, error|None)."""
+        slept = []
+        error = None
+        with mock.patch.object(
+            module._NO_REDIRECT_OPENER, "open", side_effect=list(outcomes)
+        ) as opened, mock.patch.object(module.time, "sleep", slept.append):
+            try:
+                module._probe_marker(self.ORIGIN, self.RELEASE, self.CANDIDATE, self.DIST)
+            except ValueError as exc:
+                error = exc
+        return opened, slept, error
+
+    def test_retries_until_the_new_deployment_propagates(self):
+        opened, slept, error = self.drive(
+            self.http_error(404), self.http_error(404), self.marker()
+        )
+        self.assertIsNone(error)
+        self.assertEqual(opened.call_count, 3)
+        self.assertEqual(slept, list(module.PROBE_ATTEMPT_DELAYS[:2]))
+
+    def test_retries_a_connection_failure(self):
+        opened, _, error = self.drive(OSError("connection reset"), self.marker())
+        self.assertIsNone(error)
+        self.assertEqual(opened.call_count, 2)
+
+    def test_names_a_404_separately_from_a_connection_failure(self):
+        attempts = len(module.PROBE_ATTEMPT_DELAYS) + 1
+
+        _, _, not_served = self.drive(*[self.http_error(404)] * attempts)
+        self.assertIsNotNone(not_served)
+        self.assertIn("public dist marker probe failed", str(not_served))
+        self.assertIn("404", str(not_served))
+
+        _, _, unreachable = self.drive(*[OSError("connection reset")] * attempts)
+        self.assertIsNotNone(unreachable)
+        self.assertIn("public dist marker probe failed", str(unreachable))
+        self.assertIn("connect", str(unreachable))
+        self.assertNotIn("404", str(unreachable))
+
+    def test_stops_at_a_redirect_that_will_not_fix_itself(self):
+        # A 308 means the path is wired wrong, not that the edge is still catching up.
+        opened, slept, error = self.drive(self.http_error(308))
+        self.assertIsNotNone(error)
+        self.assertEqual(opened.call_count, 1)
+        self.assertEqual(slept, [])
+        self.assertIn("308", str(error))
+
+    def test_stops_at_a_marker_that_binds_another_release(self):
+        opened, _, error = self.drive(self.marker(release_id="ms-19700101-other-r1"))
+        self.assertIsNotNone(error)
+        self.assertEqual(opened.call_count, 1)
+        self.assertIn("exact release artifact", str(error))
+
+    def test_page_and_api_probes_retry_on_the_same_policy(self):
+        for label, probe, ok in (
+            (
+                "page",
+                module._probe,
+                FakeResponse(
+                    b"<!doctype html><title>home</title>",
+                    headers={"Content-Type": "text/html"},
+                ),
+            ),
+            ("api", module._probe_api, FakeResponse(b'{"rounds":[]}')),
+        ):
+            with self.subTest(probe=label):
+                with mock.patch.object(
+                    module._NO_REDIRECT_OPENER,
+                    "open",
+                    side_effect=[self.http_error(404), ok],
+                ) as opened, mock.patch.object(module.time, "sleep", lambda _s: None):
+                    probe(self.ORIGIN)
+                self.assertEqual(opened.call_count, 2)
+
+    def test_the_retry_budget_is_bounded(self):
+        # A probe must not hold a release — or a rollback — open indefinitely.
+        self.assertGreaterEqual(sum(module.PROBE_ATTEMPT_DELAYS), 10.0)
+        self.assertLessEqual(sum(module.PROBE_ATTEMPT_DELAYS), 30.0)
 
 
 if __name__ == "__main__":
