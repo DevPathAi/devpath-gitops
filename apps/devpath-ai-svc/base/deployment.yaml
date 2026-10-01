@@ -79,25 +79,55 @@ spec:
               value: "claude"
             - name: RETENTION_PROVIDER
               value: "claude"
-            # Claude 가 막히면(429·5xx·401) 재참여 문구를 CPU Ollama 가 이어받는다.
-            # 세 기능 중 retention 만 켠다 — 2026-10-01 운영 CPU Ollama(qwen2.5:3b) 실측:
-            #   retention       콜드 30.4초 · 웜 16.6초, 한국어 문구 정상        → 타임아웃(60초) 안
-            #   community-seed  29.5초인데 질문에 답하지 않고 되물었다            → 공개 게시물이라 불가
-            #   review          콜드 70.6초로 타임아웃 초과 + 한국어 지시에 영어 출력 → 불가
-            # 뒤의 둘은 저장·공개되는 산출물이라 스펙 §4.1 의 「가짜 산출물이 사용자 기록에
-            # 영구히 남는 것은 실패보다 나쁘다」에 걸린다. 7b 는 노드 메모리가 막는다
-            # (t3.xlarge 가용 3.7GB, q4 7b 는 약 5GB 필요 — 디스크가 아니라 메모리가 한계).
+            # Claude 가 막히면(429·5xx·401) 세 기능 모두 GPU 노드의 Ollama(qwen2.5:7b)가 이어받는다.
             #
-            # 재참여 문구는 휘발성이고 호출측(notification-svc)에 이미 고정 폴백 문구가 있어,
-            # 폴백이 또 실패해도 최악이 현상 유지다 — 상방만 있는 변경이다.
-            # GPU Ollama 로 보내지 않는다: 그쪽은 스팟 노드라 회수될 수 있고, 그때 멈추는 것은
-            # 비동기인 학습경로 생성뿐이어야 한다(위 OLLAMA_PATH_BASE_URL 주석과 같은 원칙).
+            # 2026-10-01 에는 CPU Ollama(qwen2.5:3b)로 재서 retention 만 켰다. 그 판정을 2026-10-02
+            # GPU 노드(L4, qwen2.5:7b) 실측이 뒤집었다 — 각 기능의 실제 system/user 프롬프트·options·
+            # format 을 그대로 재구성해 /api/chat 으로 측정:
+            #   기능             3b @ CPU(어제)                → 7b @ GPU(실측)
+            #   retention        콜드 30.4초 · 웜 16.6초         → 콜드 24.8초 · 웜 0.8초
+            #   community-seed   29.5초, 질문에 되물음 ❌        → 7.3초, 정답 제시 ✅
+            #   review           콜드 70.6초(초과) · 영어 ❌     → 웜 5.6초, 한국어 JSON, SQL 인젝션 정확 ✅
+            # 생성 속도 4.9 → 약 52 tok/s. 최악(콜드 24.8초 + 가장 긴 생성 약 10초)도 타임아웃 60초 안이다.
+            #
+            # ★어제 주석의 「7b 를 막는 것은 메모리」는 CPU 노드(t3.xlarge 가용 3.7GB)의 사실이고,
+            # GPU 노드에는 해당하지 않는다★ — 파드 limit 8Gi 안에서 3b+7b 가 공존해 cgroup
+            # memory.current 4.79GB(56%), 압박 0회(memory.events max=0). 단 모델을 셋 이상 올리면
+            # page cache 가 limit 을 채워 로드가 105초까지 늘어진다(실측) → 아래 모델은 2종까지만.
+            #
+            # ★GPU 는 스팟이라 회수되면 이 폴백이 함께 사라진다 — 사용자 결정(2026-10-02)으로 수용했다★
+            # 근거: 폴백은 Claude 가 이미 실패한 2차 경로다. GPU 상실 = 「Claude 실패 시 대체 없음」 =
+            # PR #83 이전 상태로 돌아갈 뿐이어서 순손실이 아니다. 회수 자체는 EventBridge →
+            # SNS(이메일·Slack) 통지로 보완한다(런북 「스팟 회수 후 복구」).
+            # 재참여 문구는 휘발성이고 호출측(notification-svc)에 고정 폴백 문구가 이미 있어
+            # 폴백이 또 실패해도 최악이 현상 유지다.
             - name: RETENTION_FALLBACK
               value: "ollama"
-            # 코드 기본값은 qwen2.5:7b 인데 CPU Ollama 에 받아 둔 것은 3b 뿐이다.
-            # 명시하지 않으면 폴백이 「model not found」404 로 떨어진다.
+            - name: COMMUNITY_SEED_FALLBACK
+              value: "ollama"
+            - name: REVIEW_FALLBACK
+              value: "ollama"
+            # 세 기능 모두 qwen2.5:7b 하나를 공유한다 — 모델 수를 2종(path 생성용 3b + 폴백용 7b)으로
+            # 묶어야 위 메모리·디스크 한계 안에 들어간다. 생략하면 코드 기본값으로 떨어지는데
+            # review 는 qwen2.5-coder:7b 라 3종이 되고, retention·community-seed 는 GPU 노드에
+            # 받아 둔 적 없는 태그를 불러 「model not found」404 가 된다.
+            # coder:7b 는 review 품질이 조금 더 간결했지만(실측) 3종이 되어 쓰지 않는다.
             - name: RETENTION_OLLAMA_MODEL
-              value: "qwen2.5:3b"
+              value: "qwen2.5:7b"
+            - name: COMMUNITY_SEED_OLLAMA_MODEL
+              value: "qwen2.5:7b"
+            - name: REVIEW_OLLAMA_MODEL
+              value: "qwen2.5:7b"
+            # 폴백만 GPU 로 보낸다. 임베딩·멘토는 아래 공용 OLLAMA_BASE_URL(CPU 노드)에 그대로 남는다 —
+            # 임베딩에는 폴백이 없어 스팟 회수에 노출시킬 수 없고, 멘토는 MENTOR_FALLBACK=claude 가 받는다.
+            # 이 키들을 ai-svc application.yml 에 등록하지 않으면 조용히 무시된다(OLLAMA_PATH_* 가
+            # 그래서 8.1초에 503 으로 떨어졌던 2026-08-17 실측과 같은 실패 양식).
+            - name: RETENTION_OLLAMA_BASE_URL
+              value: "http://ollama-gpu.devpath.svc:11434"
+            - name: COMMUNITY_SEED_OLLAMA_BASE_URL
+              value: "http://ollama-gpu.devpath.svc:11434"
+            - name: REVIEW_OLLAMA_BASE_URL
+              value: "http://ollama-gpu.devpath.svc:11434"
             # 클러스터 내 Ollama 게이트웨이 — path 생성·임베딩 라우팅(코드 기본 localhost:11434는 파드 내 없음)
             - name: OLLAMA_BASE_URL
               value: "http://ollama.devpath.svc:11434"
