@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import sys
 import time
+from urllib.error import HTTPError
 from urllib.parse import quote, urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
@@ -297,14 +298,63 @@ def _created_production(
     return created
 
 
+PROBE_TIMEOUT_SECONDS = 10
+# `wrangler pages deploy` reports success before the new deployment answers on every Cloudflare
+# edge. 2026-10-01: the landing gate probed the public dist marker 1.17s after "Deployment
+# complete!", got a 404, and failed ms-20260930-s3-web-redesign-r3 while production was already
+# correct. Retry the propagation-shaped failures; keep the budget small enough that a probe never
+# holds a release — or a rollback — open for long.
+PROBE_ATTEMPT_DELAYS = (1.0, 2.0, 4.0, 8.0, 15.0)
+RETRYABLE_PROBE_STATUSES = frozenset({404, 408, 425, 429, 500, 502, 503, 504})
+
+
+class _ProbeNotReady(Exception):
+    """One attempt failed in a way a later attempt could fix — propagation, not misconfiguration."""
+
+
+def _reject_probe_status(label: str, status: int) -> None:
+    """Classify a status the probe will not accept. Never returns."""
+    if status in RETRYABLE_PROBE_STATUSES:
+        raise _ProbeNotReady(f"not served yet (HTTP {status})")
+    raise ValueError(f"{label} failed: unexpected HTTP {status}")
+
+
+def _retry_probe(label: str, attempt) -> None:
+    """Run `attempt` until it succeeds, retrying only `_ProbeNotReady`.
+
+    Terminal failures (a wired-wrong path, a marker that binds another release) raise straight
+    through on the first attempt so a real misconfiguration still fails fast.
+    """
+    detail = ""
+    for delay in (*PROBE_ATTEMPT_DELAYS, None):
+        try:
+            attempt()
+            return
+        except _ProbeNotReady as exc:
+            detail = str(exc)
+        if delay is None:
+            break
+        time.sleep(delay)
+    raise ValueError(
+        f"{label} failed: {detail} after {len(PROBE_ATTEMPT_DELAYS) + 1} attempts"
+    )
+
+
 def _probe(origin: str) -> None:
-    request = Request(f"{origin.rstrip('/')}/", headers={"User-Agent": "devpath-landing-canary/1"})
-    try:
-        with _NO_REDIRECT_OPENER.open(request, timeout=10) as response:
-            if response.status < 200 or response.status >= 400:
-                raise ValueError("Landing probe returned a failing status")
-    except OSError as exc:
-        raise ValueError("Landing probe failed") from exc
+    url = f"{origin.rstrip('/')}/"
+
+    def attempt() -> None:
+        request = Request(url, headers={"User-Agent": "devpath-landing-canary/1"})
+        try:
+            with _NO_REDIRECT_OPENER.open(request, timeout=PROBE_TIMEOUT_SECONDS) as response:
+                if response.status < 200 or response.status >= 400:
+                    _reject_probe_status("Landing probe", response.status)
+        except HTTPError as exc:
+            _reject_probe_status("Landing probe", exc.code)
+        except OSError as exc:
+            raise _ProbeNotReady(f"could not connect ({exc})") from exc
+
+    _retry_probe("Landing probe", attempt)
 
 
 API_SMOKE_PATH = "/api/invite-rounds"
@@ -314,23 +364,30 @@ MAX_API_SMOKE_BYTES = 65536
 def _probe_api(origin: str) -> None:
     # The sealed dist must carry the Pages Functions (dist/_worker.js). A dist-only deploy that
     # lost them still serves "/" and the marker, so probe one side-effect-free Functions route.
-    request = Request(
-        f"{origin.rstrip('/')}{API_SMOKE_PATH}",
-        headers={"Accept": "application/json", "User-Agent": "devpath-landing-canary/3"},
-    )
-    try:
-        with _NO_REDIRECT_OPENER.open(request, timeout=10) as response:
-            if response.status != 200:
-                raise ValueError("Landing API smoke returned a non-200 status")
-            raw = response.read(MAX_API_SMOKE_BYTES + 1)
-    except OSError as exc:
-        raise ValueError("Landing API smoke failed") from exc
-    if len(raw) > MAX_API_SMOKE_BYTES:
-        raise ValueError("Landing API smoke response is too large")
-    try:
-        json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError("Landing API smoke response is not UTF-8 JSON") from exc
+    url = f"{origin.rstrip('/')}{API_SMOKE_PATH}"
+
+    def attempt() -> None:
+        request = Request(
+            url,
+            headers={"Accept": "application/json", "User-Agent": "devpath-landing-canary/3"},
+        )
+        try:
+            with _NO_REDIRECT_OPENER.open(request, timeout=PROBE_TIMEOUT_SECONDS) as response:
+                if response.status != 200:
+                    _reject_probe_status("Landing API smoke", response.status)
+                raw = response.read(MAX_API_SMOKE_BYTES + 1)
+        except HTTPError as exc:
+            _reject_probe_status("Landing API smoke", exc.code)
+        except OSError as exc:
+            raise _ProbeNotReady(f"could not connect ({exc})") from exc
+        if len(raw) > MAX_API_SMOKE_BYTES:
+            raise ValueError("Landing API smoke response is too large")
+        try:
+            json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("Landing API smoke response is not UTF-8 JSON") from exc
+
+    _retry_probe("Landing API smoke", attempt)
 
 
 def validate_public_marker(
@@ -383,24 +440,31 @@ def _probe_marker(
     dist_sha256: str,
 ) -> None:
     relative = _marker_relative_path(dist_sha256).as_posix()
-    request = Request(
-        f"{origin.rstrip('/')}/{relative}",
-        headers={"Accept": "application/json", "User-Agent": "devpath-landing-canary/2"},
-    )
-    try:
-        with _NO_REDIRECT_OPENER.open(request, timeout=10) as response:
-            if response.status != 200:
-                raise ValueError("public dist marker returned a non-200 status")
-            raw = response.read(4097)
-    except OSError as exc:
-        raise ValueError("public dist marker probe failed") from exc
-    if len(raw) > 4096:
-        raise ValueError("public dist marker is too large")
-    try:
-        payload = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError("public dist marker is not UTF-8 JSON") from exc
-    validate_public_marker(payload, release_id, candidate_hash, dist_sha256)
+    url = f"{origin.rstrip('/')}/{relative}"
+
+    def attempt() -> None:
+        request = Request(
+            url,
+            headers={"Accept": "application/json", "User-Agent": "devpath-landing-canary/2"},
+        )
+        try:
+            with _NO_REDIRECT_OPENER.open(request, timeout=PROBE_TIMEOUT_SECONDS) as response:
+                if response.status != 200:
+                    _reject_probe_status("public dist marker probe", response.status)
+                raw = response.read(4097)
+        except HTTPError as exc:
+            _reject_probe_status("public dist marker probe", exc.code)
+        except OSError as exc:
+            raise _ProbeNotReady(f"could not connect ({exc})") from exc
+        if len(raw) > 4096:
+            raise ValueError("public dist marker is too large")
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("public dist marker is not UTF-8 JSON") from exc
+        validate_public_marker(payload, release_id, candidate_hash, dist_sha256)
+
+    _retry_probe("public dist marker probe", attempt)
 
 
 def _created_epoch(deployment: dict) -> float:
