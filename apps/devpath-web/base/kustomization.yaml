@@ -10,8 +10,8 @@ configMapGenerator:
   - MISSION_RELEASE_READY=true
   - MISSION_RELEASE_ID=ms-20260930-s3-web-redesign-r3
   - MISSION_CANDIDATE_SPEC_SHA256=ef51e3ef8f71decfdebfbe5b4dbb1e3b7d7edc989265b9ce7c5595bee0407e0f
-  - MISSION_IMAGE_DIGEST=sha256:8cdf906e1cbe0f6e844c12cb63f622154f70c66845c81cd888d52412c14b6b6d
+  - MISSION_IMAGE_DIGEST=sha256:3a6ab8dbca5d362632c22c5cf2a01afe6430db33802608bb3f5bcf5e606a211a
 images:
 - name: ghcr.io/devpathai/devpath-web
   newName: ghcr.io/devpathai/devpath-web
-  digest: sha256:8cdf906e1cbe0f6e844c12cb63f622154f70c66845c81cd888d52412c14b6b6d
+  digest: sha256:3a6ab8dbca5d362632c22c5cf2a01afe6430db33802608bb3f5bcf5e606a211a
