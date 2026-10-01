@@ -85,5 +85,58 @@ class CloudflareApiBoundaryTest(unittest.TestCase):
             self.call(b'{"success":false,"errors":[]}')
 
 
+class LandingApiSmokeTest(unittest.TestCase):
+    ORIGIN = "https://leva.example.test"
+
+    def probe(self, response=None, side_effect=None):
+        with mock.patch.object(
+            module._NO_REDIRECT_OPENER, "open", return_value=response, side_effect=side_effect
+        ) as opened:
+            module._probe_api(f"{self.ORIGIN}/")
+        return opened
+
+    def test_requests_the_side_effect_free_functions_route_without_redirects(self):
+        response = FakeResponse(b'{"rounds":[]}')
+        opened = self.probe(response)
+        request = opened.call_args.args[0]
+        self.assertEqual(request.full_url, f"{self.ORIGIN}/api/invite-rounds")
+        self.assertEqual(request.get_method(), "GET")
+        self.assertIsNone(request.data)
+        self.assertEqual(opened.call_args.kwargs["timeout"], 10)
+        self.assertEqual(response.read_sizes, [module.MAX_API_SMOKE_BYTES + 1])
+
+    def test_rejects_a_deployment_that_lost_its_functions(self):
+        # 2026-09-21: a dist-only deploy dropped functions/ and /api/* served the static 404 page.
+        for response in (
+            FakeResponse(b"<!doctype html><title>404</title>", status=404),
+            FakeResponse(b"", status=308),
+            FakeResponse(b"<!doctype html><title>home</title>"),
+            FakeResponse(b"\xff\xfe"),
+            FakeResponse(b"[1" + b" " * module.MAX_API_SMOKE_BYTES + b"]"),
+        ):
+            with self.assertRaisesRegex(ValueError, "Landing API smoke"):
+                self.probe(response)
+
+    def test_wraps_the_errors_the_no_redirect_opener_really_raises(self):
+        # The opener raises HTTPError (an OSError) for 3xx/4xx instead of returning a response.
+        from urllib.error import HTTPError
+
+        for failure in (
+            HTTPError(f"{self.ORIGIN}/api/invite-rounds", 404, "Not Found", None, None),
+            HTTPError(f"{self.ORIGIN}/api/invite-rounds", 308, "Permanent Redirect", None, None),
+            OSError("connection reset"),
+        ):
+            with self.assertRaisesRegex(ValueError, "Landing API smoke failed"):
+                self.probe(side_effect=failure)
+
+    def test_production_verification_runs_the_api_smoke_after_the_page_probe(self):
+        source = (SCRIPTS / "cloudflare_pages.py").read_text(encoding="utf-8")
+        branch = source[source.index('if action == "verify-new-production":'):]
+        branch = branch[: branch.index("return")]
+        self.assertLess(
+            branch.index("_probe(landing_origin)"), branch.index("_probe_api(landing_origin)")
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

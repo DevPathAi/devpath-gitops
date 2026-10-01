@@ -93,6 +93,13 @@ spec:
             # OLLAMA_TIMEOUT 은 건드리지 않는다 — 그 값을 올리면 2초짜리 임베딩까지 함께 늘어난다.
             - name: OLLAMA_PATH_TIMEOUT
               value: "PT300S"
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness

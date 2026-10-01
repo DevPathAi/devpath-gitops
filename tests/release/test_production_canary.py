@@ -39,6 +39,19 @@ class ProductionCanaryTest(unittest.TestCase):
                     attempt,
                 )
 
+    def test_service_applied_revision_lookup_uses_the_app_base(self):
+        # The runtime evidence records Argo's sync revision, which follows any rendered change beneath
+        # apps/<service>/base; the canary must derive its expectation from the same directory.
+        import inspect
+
+        source = inspect.getsource(self.canary.build_canary)
+        self.assertIn("SERVICE_BASE_PATHS[name]", source)
+        self.assertNotIn("SERVICE_PATHS[name]", source)
+        self.assertEqual(
+            tuple(self.canary.SERVICE_BASE_PATHS.values()),
+            tuple(f"apps/{name}/base" for name in self.canary.SERVICE_NAMES),
+        )
+
     def test_runtime_image_form_uses_canonical_oci_contract(self):
         manifest = "sha256:" + "1" * 64
         config = "sha256:" + "2" * 64

@@ -122,6 +122,36 @@ class ProductionCanaryEvidenceTest(unittest.TestCase):
                 "c" * 64,
             )
 
+    def test_service_applied_revision_is_derived_from_the_app_base(self):
+        calls = []
+
+        def recording_git(root, *args):
+            calls.append(args)
+            return self.commits["services_commit"]
+
+        state = {"phase": "mission-on", **self.commits}
+        raw = (json.dumps(self.payload, separators=(",", ":")) + "\n").encode()
+        with mock.patch.object(module, "inspect_chain", return_value=state), mock.patch.object(
+            module, "_git", side_effect=recording_git
+        ):
+            module.validate_promotion_payload(
+                self.payload,
+                raw,
+                ROOT,
+                self.release_id,
+                self.candidate,
+                self.candidate_hash,
+                self.release_hash,
+                self.run,
+                "c" * 64,
+            )
+        lookups = [args for args in calls if len(args) >= 2 and args[-2] == "--"]
+        self.assertEqual(
+            sorted(args[-1] for args in lookups),
+            sorted(f"apps/{name}/base" for name in module.SERVICE_NAMES),
+        )
+        self.assertFalse(any(args[-1].endswith("kustomization.yaml") for args in lookups))
+
     def test_exact_full_chain_and_nine_service_payload_passes(self):
         result = self.validate()
         self.assertEqual(result["on_commit"], "4" * 40)

@@ -88,6 +88,17 @@ MIGRATION_PREFLIGHT_IDENTITY_FIX_SUBJECT = (
     "fix(release): authenticate preflight root image identity"
 )
 MIGRATION_PREFLIGHT_IDENTITY_FIX_PATHS = MIGRATION_RUNTIME_ADMISSION_FIX_PATHS
+MIGRATION_WRITER_FENCE_RUNTIME_FIX_SUBJECT = (
+    "fix(release): authenticate writer-fence migration runtime"
+)
+MIGRATION_WRITER_FENCE_RUNTIME_FIX_PATHS = (
+    "scripts/release/verify_kubernetes_release_runtime.py",
+    "scripts/release/verify_promotion_chain.py",
+    "tests/release/test_kubernetes_release_runtime.py",
+    "tests/release/test_promotion_chain.py",
+    "tests/release/test_release_contract.py",
+    "tests/release/test_service_promotion.py",
+)
 SERVICE_STATUS_IMAGE_FIX_SUBJECT = (
     "fix(release): accept service status image normalization"
 )
@@ -99,6 +110,21 @@ SERVICE_SOURCE_STATUS_FIX_SUBJECT = (
     "fix(release): authenticate service source image status"
 )
 SERVICE_SOURCE_STATUS_FIX_PATHS = MIGRATION_RUNTIME_ADMISSION_FIX_PATHS
+SERVICE_APPLIED_REVISION_FIX_SUBJECT = (
+    "fix(release): bind service applied revision to the app base"
+)
+SERVICE_APPLIED_REVISION_FIX_PATHS = (
+    "scripts/release/build_production_canary.py",
+    "scripts/release/promote_service_digests.py",
+    "scripts/release/verify_promotion_chain.py",
+    "scripts/release/verify_promotion_evidence.py",
+    "scripts/release/wait_release_rollouts.py",
+    "tests/release/test_kubernetes_release_runtime.py",
+    "tests/release/test_production_canary.py",
+    "tests/release/test_promotion_chain.py",
+    "tests/release/test_promotion_evidence.py",
+    "tests/release/test_service_promotion.py",
+)
 CANARY_RUNTIME_FORM_FIX_SUBJECT = "fix(release): align canary runtime image forms"
 CANARY_RUNTIME_FORM_FIX_PATHS = (
     "scripts/release/build_production_canary.py",
@@ -134,6 +160,15 @@ STAGING_CONTEXT_AUTH_FIX_PATHS = (
     "scripts/release/verify_promotion_chain.py",
     "tests/release/test_production_workflow_wiring.py",
     "tests/release/test_promotion_chain.py",
+)
+LANDING_DIRECT_UPLOAD_SOURCE_FIX_SUBJECT = (
+    "fix(release): accept Pages direct-upload source omission"
+)
+LANDING_DIRECT_UPLOAD_SOURCE_FIX_PATHS = (
+    "scripts/release/cloudflare_pages.py",
+    "scripts/release/verify_promotion_chain.py",
+    "tests/release/test_promotion_chain.py",
+    "tests/release/test_release_hardening.py",
 )
 LANDING_WRANGLER_ISOLATION_FIX_SUBJECT = (
     "fix(release): keep Landing control checkout immutable"
@@ -592,6 +627,8 @@ def _require_migration_service_state(
         _require_service_base_selectors(root, commit, candidate)
         return
     raise ValueError("migration writer-fence state is invalid")
+
+
 def _require_services(
     root: Path,
     commit: str,
@@ -752,12 +789,15 @@ def inspect_chain(
                 "migration_runtime_fix_commit": "",
                 "migration_runtime_admission_fix_commit": "",
                 "migration_preflight_identity_fix_commit": "",
+                "migration_writer_fence_runtime_fix_commit": "",
                 "service_status_image_fix_commit": "",
                 "service_source_status_fix_commit": "",
+                "service_applied_revision_fix_commit": "",
                 "canary_runtime_form_fix_commit": "",
                 "post_on_resume_fix_commit": "",
                 "web_applied_revision_fix_commit": "",
                 "staging_context_auth_fix_commit": "",
+                "landing_direct_upload_source_fix_commit": "",
                 "landing_wrangler_isolation_fix_commit": "",
                 "staging_rebaseline_idempotency_fix_commit": "",
                 "landing_pages_pagination_fix_commit": "",
@@ -793,6 +833,27 @@ def inspect_chain(
                 "current_commit": commit,
                 "writer_fence_active": writer_fence_active,
                 "migration_commit": commit,
+            }
+        if subject == MIGRATION_WRITER_FENCE_RUNTIME_FIX_SUBJECT:
+            _require_write_actor(root, commit)
+            if (
+                prior["phase"] != "migration"
+                or parent != prior["migration_commit"]
+                or prior["migration_writer_fence_runtime_fix_commit"]
+            ):
+                raise ValueError(
+                    "writer-fence migration runtime fix must directly follow migration"
+                )
+            _require_delta(root, commit, MIGRATION_WRITER_FENCE_RUNTIME_FIX_PATHS)
+            _require_migration(root, commit, candidate, release_manifest_sha256)
+            _require_migration_service_state(
+                root, commit, base, candidate, prior["writer_fence_active"]
+            )
+            _require_web(root, commit, candidate, candidate_spec_sha256, "base")
+            return {
+                **prior,
+                "current_commit": commit,
+                "migration_writer_fence_runtime_fix_commit": commit,
             }
         if subject == SHARED_MIGRATION_APPROVAL_FIX_SUBJECT:
             _require_write_actor(root, commit)
@@ -921,6 +982,26 @@ def inspect_chain(
                 "current_commit": commit,
                 "service_source_status_fix_commit": commit,
             }
+        if subject == SERVICE_APPLIED_REVISION_FIX_SUBJECT:
+            _require_write_actor(root, commit)
+            if (
+                prior["phase"] != "services"
+                or not prior["services_commit"]
+                or parent != prior["current_commit"]
+                or prior["service_applied_revision_fix_commit"]
+            ):
+                raise ValueError(
+                    "service applied revision fix must directly follow services"
+                )
+            _require_delta(root, commit, SERVICE_APPLIED_REVISION_FIX_PATHS)
+            _require_migration(root, commit, candidate, release_manifest_sha256)
+            _require_services(root, commit, candidate)
+            _require_web(root, commit, candidate, candidate_spec_sha256, "base")
+            return {
+                **prior,
+                "current_commit": commit,
+                "service_applied_revision_fix_commit": commit,
+            }
         if subject == CANARY_RUNTIME_FORM_FIX_SUBJECT:
             _require_write_actor(root, commit)
             if (
@@ -1003,6 +1084,27 @@ def inspect_chain(
                 **prior,
                 "current_commit": commit,
                 "staging_context_auth_fix_commit": commit,
+                "on_commit": commit,
+            }
+        if subject == LANDING_DIRECT_UPLOAD_SOURCE_FIX_SUBJECT:
+            _require_write_actor(root, commit)
+            if (
+                prior["phase"] != "mission-on"
+                or not prior["on_commit"]
+                or parent != prior["on_commit"]
+                or prior["landing_direct_upload_source_fix_commit"]
+            ):
+                raise ValueError(
+                    "Landing direct-upload source fix must directly follow mission-ON"
+                )
+            _require_delta(root, commit, LANDING_DIRECT_UPLOAD_SOURCE_FIX_PATHS)
+            _require_migration(root, commit, candidate, release_manifest_sha256)
+            _require_services(root, commit, candidate)
+            _require_web(root, commit, candidate, candidate_spec_sha256, "mission-on")
+            return {
+                **prior,
+                "current_commit": commit,
+                "landing_direct_upload_source_fix_commit": commit,
                 "on_commit": commit,
             }
         if subject == LANDING_WRANGLER_ISOLATION_FIX_SUBJECT:

@@ -20,7 +20,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from promote_service_digests import SERVICE_NAMES, SERVICE_PATHS
+from promote_service_digests import SERVICE_BASE_PATHS, SERVICE_NAMES, SERVICE_PATHS
 from validate_release_manifest import resolve_release_bundle
 from verify_kubernetes_release_runtime import (
     validate_migration_runtime,
@@ -108,6 +108,7 @@ def _last_path_change(root: Path, observed_commit: str, path: str) -> str:
         MIGRATION_PATH,
         MIGRATION_APPLICATION_PATH,
         *SERVICE_PATHS.values(),
+        *SERVICE_BASE_PATHS.values(),
     }:
         raise ValueError("rollout applied-revision lookup is invalid")
     result = subprocess.run(
@@ -121,6 +122,13 @@ def _last_path_change(root: Path, observed_commit: str, path: str) -> str:
     if result.returncode != 0 or SHA40.fullmatch(applied) is None:
         raise ValueError("rollout applied revision lookup failed")
     return applied
+
+
+def _service_applied_revisions(root: Path, observed_commit: str) -> dict[str, str]:
+    return {
+        name: _last_path_change(root, observed_commit, SERVICE_BASE_PATHS[name])
+        for name in SERVICE_NAMES
+    }
 
 
 def _registry() -> RegistryClient:
@@ -247,10 +255,7 @@ def wait_services(
     )
     if state.get("services_commit") != services_commit:
         raise ValueError("observed chain does not retain the exact services commit")
-    applied_revisions = {
-        name: _last_path_change(root, observed_commit, SERVICE_PATHS[name])
-        for name in SERVICE_NAMES
-    }
+    applied_revisions = _service_applied_revisions(root, observed_commit)
     registry = _registry()
     trusts = {name: _trust(registry, candidate["services"][name]) for name in SERVICE_NAMES}
     binary = _kubectl_binary()

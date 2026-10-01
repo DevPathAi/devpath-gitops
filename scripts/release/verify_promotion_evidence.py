@@ -20,7 +20,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from promote_service_digests import SERVICE_NAMES, SERVICE_PATHS
+from promote_service_digests import SERVICE_BASE_PATHS, SERVICE_NAMES
 from validate_release_manifest import resolve_release_bundle
 import verify_release_artifacts as artifacts
 from verify_oci_images import runtime_image_matches
@@ -206,7 +206,7 @@ def validate_promotion_payload(
             "--format=%H",
             top["on_commit"],
             "--",
-            SERVICE_PATHS[name],
+            SERVICE_BASE_PATHS[name],
         )
         for name in SERVICE_NAMES
     }
