@@ -6,4 +6,4 @@ resources:
 images:
 - name: ghcr.io/devpathai/devpath-notification-svc
   newName: ghcr.io/devpathai/devpath-notification-svc
-  digest: sha256:3694114c08ac74468043b6e37eac01ce555031ab86d341d4039c4625a0ffc2ba
+  digest: sha256:e9ae478517c5e0557a268734f3a91dd4ad0a733e8bace1d248b12d417ff6014f

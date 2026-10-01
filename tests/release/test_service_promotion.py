@@ -61,6 +61,11 @@ class ServicePromotionTest(unittest.TestCase):
             tuple(self.promoter.SERVICE_PATHS.values()),
             tuple(f"apps/{name}/base/kustomization.yaml" for name in expected),
         )
+        # Argo syncs on any rendered change beneath the base directory; applied revisions follow it.
+        self.assertEqual(
+            tuple(self.promoter.SERVICE_BASE_PATHS.values()),
+            tuple(f"apps/{name}/base" for name in expected),
+        )
 
     def test_each_tag_selector_becomes_only_its_candidate_digest(self):
         for name in self.promoter.SERVICE_NAMES:
@@ -96,6 +101,7 @@ class ServicePromotionTest(unittest.TestCase):
             source = (ROOT / self.promoter.SERVICE_PATHS[name]).read_text(
                 encoding="utf-8"
             )
+            source = self.promoter._remove_writer_fence(source, name)
             fenced = (
                 source
                 + "replicas:\n"

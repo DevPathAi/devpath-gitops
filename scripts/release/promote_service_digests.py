@@ -32,6 +32,10 @@ SERVICE_NAMES = (
 SERVICE_PATHS = {
     name: f"apps/{name}/base/kustomization.yaml" for name in SERVICE_NAMES
 }
+# Argo syncs an application on any rendered change beneath its base directory (2026-09-23: a
+# startupProbe landed in deployment.yaml without touching kustomization.yaml), so every applied-
+# revision expectation must follow the base directory rather than the digest file alone.
+SERVICE_BASE_PATHS = {name: f"apps/{name}/base" for name in SERVICE_NAMES}
 WRITER_SERVICE_NAMES = (
     "devpath-platform-svc",
     "devpath-sandbox-svc",

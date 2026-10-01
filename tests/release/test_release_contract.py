@@ -4,6 +4,7 @@ import importlib.util
 import json
 import jsonschema
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -438,7 +439,32 @@ class ReleaseManifestContractTest(unittest.TestCase):
         kustomization = (
             ROOT / "apps/devpath-migration/base/kustomization.yaml"
         ).read_text(encoding="utf-8")
-        self.assertIn(f"newTag: {source_sha}", kustomization)
+        rendered = yaml.safe_load(kustomization)
+        migration_image = rendered["images"][0]
+        self.assertEqual(
+            migration_image["name"], "ghcr.io/devpathai/devpath-migration"
+        )
+        self.assertEqual(
+            migration_image["newName"], "ghcr.io/devpathai/devpath-migration"
+        )
+        selectors = {
+            key: migration_image[key]
+            for key in ("newTag", "digest")
+            if key in migration_image
+        }
+        self.assertEqual(len(selectors), 1)
+        if "newTag" in selectors:
+            self.assertEqual(selectors["newTag"], source_sha)
+        else:
+            self.assertRegex(selectors["digest"], r"^sha256:[0-9a-f]{64}$")
+            self.assertRegex(
+                kustomization,
+                r"(?m)^      value: devpath-flyway-migrate-[0-9a-f]{12}-[0-9a-f]{24}$",
+            )
+            self.assertIn(
+                "    - op: replace\n      path: /spec/suspend\n      value: false\n",
+                kustomization,
+            )
 
         preflight = (
             ROOT / "apps/devpath-migration/base/sandbox-preflight.yaml"
