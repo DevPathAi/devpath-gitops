@@ -8,10 +8,10 @@ configMapGenerator:
 - name: devpath-web-release-identity
   literals:
   - MISSION_RELEASE_READY=true
-  - MISSION_RELEASE_ID=ms-20260930-s3-web-redesign-r3
-  - MISSION_CANDIDATE_SPEC_SHA256=ef51e3ef8f71decfdebfbe5b4dbb1e3b7d7edc989265b9ce7c5595bee0407e0f
-  - MISSION_IMAGE_DIGEST=sha256:3a6ab8dbca5d362632c22c5cf2a01afe6430db33802608bb3f5bcf5e606a211a
+  - MISSION_RELEASE_ID=ms-20261002-ai-provider-fallback-gpu7b
+  - MISSION_CANDIDATE_SPEC_SHA256=3423b8be5cde26420ed34f040447ce8db1ef516c7057ab76db7b57e5891a58a2
+  - MISSION_IMAGE_DIGEST=sha256:ed8ce273645f050076e239b451f6358dd33045edd1c761babb13893a2685a8fc
 images:
 - name: ghcr.io/devpathai/devpath-web
   newName: ghcr.io/devpathai/devpath-web
-  digest: sha256:3a6ab8dbca5d362632c22c5cf2a01afe6430db33802608bb3f5bcf5e606a211a
+  digest: sha256:ed8ce273645f050076e239b451f6358dd33045edd1c761babb13893a2685a8fc
