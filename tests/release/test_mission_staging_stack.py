@@ -9,6 +9,36 @@ ROOT = Path(__file__).resolve().parents[2]
 STACK = ROOT / "staging" / "mission-spine"
 KAFKA = ROOT / "kafka" / "staging-cluster.yaml"
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
+PROD27_STAGING_IMAGES = {
+    "ghcr.io/devpathai/devpath-gateway": (
+        "a886215711890519731c8a4e7b3bda32978015a7",
+        "sha256:7d46fa8714c2fb1d94107a29a9eb5f046991b752c33d51ac2809e02cb918b2af",
+    ),
+    "ghcr.io/devpathai/devpath-platform-svc": (
+        "cd4c1317f328c52e481cefc219a467d2227ae968",
+        "sha256:29bcc284b42faa8c936eef146a6587c614ad87ba60d3e0d8b0bf2e2336a10494",
+    ),
+    "ghcr.io/devpathai/devpath-learning-svc": (
+        "c87adf43451d9179059620bc16a48503fa9dff3b",
+        "sha256:4e96666b341584e4081daca69a3499b82ee1dd84126bbf47c0386cd6b2ea4275",
+    ),
+    "ghcr.io/devpathai/devpath-sandbox-svc": (
+        "990aacb2d1c17e794ed58133a054c93178eab90d",
+        "sha256:896267c2756d795b7c263af5da6c201900787ab6a932df2eab37ebaea7b07d0d",
+    ),
+    "ghcr.io/devpathai/devpath-ai-svc": (
+        "54f634b845befc7085e4b974a8b66120bf6c8856",
+        "sha256:eb6f3c2baab60d3d36d6c8cd67d8114322038d8df4ac910bb4a9824907ff83d0",
+    ),
+    "ghcr.io/devpathai/devpath-lcs-svc": (
+        "de767a0c397f18e2e4e3a118cc0dbd27c2669812",
+        "sha256:dceb15ca75f086406d3b2fe63c5dbf0a8d6abd621e645a8a782bfe0857b31a60",
+    ),
+}
+PROD27_STAGING_MIGRATION_IMAGE = (
+    "ghcr.io/devpathai/devpath-migration@"
+    "sha256:81029e190726c7967a6c840caee1735586da3a694081982b29261b2a54436e2b"
+)
 
 
 def load(path: Path):
@@ -64,6 +94,23 @@ class MissionStagingStackTest(unittest.TestCase):
         for image in images.values():
             self.assertRegex(image["newTag"], SHA40)
             self.assertRegex(image["digest"], re.compile(r"^sha256:[0-9a-f]{64}$"))
+
+    def test_prod27_mentor_release_baseline_is_exact(self):
+        config = load(STACK / "kustomization.yaml")
+        images = {
+            image["name"]: (image["newTag"], image["digest"])
+            for image in config["images"]
+        }
+        self.assertEqual(images, PROD27_STAGING_IMAGES)
+
+        migration = load(STACK / "migration-job.yaml")
+        self.assertEqual(
+            migration["metadata"]["name"],
+            "mission-spine-staging-migration-v202609051004",
+        )
+        container = migration["spec"]["template"]["spec"]["containers"][0]
+        self.assertEqual(container["image"], PROD27_STAGING_MIGRATION_IMAGE)
+        self.assertEqual(container["args"][0].count('-target="202609051004"'), 2)
 
     def test_release_control_is_staging_only_and_secret_backed(self):
         platform = env_map("platform.yaml")
@@ -147,18 +194,20 @@ class MissionStagingStackTest(unittest.TestCase):
         routes = load_all(STACK / "canonical-routes.yaml")
         self.assertEqual(len(routes), 2)
         expected = {
-            "mission-spine-candidate-app": ("app.leva.ai.kr", "devpath-web-staging"),
-            "mission-spine-candidate-api": ("api.leva.ai.kr", "devpath-gateway"),
+            "mission-spine-candidate-app": ("app.leva.ai.kr", "devpath-web-staging", 80),
+            "mission-spine-candidate-api": ("api.leva.ai.kr", "devpath-gateway", 8080),
         }
         for route in routes:
             name = route["metadata"]["name"]
-            host, service = expected[name]
+            host, service, port = expected[name]
             rule = route["spec"]["routes"][0]
             self.assertIn(f"Host(`{host}`)", rule["match"])
             self.assertIn("HeaderRegexp(`X-Candidate-Spec-Sha256`", rule["match"])
             self.assertIn("HeaderRegexp(`X-Release-Run-Key`", rule["match"])
             self.assertGreaterEqual(rule["priority"], 1000)
             self.assertEqual(rule["services"][0]["name"], service)
+            self.assertEqual(rule["services"][0]["port"], port)
+
     def test_gateway_cors_accepts_both_canonical_browser_origins_once(self):
         gateway = env_map("gateway.yaml")
         self.assertEqual(
@@ -168,6 +217,10 @@ class MissionStagingStackTest(unittest.TestCase):
         self.assertEqual(
             gateway["PUBLIC_CORS_ALLOWED_ORIGINS"]["value"],
             "https://leva.ai.kr",
+        )
+        self.assertEqual(
+            gateway["RELEASE_CORS_ALLOWED_ORIGINS"]["value"],
+            "https://leva.ai.kr,https://app.leva.ai.kr",
         )
         self.assertEqual(
             gateway[

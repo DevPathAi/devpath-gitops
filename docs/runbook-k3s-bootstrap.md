@@ -190,6 +190,72 @@ aws rds delete-db-instance --region ap-northeast-2 --db-instance-identifier devp
 - 테인트 격리 확인: GPU 노드에 뜬 파드는 `ollama-gpu` 와 device plugin **둘뿐**이었다.
 - 생성 성능: **66 t/s(순간 97 t/s)** — 운영 CPU 4.2 t/s 대비 약 16배. 12주 한국어 경로 1건이 ai-svc 왕복 포함 **86초**(CPU 는 12분).
 
+### 스팟 회수 후 복구 (2026-10-01 실측)
+
+2026-09-08 에 GPU 스팟 노드(`ip-172-31-52-213`)가 회수됐고 **23일 동안 아무도 알지 못했다.**
+`ollama-gpu` 서비스가 엔드포인트 0개인 채로 남아 학습경로 생성이 잠복 고장 상태였다
+(그 사이 트래픽이 없어 사용자 영향은 없었다). 복구는 아래 순서여야 한다 —
+**새 노드만 띄우면 파드는 여전히 Pending 이다.**
+
+1. 선결 조건 재확인(2026-10-01 실측): 스팟 쿼터 `L-3819A6DF` = **4 vCPU 승인됨**(기본 0 에서 증설 완료) ·
+   SG self-referencing 3규칙 유지 · AMI `ami-09d3bdf0648512f52` 유효 · 서브넷 퍼블릭(IGW).
+   **스팟 시세는 2026-08-17 의 $0.2824/h 에서 $0.4587/h 로 올랐다**(온디맨드 $0.9896/h 대비 46%).
+2. 인스턴스 기동 → 위 「절차」 3·4 로 조인(토큰은 scp 후 삭제).
+3. **죽은 노드 오브젝트를 지운다**: `kubectl delete node <old>`. 지우지 않으면 `dueProbes` 류 집계와
+   스케줄러 메시지가 계속 그 노드를 센다.
+4. **`Terminating` 으로 멈춘 옛 파드를 강제 삭제한다**: `kubectl delete pod -n devpath <old-pod>
+   --force --grace-period=0`. 노드 오브젝트를 지워도 이 파드는 남고, 그게 PVC 의
+   `kubernetes.io/pvc-protection` finalizer 를 붙들어 다음 단계가 막힌다.
+5. ★**PVC 를 지운다**★ — `ollama-gpu-models` 의 PV 는 local-path 라
+   `nodeAffinity: kubernetes.io/hostname In [<old-node>]` 로 **죽은 노드에 고정**돼 있다.
+   그대로 두면 새 GPU 노드가 Ready 여도 파드는 영원히 Pending 이다. 모델 캐시는 노드와 함께
+   이미 사라졌으므로 버려도 된다(reclaim policy = Delete). 지우면 ArgoCD 가 매니페스트로
+   재생성하고 새 노드에 새 PV 가 붙는다.
+6. 검증: `nvidia.com/gpu` allocatable = 1 · 파드 안 `nvidia-smi` · 엔드포인트 ready=true ·
+   생성 속도. **2026-10-01 실측 58.8 tok/s**(CPU Ollama 4.9 tok/s 대비 12배).
+7. **모델 2종이 다 올라왔는지 확인한다**(`ollama list`): `qwen2.5:3b`(학습경로 생성) ·
+   `qwen2.5:7b`(review·community-seed·retention 의 Claude 폴백). postStart 가 둘 다 pull 하지만
+   백그라운드라 Ready 직후에는 아직 없을 수 있다 — 7b 는 4.7GB 로 수 분 걸린다.
+   7b 가 없으면 세 기능의 폴백이 「model not found」404 로 떨어진다.
+   첫 호출은 콜드 로드를 떠안는다(**2026-10-02 실측 24.8초**, 타임아웃 60초 안). `OLLAMA_KEEP_ALIVE=24h`
+   라 그 뒤로는 웜(retention 0.8초)이다.
+
+### 회수 탐지 — EventBridge → SNS (2026-10-02 구축·검증)
+
+23일 무인지의 직접 원인은 회수 자체가 아니라 **알려 주는 경로가 하나도 없었다**는 것이다.
+클러스터에는 여전히 모니터링 스택이 없고(monitoring 네임스페이스 없음·CronJob 0개), 대신
+**클러스터를 건드리지 않는 AWS 측 통지**를 붙였다. 리전은 `ap-northeast-2`.
+
+| 리소스 | 이름 / ARN |
+|---|---|
+| SNS 토픽 | `arn:aws:sns:ap-northeast-2:963773969059:devpath-spot-interruption` |
+| 규칙 ① 사전 경고 | `devpath-spot-interruption-warning` — `EC2 Spot Instance Interruption Warning` + `EC2 Instance Rebalance Recommendation` |
+| 규칙 ② 회수 완료 | `devpath-instance-stopped-or-terminated` — `EC2 Instance State-change Notification` 중 `terminated`·`stopped`·`shutting-down` |
+| 구독 | email `deepestdark@gmail.com` — **확인 완료**(`ConfirmSubscription`) |
+
+★**규칙을 둘로 나눈 이유**★ — 회수 2분 전 경고만으로는 23일 방치가 다시 일어난다. 그 2분에
+사람이 없으면 아무 일도 안 생기기 때문이다. ②가 「회수가 끝났다 = 복구가 필요하다」를 알린다.
+②는 인스턴스를 가리지 않는데(이벤트에 태그가 없어 태그 필터가 불가능하다) 계정에 인스턴스가
+2대뿐이라 노이즈가 아니라 이득이다 — control-plane 정지도 알아야 한다.
+
+타깃은 `InputTransformer` 로 사람이 읽는 문장을 만든다(원본 JSON 이 메일로 오면 쓸모가 없다).
+본문에 복구 절차 링크와 ★새 노드만 띄우면 Pending 그대로★ 경고를 함께 넣었다.
+
+검증(둘 다 실측):
+
+- `TestEventPattern` 매칭 행렬 — 규칙①은 경고·재균형에 `true`, `terminated` 에 `false`;
+  규칙②는 그 반대. **음성 대조군 `state=running` 은 두 규칙 모두 `false`**(정상 가동을 알리지 않는다).
+- `sns:Publish` 로 종단 전달 확인.
+
+**남은 공백**: 「회수된 뒤 복구되지 않은 상태가 계속되는 것」을 반복 통지하는 층은 없다. ②가 1회
+알리므로 방치 재발 가능성은 크게 낮지만, 그 메일을 놓치면 여전히 조용하다. 다음 선택지:
+
+| 방안 | 범위 | 비고 |
+|---|---|---|
+| Slack 추가 수신처 | SNS → AWS Chatbot(Slack) 또는 SNS → Lambda → Incoming Webhook | **사용자 결정은 「이메일·Slack 둘 다」였고 이메일만 완료됐다.** Chatbot API 는 이 환경에서 엔드포인트 연결이 차단된다(실측) → 워크스페이스 OAuth 승인이나 Webhook URL 발급이 선행 |
+| EventBridge Scheduler + Lambda 로 주기 점검 | GPU 태그 인스턴스 수가 0이면 통지 | 미복구 상태를 **반복** 알리는 유일한 방법 |
+| 스팟 ASG(capacity 1)로 자동 재기동 | 토큰을 SSM SecureString + 인스턴스 프로파일로 옮겨야 한다 | 런북 3번(「user-data 에 토큰을 넣지 않는다」)의 재설계가 필요 |
+
 ### 함정
 
 | 증상 | 원인 | 해법 |
@@ -198,3 +264,5 @@ aws rds delete-db-instance --region ap-northeast-2 --db-instance-identifier devp
 | 새 노드가 `NotReady` 이거나 조인 실패 | SG 에 클러스터 내부 규칙이 없다(기본 SG 는 22·6443 을 관리 IP 에만 연다) | 위 self-referencing 규칙 3개 |
 | device plugin 파드가 Pending | 노드 테인트에 대한 톨러레이션 없음 | 매니페스트의 톨러레이션 확인 |
 | 서버·에이전트 버전 불일치 | `INSTALL_K3S_VERSION` 미지정 시 최신이 설치된다 | 서버 버전으로 고정 |
+| `kubectl rollout restart deploy/ollama-gpu` 가 끝나지 않는다 (2026-10-02 실측) | 노드의 `nvidia.com/gpu` 가 1개뿐이라 새 파드는 `Insufficient nvidia.com/gpu` 로 Unschedulable 이고, 롤아웃은 그 새 파드를 기다리므로 옛 파드를 끝내지 않는다 — **영구 교착** | 매니페스트에 `strategy: Recreate` 를 넣었다. 이미 교착됐으면 `kubectl rollout undo` 로 풀고, 파드만 새로 띄우려면 `kubectl delete pod` 를 쓴다(순차 진행이라 교착하지 않는다) |
+| Ollama 모델 로드가 100초 넘게 걸린다 (2026-10-02 실측) | `limits.memory: 8Gi` 안에서 모델을 셋 이상 다루면 page cache 가 한도를 채운다. `memory.events` 의 `max` 가 94,449회인데 `oom_kill` 은 0 — **OOM 이 아니라 회수 압박**이라 죽지 않고 느려진다. 런너가 `Dl`(uninterruptible I/O)로 남아 파드 종료도 막는다 | 모델을 2종(`qwen2.5:3b`·`qwen2.5:7b`)으로 유지한다. 모델을 지워도 cache 는 안 빠지므로, 이미 포화됐으면 cgroup 이 초기화되도록 **파드를 재생성**한다 |

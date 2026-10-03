@@ -6,6 +6,14 @@ metadata:
     app: ollama-gpu
 spec:
   replicas: 1
+  # ★RollingUpdate 로는 이 Deployment 를 재시작할 수 없다(2026-10-02 실측)★ — 노드의
+  # nvidia.com/gpu 가 1 개뿐이라 새 파드는 옛 파드가 GPU 를 놓을 때까지 Unschedulable
+  # (`Insufficient nvidia.com/gpu`)이고, 롤아웃은 그 새 파드를 기다리므로 옛 파드를 끝내지 않는다.
+  # `kubectl rollout restart` 가 영구 교착에 빠졌고 `rollout undo` 로 풀어야 했다.
+  # Recreate 면 옛 파드를 먼저 끝내고 GPU 를 반납한 뒤 새 파드를 만든다. 단일 레플리카라
+  # 무중단이 애초에 불가능하므로 잃는 것도 없다.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: ollama-gpu
@@ -14,9 +22,17 @@ spec:
       labels:
         app: ollama-gpu
     spec:
-      # 학습경로 생성 전용. 임베딩·멘토·리뷰는 CPU 노드의 devpath-ollama 가 계속 맡는다.
-      # 이 노드는 스팟이라 회수될 수 있는데, 그때 멈추는 것은 학습경로뿐이고
-      # 학습경로는 이미 비동기 작업이라 재시도로 흡수된다.
+      # 학습경로 생성 + review·community-seed·retention 의 Claude 폴백을 맡는다.
+      # 임베딩과 멘토는 CPU 노드의 devpath-ollama 에 남는다 — 임베딩에는 폴백이 아예 없어
+      # 스팟 회수에 노출시킬 수 없고, 멘토는 MENTOR_FALLBACK=claude 가 받아 준다.
+      #
+      # 이 노드는 스팟이라 회수될 수 있다. 그때 멈추는 것은
+      #   · 학습경로 생성 — 비동기라 재시도로 흡수된다.
+      #   · 세 기능의 Claude 폴백 — 폴백은 Claude 가 이미 실패한 2차 경로이므로, 상실해도
+      #     「Claude 실패 시 대체 없음」(= 폴백 도입 이전 상태)으로 돌아갈 뿐 순손실이 아니다.
+      # 2026-10-02 사용자 결정으로 이 교환을 수용했다(품질·지연 이득이 가용성 손실보다 크다):
+      # CPU 3b 로는 retention 하나만 겨우 됐는데(콜드 30.4초) GPU 7b 는 세 기능 전부가
+      # 타임아웃 안에 들고 한국어 품질도 정상이다. 회수 통지는 EventBridge → SNS 로 붙였다.
       nodeSelector:
         devpath.ai/gpu: "true"
       # GPU 노드에는 devpath.ai/gpu=true:NoSchedule 테인트를 건다. 그러지 않으면 기존 서비스 파드가
@@ -49,10 +65,15 @@ spec:
               exec:
                 # 백그라운드(&) pull — 컨테이너 시작을 막지 않음(pull 실패로 인한 SIGKILL 회피).
                 # 생성 모델만 받는다. 임베딩 모델은 CPU 쪽에 있다.
+                #   qwen2.5:3b — 학습경로 생성(OLLAMA_PATH_BASE_URL)
+                #   qwen2.5:7b — review·community-seed·retention 의 Claude 폴백(2026-10-02 실측으로 채택)
+                # ★이 둘까지만 받는다★ — 파드 limit 8Gi 안에서 두 모델은 공존하지만(실측
+                # memory.current 4.79GB, 압박 0회) 셋째를 올리면 page cache 가 limit 을 채워
+                # 모델 로드가 105초까지 늘어진다. 디스크도 AMI·드라이버가 차지해 9.4GB 여유뿐이다.
                 command:
                   - /bin/sh
                   - -c
-                  - "(until ollama list >/dev/null 2>&1; do sleep 2; done; ollama pull qwen2.5:3b) &"
+                  - "(until ollama list >/dev/null 2>&1; do sleep 2; done; ollama pull qwen2.5:3b; ollama pull qwen2.5:7b) &"
           readinessProbe:
             httpGet:
               path: /api/tags

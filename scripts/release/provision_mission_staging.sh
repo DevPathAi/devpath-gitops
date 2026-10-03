@@ -184,7 +184,7 @@ if ! k -n "$namespace" get secret sandbox-runner-server-tls >/dev/null 2>&1; the
   certdir="$scratch/runner-certs"
   mkdir -p "$certdir"
   openssl genrsa -out "$certdir/ca-key.pem" 3072 >/dev/null 2>&1
-  openssl req -x509 -new -nodes -key "$certdir/ca-key.pem" -sha256 -days 30 \
+  openssl req -x509 -new -nodes -key "$certdir/ca-key.pem" -sha256 -days 3650 \
     -subj '/CN=mission-spine-staging-runner-ca' -out "$certdir/ca.pem" >/dev/null 2>&1
   openssl genrsa -out "$certdir/server-key.pem" 3072 >/dev/null 2>&1
   openssl req -new -key "$certdir/server-key.pem" \
@@ -195,14 +195,14 @@ if ! k -n "$namespace" get secret sandbox-runner-server-tls >/dev/null 2>&1; the
     'extendedKeyUsage=serverAuth' > "$certdir/server.ext"
   openssl x509 -req -in "$certdir/server.csr" -CA "$certdir/ca.pem" \
     -CAkey "$certdir/ca-key.pem" -CAcreateserial -out "$certdir/server-cert.pem" \
-    -days 30 -sha256 -extfile "$certdir/server.ext" >/dev/null 2>&1
+    -days 3650 -sha256 -extfile "$certdir/server.ext" >/dev/null 2>&1
   openssl genrsa -out "$certdir/key.pem" 3072 >/dev/null 2>&1
   openssl req -new -key "$certdir/key.pem" -subj '/CN=devpath-sandbox-svc-staging' \
     -out "$certdir/client.csr" >/dev/null 2>&1
   printf '%s\n' 'extendedKeyUsage=clientAuth' > "$certdir/client.ext"
   openssl x509 -req -in "$certdir/client.csr" -CA "$certdir/ca.pem" \
     -CAkey "$certdir/ca-key.pem" -CAcreateserial -out "$certdir/cert.pem" \
-    -days 30 -sha256 -extfile "$certdir/client.ext" >/dev/null 2>&1
+    -days 3650 -sha256 -extfile "$certdir/client.ext" >/dev/null 2>&1
   k -n "$namespace" create secret generic sandbox-runner-server-tls \
     --from-file=ca.pem="$certdir/ca.pem" \
     --from-file=server-cert.pem="$certdir/server-cert.pem" \

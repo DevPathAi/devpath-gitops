@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: mission-spine-staging-migration-v202608221001
+  name: mission-spine-staging-migration-v202609051004
 spec:
   backoffLimit: 3
   template:
@@ -10,7 +10,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: flyway
-          image: ghcr.io/devpathai/devpath-migration@sha256:f1ac7dac56643c2adf3dc62ace83628758826d3ebae710a13c788bfeb73e0fc6
+          image: ghcr.io/devpathai/devpath-migration@sha256:81029e190726c7967a6c840caee1735586da3a694081982b29261b2a54436e2b
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
@@ -37,5 +37,5 @@ spec:
           args:
             - |
               migration_locations="filesystem:/flyway/sql,classpath:db/migration"
-              flyway -locations="$migration_locations" -target="202608221001" migrate
-              flyway -locations="$migration_locations" -target="202608221001" validate
+              flyway -locations="$migration_locations" -target="202609051004" migrate
+              flyway -locations="$migration_locations" -target="202609051004" validate
