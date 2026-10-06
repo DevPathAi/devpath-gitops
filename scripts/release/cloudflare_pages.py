@@ -326,15 +326,25 @@ def _retry_probe(label: str, attempt) -> None:
     through on the first attempt so a real misconfiguration still fails fast.
     """
     detail = ""
-    for delay in (*PROBE_ATTEMPT_DELAYS, None):
+    waited = 0.0
+    for number, delay in enumerate((*PROBE_ATTEMPT_DELAYS, None), start=1):
         try:
             attempt()
+            if detail:
+                # The only record of how much of the budget a real edge uses: a probe that passed
+                # after retries used to leave no trace.
+                print(
+                    f"{label} succeeded on attempt {number} after {waited:g}s of waits; "
+                    f"last answer: {detail}",
+                    file=sys.stderr,
+                )
             return
         except _ProbeNotReady as exc:
             detail = str(exc)
         if delay is None:
             break
         time.sleep(delay)
+        waited += delay
     raise ValueError(
         f"{label} failed: {detail} after {len(PROBE_ATTEMPT_DELAYS) + 1} attempts"
     )
