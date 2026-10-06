@@ -166,11 +166,19 @@ aws rds delete-db-instance --region ap-northeast-2 --db-instance-identifier devp
 | AMI | `ami-09d3bdf0648512f52` = Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04). 드라이버 **595.91.07** 과 `nvidia-container-runtime` 이 이미 들어 있다 |
 | 단가(서울) | 온디맨드 **$0.9896/h** · 스팟 **약 $0.2824/h**(2d 실측) |
 | 쿼터 | 온디맨드 `L-DB2E81BA` = 4 vCPU 승인. **스팟은 `L-3819A6DF` 로 별개**이며 기본 0 |
+| 루트 볼륨 | **120 GiB gp3** (`/dev/sda1`) — AMI 기본값 75 GiB 를 그대로 쓰지 않는다(아래 「루트 볼륨」, 2026-10-06 결정) |
 
 ### 절차
 
 1. **SG**: 같은 SG(`sg-0ad7dfa8afe5d1eea`) 안에서만 통하도록 self-referencing 규칙 3개를 더한다 — `6443/tcp`(agent→server API), `8472/udp`(flannel VXLAN), `10250/tcp`(kubelet). 외부에는 아무것도 열지 않는다.
 2. **인스턴스**: 위 AMI·타입으로 기존 서브넷(`subnet-00bb150fb3e236ecb`)에 띄운다. 키페어는 `devpath-k3s-key`.
+   루트 볼륨을 명시한다 — 지정하지 않으면 AMI 기본값 75 GiB 로 뜬다.
+
+   ```bash
+   --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":120,"VolumeType":"gp3","DeleteOnTermination":true}}]'
+   ```
+
+   기동 뒤 `df -h /` 가 약 116G 를 보여야 한다(cloud-init `growpart`·`resizefs` 가 첫 부팅에 파일시스템을 늘린다).
 3. **조인 토큰**: 서버의 `/var/lib/rancher/k3s/server/node-token`. **user-data 에 넣지 않는다** — 인스턴스 메타데이터는 노드 위 아무 프로세스나 읽을 수 있다. scp 로 옮기고 조인 후 지운다.
 4. **k3s agent**: 서버와 **같은 버전으로 고정**한다.
 
@@ -200,7 +208,7 @@ aws rds delete-db-instance --region ap-northeast-2 --db-instance-identifier devp
 1. 선결 조건 재확인(2026-10-01 실측): 스팟 쿼터 `L-3819A6DF` = **4 vCPU 승인됨**(기본 0 에서 증설 완료) ·
    SG self-referencing 3규칙 유지 · AMI `ami-09d3bdf0648512f52` 유효 · 서브넷 퍼블릭(IGW).
    **스팟 시세는 2026-08-17 의 $0.2824/h 에서 $0.4587/h 로 올랐다**(온디맨드 $0.9896/h 대비 46%).
-2. 인스턴스 기동 → 위 「절차」 3·4 로 조인(토큰은 scp 후 삭제).
+2. 인스턴스 기동(**루트 볼륨 120 GiB** — 위 「절차」 2 의 `--block-device-mappings`) → 「절차」 3·4 로 조인(토큰은 scp 후 삭제).
 3. **죽은 노드 오브젝트를 지운다**: `kubectl delete node <old>`. 지우지 않으면 `dueProbes` 류 집계와
    스케줄러 메시지가 계속 그 노드를 센다.
 4. **`Terminating` 으로 멈춘 옛 파드를 강제 삭제한다**: `kubectl delete pod -n devpath <old-pod>
@@ -219,6 +227,31 @@ aws rds delete-db-instance --region ap-northeast-2 --db-instance-identifier devp
    7b 가 없으면 세 기능의 폴백이 「model not found」404 로 떨어진다.
    첫 호출은 콜드 로드를 떠안는다(**2026-10-02 실측 24.8초**, 타임아웃 60초 안). `OLLAMA_KEEP_ALIVE=24h`
    라 그 뒤로는 웜(retention 0.8초)이다.
+
+### 루트 볼륨 (2026-10-06 실측·결정)
+
+GPU 노드(`ip-172-31-52-85`, AMI 기본 75 GiB)의 루트가 **64G/73G(88%)** 였고, 이미지 GC 임계(85%)를 넘어 kubelet 이
+`FreeDiskSpaceFailed` 를 2026-10-01 12:45Z 부터 1,366회(약 5분 간격) 냈다. 컨테이너 이미지는 4.6 GiB 뿐이라 이미지 GC 로는 줄지 않는다.
+
+| 경로 | 크기 | 내용 |
+|---|---|---|
+| `/usr/local` | 41G | AMI 에 들어 있는 CUDA 툴킷 4벌 — `cuda-12.8` 11G · `12.9` 12G · `13.0` 9G · `13.2` 9G |
+| `/var/lib/rancher/k3s` | 15G | agent 8G + `ollama-gpu-models` PV 7G(`qwen2.5:7b`·`3b`) |
+| `/var/lib/kubelet` | 7G | |
+
+과반이 AMI 기본 탑재물이고 워크로드는 22G 안팎이다. 축출 임계(kubelet `evictionHard` = `nodefs.available`·`imagefs.available` 5%)에는
+닿지 않았다(여유 12%).
+
+**결정(2026-10-06)**: 살아 있는 노드는 그대로 두고, **다음 기동부터 120 GiB** 로 띄운다(「절차」 2). 노드는 회수 때마다
+AMI 에서 다시 만들어지므로 고칠 곳은 기동 절차다. gp3 는 서울 **$0.0912/GB-월**(2026-10-06 Pricing API) — 75→120 GiB 는 월 약 $4.1 다.
+`growpart`·`resizefs` 모듈은 이 AMI 의 `/etc/cloud/cloud.cfg` 에 켜져 있고, 2026-10-01 첫 부팅 로그에 `growpart` 실행 기록이 있다.
+위 매핑은 2026-10-06 `RunInstances` DryRun(같은 AMI·타입·서브넷·SG·키, 스팟 one-time)으로 수락되는 것을 확인했다.
+★120 GiB 로 실제 띄운 적은 아직 없다 — 첫 기동 때 `df -h /` 로 확인한다.★
+
+참고(미사용): g6.xlarge 의 인스턴스 스토어가 AMI 에 의해 `/opt/dlami/nvme`(LVM·ext4, 229G 중 28K 사용)로 마운트돼 있다.
+정지·회수 때 사라지는 디스크라 지금은 쓰지 않는다.
+
+GPU 노드 SSH 는 공인 IP 로 직접 붙는다. control-plane 경유(ProxyCommand)는 타임아웃이었다 — 노드 간 SG 규칙(「절차」 1)에 22 가 없다.
 
 ### 회수 탐지 — EventBridge → SNS (2026-10-02 구축·검증)
 
