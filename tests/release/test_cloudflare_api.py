@@ -212,6 +212,26 @@ class LandingProbePropagationTest(unittest.TestCase):
         self.assertIsNone(error)
         self.assertEqual(opened.call_count, 2)
 
+    def test_reports_how_long_propagation_took_when_a_retry_succeeds(self):
+        # A probe that passes after retries used to leave no trace, so the only samples of real
+        # edge propagation were the two first-attempt failures (1.17s on 2026-10-01, 1.35s on
+        # 2026-10-06). The retry budget cannot be judged without knowing how much of it is used.
+        with mock.patch.object(module.sys, "stderr", new_callable=io.StringIO) as stderr:
+            _, _, error = self.drive(self.http_error(404), self.stale_marker(), self.marker())
+        self.assertIsNone(error)
+        self.assertIn(
+            "public dist marker probe succeeded on attempt 3 after 3s of waits; last answer: "
+            "another release of the same dist is still served",
+            stderr.getvalue(),
+        )
+
+    def test_stays_quiet_when_the_first_attempt_succeeds(self):
+        with mock.patch.object(module.sys, "stderr", new_callable=io.StringIO) as stderr:
+            _, slept, error = self.drive(self.marker())
+        self.assertIsNone(error)
+        self.assertEqual(slept, [])
+        self.assertEqual(stderr.getvalue(), "")
+
     def test_names_a_404_separately_from_a_connection_failure(self):
         attempts = len(module.PROBE_ATTEMPT_DELAYS) + 1
 
