@@ -10,8 +10,8 @@ configMapGenerator:
   - MISSION_RELEASE_READY=true
   - MISSION_RELEASE_ID=ms-20261003-ai-fallback-retry-budget
   - MISSION_CANDIDATE_SPEC_SHA256=c23f3b8e1c1dfceb8c87e347a192c94b706d33c968624cd8dce06126ef94a3e1
-  - MISSION_IMAGE_DIGEST=sha256:16748f26833eeb76dea71fa255f853a92edb34a369c1c5f4a90defd6cf3cf15b
+  - MISSION_IMAGE_DIGEST=sha256:e3108c0901a48de92a4e4b4986cee1bcd6b13d9f4bd2b5e7d77f5867f19a790d
 images:
 - name: ghcr.io/devpathai/devpath-web
   newName: ghcr.io/devpathai/devpath-web
-  digest: sha256:16748f26833eeb76dea71fa255f853a92edb34a369c1c5f4a90defd6cf3cf15b
+  digest: sha256:e3108c0901a48de92a4e4b4986cee1bcd6b13d9f4bd2b5e7d77f5867f19a790d
