@@ -249,9 +249,11 @@ aws rds delete-db-instance --region ap-northeast-2 --db-instance-identifier devp
   이번에는 PVC 와 함께 Pending 이던 대체 파드도 지웠다(그게 필요했는지는 따로 가르지 않았다).
 - 생성 속도: `qwen2.5:3b` **103 tok/s** · `qwen2.5:7b` **52 tok/s**(방금 받은 모델이라 첫 로드가 1.8초였다).
   GPU 노드에 뜬 파드는 `ollama-gpu` 와 device plugin 둘뿐이다.
-- ai-svc 는 회수 동안 폴백 래치를 연 채 Claude 재시도를 유지했다
-  (`provider liveness probe failed … latchOpen=true`, 17:56·18:26·18:56 — 30분 간격).
-  18:56:09 프로브는 파드가 Ready 가 되기(18:56:21) 12초 전이라 실패했다.
+- ai-svc 는 회수 동안 폴백 래치를 연 채 Claude 재시도를 유지했다(`provider liveness probe failed … latchOpen=true`).
+  래치가 열려 있는 동안은 탐색하지 않고, 실패가 이어지면 열림 기간이 1분에서 30분(상한)까지 늘어난다
+  (ai-svc `ProviderLatch` 의 `TRANSIENT_BASE`·`TRANSIENT_CAP`) — 17:56·18:26·18:56 의 30분 간격이 그 상한이다.
+  18:56:09 탐색은 파드 Ready(18:56:21) 12초 전이라 실패했고, 다음 탐색에서 **19:26:51 에 세 기능의 래치가 닫혔다**(`provider latch closed by probe`).
+  ★회수 뒤 한참 지나 복구하면 폴백은 파드가 Ready 가 된 뒤에도 최대 30분 늦게 돌아온다. 그동안 Claude 1차 경로와 재시도는 정상이다.★
 - 중단 시간: 17:22 → 18:56, 약 94분.
 
 ### 루트 볼륨 (2026-10-06 실측·결정)
