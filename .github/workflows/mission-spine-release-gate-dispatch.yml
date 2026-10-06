@@ -16,13 +16,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Dispatch production promotion as GitHub Actions automation
+      - name: Dispatch landing-last as GitHub Actions automation
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh api \
             --method POST \
-            "repos/${GITHUB_REPOSITORY}/actions/workflows/mission-spine-promote.yml/dispatches" \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/mission-spine-landing-last.yml/dispatches" \
             --input - <<'JSON'
           {
             "ref": "main",
