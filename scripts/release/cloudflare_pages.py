@@ -322,7 +322,7 @@ def _reject_probe_status(label: str, status: int) -> None:
 def _retry_probe(label: str, attempt) -> None:
     """Run `attempt` until it succeeds, retrying only `_ProbeNotReady`.
 
-    Terminal failures (a wired-wrong path, a marker that binds another release) raise straight
+    Terminal failures (a wired-wrong path, a marker that binds another dist) raise straight
     through on the first attempt so a real misconfiguration still fails fast.
     """
     detail = ""
@@ -405,6 +405,20 @@ def validate_public_marker(
         raise ValueError("public dist marker does not bind the exact release artifact")
 
 
+def _is_marker_of_same_dist(payload: object, dist_sha256: str) -> bool:
+    # The marker path is keyed by the dist hash alone, so a release that ships an unchanged Home
+    # dist finds the previous release's marker at the same path. 2026-10-06: an edge answered 200
+    # with that marker 1.35s after "Deployment complete!" and failed
+    # ms-20261003-ai-fallback-retry-budget while production was already correct. A well-formed
+    # marker of this very dist can be the previous deployment still answering, so it is retried
+    # within the probe budget; it still fails the gate if it never turns into this release's.
+    return (
+        isinstance(payload, dict)
+        and set(payload) == MARKER_KEYS
+        and payload["dist_sha256"] == dist_sha256
+    )
+
+
 def _marker_relative_path(dist_sha256: str) -> Path:
     return Path(".well-known") / "devpath-release" / f"{dist_sha256}.json"
 
@@ -462,7 +476,12 @@ def _probe_marker(
             payload = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ValueError("public dist marker is not UTF-8 JSON") from exc
-        validate_public_marker(payload, release_id, candidate_hash, dist_sha256)
+        try:
+            validate_public_marker(payload, release_id, candidate_hash, dist_sha256)
+        except ValueError:
+            if _is_marker_of_same_dist(payload, dist_sha256):
+                raise _ProbeNotReady("another release of the same dist is still served") from None
+            raise
 
     _retry_probe("public dist marker probe", attempt)
 
