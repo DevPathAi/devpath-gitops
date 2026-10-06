@@ -178,7 +178,13 @@ aws rds delete-db-instance --region ap-northeast-2 --db-instance-identifier devp
    --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":120,"VolumeType":"gp3","DeleteOnTermination":true}}]'
    ```
 
-   기동 뒤 `df -h /` 가 약 116G 를 보여야 한다(cloud-init `growpart`·`resizefs` 가 첫 부팅에 파일시스템을 늘린다).
+   태그도 명시한다 — `role=k3s-agent-gpu` 가 없으면 「미복구 반복 통지」(아래)가 6시간마다 계속 온다.
+
+   ```bash
+   --tag-specifications 'ResourceType=instance,Tags=[{Key=role,Value=k3s-agent-gpu},{Key=Name,Value=devpath-k3s-gpu}]'
+   ```
+
+   기동 뒤 `df -h /` 가 **117G** 를 보여야 한다(2026-10-06 실측 — cloud-init `growpart`·`resizefs` 가 첫 부팅에 파일시스템을 늘린다).
 3. **조인 토큰**: 서버의 `/var/lib/rancher/k3s/server/node-token`. **user-data 에 넣지 않는다** — 인스턴스 메타데이터는 노드 위 아무 프로세스나 읽을 수 있다. scp 로 옮기고 조인 후 지운다.
 4. **k3s agent**: 서버와 **같은 버전으로 고정**한다.
 
@@ -228,6 +234,26 @@ aws rds delete-db-instance --region ap-northeast-2 --db-instance-identifier devp
    첫 호출은 콜드 로드를 떠안는다(**2026-10-02 실측 24.8초**, 타임아웃 60초 안). `OLLAMA_KEEP_ALIVE=24h`
    라 그 뒤로는 웜(retention 0.8초)이다.
 
+**2026-10-06 두 번째 회수와 복구(실측)** — 2026-10-01 에 띄운 노드(`ip-172-31-52-85`)가 5일 만에 회수됐다.
+
+| 시각(UTC) | 일 |
+|---|---|
+| 04:34 | Rebalance Recommendation(회수 아님) |
+| 17:22 | Interruption Warning → 스팟 요청 `instance-terminated-no-capacity`. 통지 메일 3통(17:22 경고 · 17:24 shutting-down · 17:31 terminated) |
+| 18:40 | 세션이 인스턴스 목록에서 발견했다(메일 3통은 그때까지 읽지 않은 상태였다) |
+| 18:50 | 사용자 확인 뒤 기동 — `i-09f6b4f41ebd973c7`(스팟 one-time · 2d · 시세 $0.4649/h · 루트 120 GiB · 태그 `role=k3s-agent-gpu`) |
+| 18:52 | 조인(`ip-172-31-60-217` Ready, 라벨·테인트 확인) → 3·4·5 단계 |
+| 18:56 | `ollama-gpu` 1/1 · 모델 2종 · 엔드포인트 ready |
+
+- 5 단계 뒤 ArgoCD(automated·selfHeal)가 PVC 를 7초 안에 다시 만들었고 새 PV 가 새 노드에 붙었다.
+  이번에는 PVC 와 함께 Pending 이던 대체 파드도 지웠다(그게 필요했는지는 따로 가르지 않았다).
+- 생성 속도: `qwen2.5:3b` **103 tok/s** · `qwen2.5:7b` **52 tok/s**(방금 받은 모델이라 첫 로드가 1.8초였다).
+  GPU 노드에 뜬 파드는 `ollama-gpu` 와 device plugin 둘뿐이다.
+- ai-svc 는 회수 동안 폴백 래치를 연 채 Claude 재시도를 유지했다
+  (`provider liveness probe failed … latchOpen=true`, 17:56·18:26·18:56 — 30분 간격).
+  18:56:09 프로브는 파드가 Ready 가 되기(18:56:21) 12초 전이라 실패했다.
+- 중단 시간: 17:22 → 18:56, 약 94분.
+
 ### 루트 볼륨 (2026-10-06 실측·결정)
 
 GPU 노드(`ip-172-31-52-85`, AMI 기본 75 GiB)의 루트가 **64G/73G(88%)** 였고, 이미지 GC 임계(85%)를 넘어 kubelet 이
@@ -246,7 +272,8 @@ GPU 노드(`ip-172-31-52-85`, AMI 기본 75 GiB)의 루트가 **64G/73G(88%)** �
 AMI 에서 다시 만들어지므로 고칠 곳은 기동 절차다. gp3 는 서울 **$0.0912/GB-월**(2026-10-06 Pricing API) — 75→120 GiB 는 월 약 $4.1 다.
 `growpart`·`resizefs` 모듈은 이 AMI 의 `/etc/cloud/cloud.cfg` 에 켜져 있고, 2026-10-01 첫 부팅 로그에 `growpart` 실행 기록이 있다.
 위 매핑은 2026-10-06 `RunInstances` DryRun(같은 AMI·타입·서브넷·SG·키, 스팟 one-time)으로 수락되는 것을 확인했다.
-★120 GiB 로 실제 띄운 적은 아직 없다 — 첫 기동 때 `df -h /` 로 확인한다.★
+**첫 120 GiB 기동 실측(2026-10-06 18:50Z, `i-09f6b4f41ebd973c7`)**: `/dev/root` **117G** — 첫 부팅 직후 49G(43%),
+이미지와 모델 2종을 받은 뒤 64G(55%)·여유 53G. 이미지 GC 임계(85%) 아래다.
 
 참고(미사용): g6.xlarge 의 인스턴스 스토어가 AMI 에 의해 `/opt/dlami/nvme`(LVM·ext4, 229G 중 28K 사용)로 마운트돼 있다.
 정지·회수 때 사라지는 디스크라 지금은 쓰지 않는다.
@@ -264,6 +291,7 @@ GPU 노드 SSH 는 공인 IP 로 직접 붙는다. control-plane 경유(ProxyCom
 | SNS 토픽 | `arn:aws:sns:ap-northeast-2:963773969059:devpath-spot-interruption` |
 | 규칙 ① 사전 경고 | `devpath-spot-interruption-warning` — `EC2 Spot Instance Interruption Warning` + `EC2 Instance Rebalance Recommendation` |
 | 규칙 ② 회수 완료 | `devpath-instance-stopped-or-terminated` — `EC2 Instance State-change Notification` 중 `terminated`·`stopped`·`shutting-down` |
+| 규칙 ③ 미복구 반복 | `devpath-gpu-node-absence-watch` — `rate(6 hours)` → Lambda(아래 「미복구 반복 통지」, 2026-10-06 추가) |
 | 구독 | email `deepestdark@gmail.com` — **확인 완료**(`ConfirmSubscription`) |
 
 ★**규칙을 둘로 나눈 이유**★ — 회수 2분 전 경고만으로는 23일 방치가 다시 일어난다. 그 2분에
@@ -280,14 +308,41 @@ GPU 노드 SSH 는 공인 IP 로 직접 붙는다. control-plane 경유(ProxyCom
   규칙②는 그 반대. **음성 대조군 `state=running` 은 두 규칙 모두 `false`**(정상 가동을 알리지 않는다).
 - `sns:Publish` 로 종단 전달 확인.
 
-**남은 공백**: 「회수된 뒤 복구되지 않은 상태가 계속되는 것」을 반복 통지하는 층은 없다. ②가 1회
-알리므로 방치 재발 가능성은 크게 낮지만, 그 메일을 놓치면 여전히 조용하다. 다음 선택지:
+**남은 공백**: Slack 수신처가 없다 — 사용자 결정은 「이메일·Slack 둘 다」였고 이메일만 완료됐다.
+「회수된 뒤 복구되지 않은 상태」의 반복 통지는 2026-10-06 에 채웠다(아래 「미복구 반복 통지」).
 
 | 방안 | 범위 | 비고 |
 |---|---|---|
-| Slack 추가 수신처 | SNS → AWS Chatbot(Slack) 또는 SNS → Lambda → Incoming Webhook | **사용자 결정은 「이메일·Slack 둘 다」였고 이메일만 완료됐다.** Chatbot API 는 이 환경에서 엔드포인트 연결이 차단된다(실측) → 워크스페이스 OAuth 승인이나 Webhook URL 발급이 선행 |
-| EventBridge Scheduler + Lambda 로 주기 점검 | GPU 태그 인스턴스 수가 0이면 통지 | 미복구 상태를 **반복** 알리는 유일한 방법 |
+| Slack 추가 수신처 | SNS → AWS Chatbot(Slack) 또는 SNS → Lambda → Incoming Webhook | 2026-10-02 기록은 「Chatbot API 엔드포인트 연결 차단」이었고, 2026-10-06 에는 AWS MCP `call_boto3` 로 `DescribeSlackWorkspaces`(us-east-2)가 호출돼 승인된 워크스페이스 0개를 돌려줬다. 남은 것은 콘솔의 워크스페이스 OAuth 승인(또는 Webhook URL 발급)이고 사람이 해야 한다 |
 | 스팟 ASG(capacity 1)로 자동 재기동 | 토큰을 SSM SecureString + 인스턴스 프로파일로 옮겨야 한다 | 런북 3번(「user-data 에 토큰을 넣지 않는다」)의 재설계가 필요 |
+
+### 미복구 반복 통지 — EventBridge 일정 → Lambda → SNS (2026-10-06 구축·검증)
+
+규칙 ②는 회수를 한 번만 알린다. 그 메일을 놓치면 다시 조용해진다. 이 층은 GPU 인스턴스가 없는 동안 6시간마다 같은 토픽으로 알린다.
+
+| 리소스 | 이름 |
+|---|---|
+| 규칙 ③ | `devpath-gpu-node-absence-watch` — `rate(6 hours)`. 만든 직후 한 번 돌았고(2026-10-06 18:46Z) 그 뒤 6시간 간격이다 |
+| Lambda | `devpath-gpu-node-absence-watch` — python3.13 · arm64 · 256 MB · 타임아웃 30초. 소스 `infra/aws/gpu-node-absence-watch/handler.py`, 테스트 `tests/release/test_gpu_node_absence_watch.py` |
+| 실행 역할 | `devpath-gpu-node-absence-watch` — `ec2:DescribeInstances` · 이 토픽에 대한 `sns:Publish` · 자기 로그 그룹 쓰기뿐 |
+| 로그 | `/aws/lambda/devpath-gpu-node-absence-watch`(보존 30일) |
+
+판정: 태그 `role=k3s-agent-gpu` 를 가진 `pending`·`running` 인스턴스가 **하나도 없으면** 알린다. 그래서 새 노드는 반드시 그 태그로 띄운다(「절차」 2).
+
+★**EC2 만 본다.** 인스턴스는 떠 있는데 조인하지 못했거나 파드가 Pending 인 상태는 알리지 않는다.
+복구 뒤 검증(「스팟 회수 후 복구」 6·7)은 그대로 따로 한다.★
+
+검증(둘 다 운영 계정에서 실측, 2026-10-06):
+
+- 양성 — 구축 시점에 GPU 노드가 실제로 회수돼 있었다. 호출 결과 `{"gpu_instances": [], "notified": true}`, 메일 도착 18:46:35Z.
+- 음성 대조군 — 새 노드를 띄운 뒤 `{"gpu_instances": ["i-09f6b4f41ebd973c7"], "notified": false}`, 메일 없음.
+- 콜드 스타트 실행 시간: 128 MB 에서 7.5초, 256 MB 에서 4.0초.
+
+코드를 바꿀 때는 테스트를 먼저 고치고(`python -m unittest discover -s tests/release -p 'test_gpu_node_absence_watch.py'`),
+`handler.py` 하나를 zip 으로 묶어 `UpdateFunctionCode` 한다. AWS MCP `call_boto3` 는 바이트 인자(`ZipFile`)를 넘기지 못한다(2026-10-06 실측:
+`Uploaded file must be a non-empty zip`) — 임시 비공개 S3 버킷에 presigned URL 로 올려 `S3Bucket`/`S3Key` 로 지정하고, 반영 뒤 버킷을 지운다.
+배포된 코드가 저장소와 같은지는 `CodeSha256`(zip 의 sha256 을 base64 로)으로 본다. 2026-10-06 배포분은
+`pkHhRBf8zgZTUA7Hy5/X+yJu9oYwvLWBaPEBv47Z6f4=` 다(`ZipInfo` 의 `date_time` 을 `2026-10-06 00:00:00` 으로 고정, deflate, 파일 하나).
 
 ### 함정
 
