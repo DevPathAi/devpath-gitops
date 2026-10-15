@@ -1,6 +1,6 @@
 # devpath-gitops
 
-**DevPath AI** 의 Kubernetes 매니페스트 + 배포 설정(GitOps)입니다. ArgoCD가 이 레포를 단일 소스로 삼아 클러스터 상태를 동기화합니다.
+**레바(Leva)** 의 Kubernetes 매니페스트 + 배포 설정(GitOps)입니다. ArgoCD가 이 레포를 단일 소스로 삼아 클러스터 상태를 동기화합니다.
 
 ## 구조
 
