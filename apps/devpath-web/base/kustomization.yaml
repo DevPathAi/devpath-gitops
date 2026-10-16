@@ -10,8 +10,8 @@ configMapGenerator:
   - MISSION_RELEASE_READY=true
   - MISSION_RELEASE_ID=ms-20261016-leva-inspection-fixes
   - MISSION_CANDIDATE_SPEC_SHA256=a0d56c1033acae239605678a9d6af0c45b82832c65d95f90d84018f61871df7c
-  - MISSION_IMAGE_DIGEST=sha256:5c21239b17174ef9a82bae2ae8efdbfa4d5019979ea13c4497e6aad1d039c037
+  - MISSION_IMAGE_DIGEST=sha256:788fed8c23efbfce16307430321055f828930ba1d6c1558aff31c54786e4e8ca
 images:
 - name: ghcr.io/devpathai/devpath-web
   newName: ghcr.io/devpathai/devpath-web
-  digest: sha256:5c21239b17174ef9a82bae2ae8efdbfa4d5019979ea13c4497e6aad1d039c037
+  digest: sha256:788fed8c23efbfce16307430321055f828930ba1d6c1558aff31c54786e4e8ca
