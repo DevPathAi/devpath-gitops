@@ -1,0 +1,417 @@
+{
+  "$schema": "../schema-v1.json",
+  "schema_version": 1,
+  "document_type": "candidate-spec",
+  "release_id": "ms-20261016-leva-inspection-fixes",
+  "created_at": "2026-10-16T00:31:46Z",
+  "gitops": {
+    "repository": "DevPathAi/devpath-gitops",
+    "base_sha": "88559c6509e50c2c7059b03fec83bf54c03077fd",
+    "base_web_tag": "b69e99909bd028682a9c0a3ca11489ac87f90fb9-mission-on",
+    "base_web_digest": "sha256:e3108c0901a48de92a4e4b4986cee1bcd6b13d9f4bd2b5e7d77f5867f19a790d",
+    "web_kustomization": "apps/devpath-web/base/kustomization.yaml"
+  },
+  "services": {
+    "devpath-admin": {
+      "repository": "DevPathAi/devpath-frontend",
+      "source_sha": "c6356e6062936cbf5a56add1e746a3637b4833eb",
+      "image_repository": "ghcr.io/devpathai/devpath-admin",
+      "image_digest": "sha256:d3b0e5926973fb580e965a42fece882b7d8b2ea9112b71a8ee58dd568ee94200"
+    },
+    "devpath-ai-svc": {
+      "repository": "DevPathAi/devpath-ai-svc",
+      "source_sha": "cd756fbf8473499a4c7b7ae285c1686c08f525ab",
+      "image_repository": "ghcr.io/devpathai/devpath-ai-svc",
+      "image_digest": "sha256:b5b99118f7d1f88693586232e5537036f0315efc1c9a8942ef1d4f824e47cfb4"
+    },
+    "devpath-community-svc": {
+      "repository": "DevPathAi/devpath-community-svc",
+      "source_sha": "345bbca47a1d8a62b89f966a0eaede05afbb2baa",
+      "image_repository": "ghcr.io/devpathai/devpath-community-svc",
+      "image_digest": "sha256:3d3ec7ed1ac7a90e50cb2b873049ea4a7f25ac9fe06b029a28a67dc2d0e54d59"
+    },
+    "devpath-gateway": {
+      "repository": "DevPathAi/devpath-gateway",
+      "source_sha": "3fff40fa98c0ebe2ba042fcc57a5f782310edcf4",
+      "image_repository": "ghcr.io/devpathai/devpath-gateway",
+      "image_digest": "sha256:4453386228a6d2bbedeacd88e229a76fc5b87611874845290aa408d364ad8286"
+    },
+    "devpath-lcs-svc": {
+      "repository": "DevPathAi/devpath-lcs-svc",
+      "source_sha": "4352accd202656593387e1bc30533528c1e73f07",
+      "image_repository": "ghcr.io/devpathai/devpath-lcs-svc",
+      "image_digest": "sha256:99140b39ca78e73385ac33c1d6d3c9e78949e6f0bb257429bfc91e3ac5e6673d"
+    },
+    "devpath-learning-svc": {
+      "repository": "DevPathAi/devpath-learning-svc",
+      "source_sha": "4ea12718e1122a05811cf902d872bbb169988b90",
+      "image_repository": "ghcr.io/devpathai/devpath-learning-svc",
+      "image_digest": "sha256:af5bdab28bb909504500eb0ab5451a7d8fae80bcd8908e8d13448905f5e115db"
+    },
+    "devpath-notification-svc": {
+      "repository": "DevPathAi/devpath-notification-svc",
+      "source_sha": "0120541407a60745dbbf39a4493f170f9c10b00f",
+      "image_repository": "ghcr.io/devpathai/devpath-notification-svc",
+      "image_digest": "sha256:de07e9316a4ca82694133817d55afd421f23a0c23cba2947d42bbfdca858c05b"
+    },
+    "devpath-platform-svc": {
+      "repository": "DevPathAi/devpath-platform-svc",
+      "source_sha": "9f3f6fd9c85a260d1f222369c207ed4233ab77f4",
+      "image_repository": "ghcr.io/devpathai/devpath-platform-svc",
+      "image_digest": "sha256:ec8316e4463d4bc41f74aca339d68564bf40870c071374d7dfcd8b7dd11d89a1"
+    },
+    "devpath-sandbox-svc": {
+      "repository": "DevPathAi/devpath-sandbox-svc",
+      "source_sha": "a3d235f65f173a9bf97dd563b9a0b7cbfa57e75b",
+      "image_repository": "ghcr.io/devpathai/devpath-sandbox-svc",
+      "image_digest": "sha256:dacb076d063e3ec6245a115a8afed3969dbeb6d44f224b9c922d25c7ca25f174"
+    }
+  },
+  "shared_migration": {
+    "repository": "DevPathAi/devpath-shared",
+    "source_sha": "9793b8f92f92cca1ef57e28d2db6fb7d911741a3",
+    "shared_version": "0.0.1-rm.20260907",
+    "shared_jar_sha256": "3a64de1a1773f1aa05ccd801a88f01ef2cead887e44930554074230fd01f2996",
+    "image_repository": "ghcr.io/devpathai/devpath-migration",
+    "image_digest": "sha256:81029e190726c7967a6c840caee1735586da3a694081982b29261b2a54436e2b",
+    "flyway_target": "202609051004",
+    "required_migration": "V202609051004__mentor_invite_batches.sql",
+    "rollback_policy": "additive-retained"
+  },
+  "frontend": {
+    "repository": "DevPathAi/devpath-frontend",
+    "source_sha": "c6356e6062936cbf5a56add1e746a3637b4833eb",
+    "app_version": "ms-20261016-leva-inspection-fixes",
+    "analytics_contract_version": "mission-spine.analytics.v1",
+    "flag_contract_version": "mission-spine.flag.v1",
+    "mission_off": {
+      "tag": "c6356e6062936cbf5a56add1e746a3637b4833eb-mission-off",
+      "image_digest": "sha256:5c21239b17174ef9a82bae2ae8efdbfa4d5019979ea13c4497e6aad1d039c037"
+    },
+    "mission_on": {
+      "tag": "c6356e6062936cbf5a56add1e746a3637b4833eb-mission-on",
+      "image_digest": "sha256:788fed8c23efbfce16307430321055f828930ba1d6c1558aff31c54786e4e8ca"
+    },
+    "selected_on_digest": "sha256:788fed8c23efbfce16307430321055f828930ba1d6c1558aff31c54786e4e8ca",
+    "rollback": {
+      "mission_off_digest": "sha256:5c21239b17174ef9a82bae2ae8efdbfa4d5019979ea13c4497e6aad1d039c037",
+      "prior_digest": "sha256:e3108c0901a48de92a4e4b4986cee1bcd6b13d9f4bd2b5e7d77f5867f19a790d",
+      "prior_identity": {
+        "ready": true,
+        "release_id": "ms-20261003-ai-fallback-retry-budget",
+        "candidate_spec_sha256": "c23f3b8e1c1dfceb8c87e347a192c94b706d33c968624cd8dce06126ef94a3e1",
+        "image_digest": "sha256:e3108c0901a48de92a4e4b4986cee1bcd6b13d9f4bd2b5e7d77f5867f19a790d"
+      },
+      "final_target": "prior"
+    }
+  },
+  "home": {
+    "repository": "DevPathAi/devpath-home-page",
+    "source_sha": "d46c3f6a190bd610417199794f8f99e7f81b9bbd",
+    "dist_sha256": "725311dd50ddc9fbfb9469e28be8119aa97a40ccc72636bf6dab91ca5b285537",
+    "cloudflare_account_id": "f74eb88cda37ff4f8e6c27aaaf91631c",
+    "cloudflare_project": "devpath-home-page",
+    "candidate_deployment_id": "f19786c7-622b-4a50-bd6d-d1f3852d9429",
+    "prior_production_deployment_id": "1c4ea148-e030-424e-a041-2f54f5a93b7b"
+  },
+  "analytics_privacy": {
+    "collection_mode": "explicit-consent",
+    "approval_source_sha": "5d898ad7f5998d0de63cfc14b39d001b52349369",
+    "region": "EU",
+    "project_identity": "posthog-eu-mission-spine",
+    "retention_days": 90,
+    "access_owner": "devpathai/privacy-owners",
+    "deletion_runbook": "documents/privacy/posthog-deletion-v1"
+  },
+  "ai_release_eval_config": {
+    "runtime_primary_model": "qwen2.5:3b",
+    "runtime_fallback_models": [
+      "claude-sonnet-4-6"
+    ],
+    "development_model": "devpath-mentor-eval:mentor-development-tuning-v1",
+    "tuning_revision": "mentor-development-tuning-v1",
+    "tuning_sha256": "325d43fadad64dcf43c0b74c60e124c95c8b5b10ef15979aed34552aba1b7bef",
+    "prompt_sha256": "01a585c4619527649be6294b60882cea82efa5a358c130b9894b23bbf71392e9",
+    "fixture_revision": "mentor-golden-v2",
+    "fixture_sha256": "e90cec1236e07f324d7348a7e9c9e72401c7f0a3b8de3909d79f96615121eb8c",
+    "rendered_config_sha256": "3647fc7081ab9edf7df482c71536d668cf2d2dcd6f54b126a5ea3894bc5389cf",
+    "ollama_endpoint_sha256": "60dc47abb9531178c03a2386218d18fd2035f54956bec2372ce94e1b2d1815d8"
+  },
+  "environments": {
+    "staging": {
+      "github_environment": "mission-spine-staging",
+      "kubernetes_context": "devpath-staging",
+      "namespace": "devpath-staging",
+      "web_deployment": "devpath-web-staging",
+      "web_container": "devpath-web",
+      "web_origin": "https://staging-app.13-124-153-105.nip.io",
+      "landing_origin": "https://f19786c7.devpath-home-page.pages.dev"
+    },
+    "production": {
+      "github_environment": "mission-spine-production",
+      "kubernetes_context": "devpath-production",
+      "namespace": "devpath",
+      "web_deployment": "devpath-web",
+      "web_container": "devpath-web",
+      "web_origin": "https://app.leva.ai.kr",
+      "landing_origin": "https://leva.ai.kr"
+    }
+  },
+  "journey_harness": {
+    "landing_origin": "https://leva.ai.kr",
+    "app_origin": "https://app.leva.ai.kr",
+    "api_origin": "https://api.leva.ai.kr",
+    "control_origin": "https://release-control.staging.leva.ai.kr",
+    "oauth_origin": "https://oauth.staging.leva.ai.kr",
+    "analytics_spy_origin": "https://analytics-spy.staging.leva.ai.kr",
+    "dns_overrides": [
+      {
+        "hostname": "leva.ai.kr",
+        "address": "13.124.153.105"
+      },
+      {
+        "hostname": "app.leva.ai.kr",
+        "address": "13.124.153.105"
+      }
+    ]
+  },
+  "quality_evidence_inputs": {
+    "catalogs": {
+      "frontend-visual": {
+        "repository": "DevPathAi/devpath-frontend",
+        "source_sha": "c6356e6062936cbf5a56add1e746a3637b4833eb",
+        "path": "evidence/et13/generated/visual-cases.v1.json",
+        "sha256": "acd368d92e9850cb51d67dc2d3cc9a6ae7c96e48f58da28f0e353ca0edc741ce",
+        "case_catalog_version": "leva.et13.catalog.v1",
+        "case_catalog_schema_version": "leva.et13.visual-cases.v1",
+        "projection_contract_sha256": "158fdc882238c9459995c0572536a3cec3704e92bd1b28fa2d80907fc0435b78",
+        "fixture_ids": [
+          "web-today-available",
+          "web-path-current-week",
+          "web-content-reading",
+          "web-workspace-idle",
+          "web-review-loaded",
+          "web-mentor-context-preview",
+          "admin-kpi-dashboard",
+          "admin-support-long-wire",
+          "dp-design-mission-ledger",
+          "dp-design-context-payload-preview",
+          "web-community-free",
+          "web-community-qna",
+          "web-community-feedback"
+        ],
+        "case_count": 104,
+        "surface_case_counts": {
+          "web": 72,
+          "admin": 16,
+          "dp_design": 16
+        },
+        "capture_surface": "flutter_web_release_projection",
+        "device_evidence": false,
+        "evidence_mode": "release_ready",
+        "input_provenance_sha256": "84cce0ff429a84cd3a1de6a03a40f9fb1483ff37276d73c1bc9c87c0e58cebd0",
+        "input_provenance_file_sha256": "7276eebd99cb05b750ec8235822303a8b8e71359a6be9a2a0b0c0e48580c3eba",
+        "baseline_status": "approved",
+        "baseline_set_sha256": "80d6e69ab79a6697d10e5780fb0dc1896e406813aac5504506d4d37035b9a534",
+        "baseline_approval_sha256": "7843930efb9354236ab5a1d9b81078e58a424cfc84f3bdcef145d8793403c4ab"
+      },
+      "home-visual": {
+        "repository": "DevPathAi/devpath-home-page",
+        "source_sha": "d46c3f6a190bd610417199794f8f99e7f81b9bbd",
+        "rendered_product_sha": "48f103acf6adc792232101758783809bae2ea5a6",
+        "rendered_product_tree_sha256": "c3492071701f9cfa6f547ac3303c418fae5a1b210101a854316de5090dd82e6e",
+        "path": "e2e/visual/case-catalog.v2.json",
+        "sha256": "a3c338c6dd9da493df0ee660772359bed76440ecf693e64ef5486f79eb3b6078",
+        "case_count": 4,
+        "provenance_sha256": "d04f74b3ca23d2fee41757ba53b365f1422ba92ad7c37f7365bbf7eae0b0919b",
+        "font_manifest_sha256": "9598c1a9656d3df6b48b7ff4038765e139cec8dd73cef0432f03a46cd1ebb662"
+      },
+      "frontend-automated-a11y": {
+        "repository": "DevPathAi/devpath-frontend",
+        "source_sha": "c6356e6062936cbf5a56add1e746a3637b4833eb",
+        "path": "evidence/et13/generated/a11y-cases.v1.json",
+        "sha256": "cf664d46f5e0b0ea9ab789dbf4afca4dbc71778eff0db05779c3a48392622929",
+        "case_catalog_version": "leva.et13.catalog.v1",
+        "case_catalog_schema_version": "leva.et13.a11y-cases.v1",
+        "projection_contract_sha256": "158fdc882238c9459995c0572536a3cec3704e92bd1b28fa2d80907fc0435b78",
+        "fixture_ids": [
+          "web-today-available",
+          "web-path-current-week",
+          "web-content-reading",
+          "web-workspace-idle",
+          "web-review-loaded",
+          "web-mentor-context-preview",
+          "admin-kpi-dashboard",
+          "admin-support-long-wire",
+          "dp-design-mission-ledger",
+          "dp-design-context-payload-preview",
+          "web-community-free",
+          "web-community-qna",
+          "web-community-feedback"
+        ],
+        "case_count": 26,
+        "surface_case_counts": {
+          "web": 18,
+          "admin": 4,
+          "dp_design": 4
+        },
+        "capture_surface": "flutter_web_release_projection",
+        "device_evidence": false,
+        "evidence_mode": "release_ready",
+        "input_provenance_sha256": "844dde5b7409ebd8614c9b09e870cc59450f0316db28305e9ce3a9a1cedf4164",
+        "input_provenance_file_sha256": "fac4e96d83517f589a5239271fa67bcb462dc8f69661f8ea2b906ca0da2f9fb8"
+      },
+      "home-axe-browser-a11y": {
+        "repository": "DevPathAi/devpath-home-page",
+        "source_sha": "d46c3f6a190bd610417199794f8f99e7f81b9bbd",
+        "rendered_product_sha": "48f103acf6adc792232101758783809bae2ea5a6",
+        "rendered_product_tree_sha256": "c3492071701f9cfa6f547ac3303c418fae5a1b210101a854316de5090dd82e6e",
+        "path": "e2e/visual/case-catalog.v2.json",
+        "sha256": "a3c338c6dd9da493df0ee660772359bed76440ecf693e64ef5486f79eb3b6078",
+        "case_count": 11,
+        "provenance_sha256": "d04f74b3ca23d2fee41757ba53b365f1422ba92ad7c37f7365bbf7eae0b0919b",
+        "font_manifest_sha256": "9598c1a9656d3df6b48b7ff4038765e139cec8dd73cef0432f03a46cd1ebb662"
+      },
+      "manual-nvda": {
+        "repository": "DevPathAi/devpath-frontend",
+        "source_sha": "c6356e6062936cbf5a56add1e746a3637b4833eb",
+        "path": "tool/release-evidence/catalogs/manual-nvda.v1.json",
+        "sha256": "f900678464064d0f481ab736d682fea1587622fb633ab19d5f7566cdc47974e2",
+        "case_count": 2,
+        "provenance_sha256": "954f95400dfba2122844367cd3eacaa5062a7767957181260ca4f219a5e106bb"
+      }
+    },
+    "frontend_projection_contract": {
+      "schema_version": "leva.et13.projection-contract.v1",
+      "projection_contract_sha256": "158fdc882238c9459995c0572536a3cec3704e92bd1b28fa2d80907fc0435b78",
+      "projection_matrix": [
+        {
+          "fixture_id": "web-today-available",
+          "capture_scope": "body_projection",
+          "source_widget": "TodayMissionSection",
+          "substitutions": [
+            "controller/provider state replaced by approved deterministic fixture"
+          ]
+        },
+        {
+          "fixture_id": "web-path-current-week",
+          "capture_scope": "body_projection",
+          "source_widget": "MissionPathPlanView",
+          "substitutions": [
+            "controller/provider state replaced by approved deterministic fixture"
+          ]
+        },
+        {
+          "fixture_id": "web-content-reading",
+          "capture_scope": "body_projection",
+          "source_widget": "WebContentProjection",
+          "substitutions": [
+            "AdSense slot replaced by explicit offline blocked-network evidence slot"
+          ]
+        },
+        {
+          "fixture_id": "web-workspace-idle",
+          "capture_scope": "body_projection",
+          "source_widget": "SandboxLayout",
+          "substitutions": [
+            "controller state replaced by approved deterministic fixture",
+            "Monaco callbacks disabled except production readiness"
+          ]
+        },
+        {
+          "fixture_id": "web-review-loaded",
+          "capture_scope": "component_projection",
+          "source_widget": "WebReviewProjection",
+          "substitutions": [
+            "controller state replaced by approved deterministic fixture"
+          ]
+        },
+        {
+          "fixture_id": "web-mentor-context-preview",
+          "capture_scope": "body_projection",
+          "source_widget": "WebMentorContextProjection",
+          "substitutions": [
+            "controller/provider state replaced by approved deterministic fixture"
+          ]
+        },
+        {
+          "fixture_id": "admin-kpi-dashboard",
+          "capture_scope": "body_projection",
+          "source_widget": "AdminKpiDashboardProjection",
+          "substitutions": [
+            "controller/provider state replaced by approved deterministic fixture"
+          ]
+        },
+        {
+          "fixture_id": "admin-support-long-wire",
+          "capture_scope": "component_projection",
+          "source_widget": "AdminSupportDetailProjection",
+          "substitutions": [
+            "live provider and dialog shell replaced by deterministic AlertDialog host"
+          ]
+        },
+        {
+          "fixture_id": "dp-design-mission-ledger",
+          "capture_scope": "component_projection",
+          "source_widget": "DpEt13MissionLedgerFixture",
+          "substitutions": [
+            "hosted by the Flutter Web production distribution"
+          ]
+        },
+        {
+          "fixture_id": "dp-design-context-payload-preview",
+          "capture_scope": "component_projection",
+          "source_widget": "DpEt13ContextPayloadPreviewFixture",
+          "substitutions": [
+            "hosted by the Flutter Web production distribution"
+          ]
+        },
+        {
+          "fixture_id": "web-community-free",
+          "capture_scope": "body_projection",
+          "source_widget": "WebCommunityBoardProjection",
+          "substitutions": [
+            "controller/provider state replaced by approved deterministic fixture"
+          ]
+        },
+        {
+          "fixture_id": "web-community-qna",
+          "capture_scope": "body_projection",
+          "source_widget": "WebCommunityBoardProjection",
+          "substitutions": [
+            "controller/provider state replaced by approved deterministic fixture"
+          ]
+        },
+        {
+          "fixture_id": "web-community-feedback",
+          "capture_scope": "body_projection",
+          "source_widget": "WebCommunityBoardProjection",
+          "substitutions": [
+            "controller/provider state replaced by approved deterministic fixture"
+          ]
+        }
+      ]
+    }
+  },
+  "rollout": {
+    "sync_timeout_seconds": 300,
+    "canary_seconds": 900,
+    "rollback_budget_seconds": 600,
+    "synthetic_probe_path": "/internal/release/ready",
+    "production_order": [
+      "shared-migration",
+      "additive-services",
+      "frontend-mission-off",
+      "compatibility-smoke",
+      "frontend-mission-on",
+      "canary",
+      "landing-last"
+    ],
+    "rollback_order": [
+      "landing-prior",
+      "frontend-mission-off",
+      "frontend-prior",
+      "retain-additive-services-and-schema"
+    ]
+  }
+}
