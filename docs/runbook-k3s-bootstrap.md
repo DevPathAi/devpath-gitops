@@ -396,17 +396,24 @@ GPU 노드 SSH 는 공인 IP 로 직접 붙는다. control-plane 경유(ProxyCom
 2대뿐이라 노이즈가 아니라 이득이다 — control-plane 정지도 알아야 한다.
 
 타깃은 `InputTransformer` 로 사람이 읽는 문장을 만든다(원본 JSON 이 메일로 오면 쓸모가 없다).
-본문에 복구 절차 링크와 ★새 노드만 띄우면 Pending 그대로★ 경고를 함께 넣었다.
+본문 끝에는 복구 안내를 넣는다 — 2026-10-17 부터 위 「자동 복구」를 가리킨다(아래).
 
-> ⚠ **2026-10-16 자동 복구 전환 뒤로 이 메일 본문은 맞지 않는다**(2026-10-17 `ListTargetsByRule` 확인). 규칙 ① 은 「delete node -> force-delete old pod -> delete PVC」를,
-> 규칙 ② 는 'spot reclaim recovery' 절을 가리킨다. **메일을 받아도 아무것도 지우지 않는다** — 위 「자동 복구」가 우선한다. PVC 를 지우면 새 PV 경로가 `model-dir` 와 어긋나 다음 회수에서 `FailedMount` 가 난다.
-> 본문(InputTransformer) 수정은 남은 일이다.
+> **본문 교체(2026-10-17 18:07Z, 사용자 승인)**: 전환 전 본문은 규칙 ① 이 「delete node -> force-delete old pod -> delete PVC」를, 규칙 ② 가 'spot reclaim recovery' 절을 가리켰다 — 전환 뒤로는 따르면 안 되는 절차다.
+> 두 규칙 타깃(`sns`)의 `InputTemplate` 에서 그 줄만 아래 두 줄로 바꿨다(`InputPathsMap` · 나머지 줄 그대로).
+>
+> `Auto recovery (since 2026-10-16): the Auto Scaling group devpath-gpu-node launches a replacement that rejoins as node devpath-gpu. Do NOT delete the node, pods or the PVC.`
+> `If it is not back in about 30 minutes: https://github.com/DevPathAi/devpath-gitops/blob/develop/docs/runbook-k3s-bootstrap.md section '자동 복구' (auto recovery).`
+>
+> 링크가 **develop** 인 까닭: 기본 브랜치 main 의 런북에는 「자동 복구」 절이 없다(publisher 로 올라가면 main 으로 바꿔도 된다).
+> 교체 전에 받은 메일의 삭제 지시는 따르지 않는다 — PVC 를 지우면 새 PV 경로가 `model-dir` 와 어긋나 다음 회수에서 `FailedMount` 가 난다.
+> 본문 형식: 큰따옴표로 감싸이고 줄바꿈이 `\n` 두 글자로 들어간다. 템플릿이 JSON 문자열이라서이고 옛 본문도 같다(아래 렌더 확인).
 
-검증(둘 다 실측):
+검증(모두 실측):
 
 - `TestEventPattern` 매칭 행렬 — 규칙①은 경고·재균형에 `true`, `terminated` 에 `false`;
   규칙②는 그 반대. **음성 대조군 `state=running` 은 두 규칙 모두 `false`**(정상 가동을 알리지 않는다).
 - `sns:Publish` 로 종단 전달 확인.
+- 본문 렌더 확인(2026-10-17, 메일 없이): 임시 규칙(`source` = `devpath.render-check`)과 임시 SQS 큐에 옛 · 새 템플릿 4개를 걸고 `PutEvents` 1건 → 큐에서 본문 4개를 읽어 비교 → 운영 두 규칙에 같은 템플릿을 `PutTargets` → `ListTargetsByRule` 로 바이트 동일 확인 → 임시 규칙 · 큐 삭제.
 
 **남은 공백**: Slack 수신처가 없다 — 사용자 결정은 「이메일·Slack 둘 다」였고 이메일만 완료됐다.
 「회수된 뒤 복구되지 않은 상태」의 반복 통지는 2026-10-06 에 채웠다(아래 「미복구 반복 통지」).
