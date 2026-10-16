@@ -301,8 +301,32 @@ def _discover_external_artifact(
         return reference
 
 
+SELECTION_FILTERED_SHOWN = 10
+
+
+def _run_state(run: dict[str, Any]) -> str:
+    """One listed run as id=status/conclusion/event/head_branch/attempt-N, safe for a log line."""
+
+    def text(value: Any) -> str:
+        if value is None:
+            return "-"
+        shown = "".join(
+            char if char.isascii() and (char.isalnum() or char in "._/@-") else "?"
+            for char in str(value)
+        )
+        return shown[:40]
+
+    run_id = run.get("id")
+    shown_id = str(run_id) if isinstance(run_id, int) and not isinstance(run_id, bool) else "?"
+    return (
+        f"{shown_id}={text(run.get('status'))}/{text(run.get('conclusion'))}/"
+        f"{text(run.get('event'))}/{text(run.get('head_branch'))}/"
+        f"attempt-{text(run.get('run_attempt'))}"
+    )
+
+
 def _selection_detail(
-    listed: int,
+    runs: list[dict[str, Any]],
     dispatched: list[dict[str, Any]],
     complete: list[dict[str, Any]],
     lacking: dict[int, str],
@@ -312,17 +336,26 @@ def _selection_detail(
     2026-10-03: seal failed with a bare "exactly one frontend producer run is required" although
     the only producer run had succeeded eight minutes earlier, and the same code selected it
     minutes later. The message could not tell an empty listing from a missing release artifact
-    from a competing run, so the cause stayed unproven.
+    from a competing run, so the cause stayed unproven. 2026-10-16 review: it also could not say
+    why listed runs were dropped (status, conclusion, event, branch, a re-run's attempt), so the
+    filtered runs' state is shown too, bounded to SELECTION_FILTERED_SHOWN entries.
     """
 
     def ids(selected: list[dict[str, Any]]) -> str:
         return ", ".join(str(run_id) for run_id in sorted({run["id"] for run in selected})) or "none"
 
     detail = (
-        f"listed {listed}, dispatched-success {ids(dispatched)}, release-complete {ids(complete)}"
+        f"listed {len(runs)}, dispatched-success {ids(dispatched)}, "
+        f"release-complete {ids(complete)}"
     )
     for run_id in sorted(lacking):
         detail += f", {run_id} lacks {lacking[run_id]}"
+    kept = {id(run) for run in dispatched}
+    filtered = [_run_state(run) for run in runs if isinstance(run, dict) and id(run) not in kept]
+    if filtered:
+        detail += ", filtered " + "; ".join(filtered[:SELECTION_FILTERED_SHOWN])
+        if len(filtered) > SELECTION_FILTERED_SHOWN:
+            detail += f"; +{len(filtered) - SELECTION_FILTERED_SHOWN} more"
     return f" ({detail})"
 
 
@@ -391,7 +424,7 @@ def select_frontend_evidence_run(
     if len(run_ids) != 1:
         raise ValueError(
             "exactly one frontend producer run is required"
-            + _selection_detail(len(runs), dispatched, eligible, lacking)
+            + _selection_detail(runs, dispatched, eligible, lacking)
         )
     return max(eligible, key=lambda run: run["run_attempt"])
 
@@ -634,7 +667,7 @@ def _discover_manual_evidence(
     if len(run_ids) != 1:
         raise ValueError(
             "exactly one atomic manual producer run is required"
-            + _selection_detail(len(runs), dispatched, candidates, lacking)
+            + _selection_detail(runs, dispatched, candidates, lacking)
         )
     selected = candidates[0]
     run_id = selected["id"]

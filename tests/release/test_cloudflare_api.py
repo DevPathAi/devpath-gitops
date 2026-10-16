@@ -186,13 +186,23 @@ class LandingProbePropagationTest(unittest.TestCase):
         # Home dist left a well-formed marker at the very same path (2026-10-06).
         return self.marker(release_id="ms-20261002-ai-provider-fallback-gpu7b", candidate="a" * 64)
 
-    def drive(self, *outcomes):
-        """Give _probe_marker one outcome per attempt; return (opener, recorded sleeps, error|None)."""
+    def raw_marker(self, payload):
+        return FakeResponse(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode())
+
+    def drive(self, *outcomes, stderr=None):
+        """Give _probe_marker one outcome per attempt; return (opener, recorded sleeps, error|None).
+
+        The probe's stderr goes to self.stderr (a fresh StringIO unless one is given) so passing
+        retries do not leak their diagnostic line into the test output.
+        """
         slept = []
         error = None
+        self.stderr = stderr if stderr is not None else io.StringIO()
         with mock.patch.object(
             module._NO_REDIRECT_OPENER, "open", side_effect=list(outcomes)
-        ) as opened, mock.patch.object(module.time, "sleep", slept.append):
+        ) as opened, mock.patch.object(module.time, "sleep", slept.append), mock.patch.object(
+            module.sys, "stderr", self.stderr
+        ):
             try:
                 module._probe_marker(self.ORIGIN, self.RELEASE, self.CANDIDATE, self.DIST)
             except ValueError as exc:
@@ -216,21 +226,36 @@ class LandingProbePropagationTest(unittest.TestCase):
         # A probe that passes after retries used to leave no trace, so the only samples of real
         # edge propagation were the two first-attempt failures (1.17s on 2026-10-01, 1.35s on
         # 2026-10-06). The retry budget cannot be judged without knowing how much of it is used.
-        with mock.patch.object(module.sys, "stderr", new_callable=io.StringIO) as stderr:
+        # 2026-10-16 review Minor-2: the waits alone undercount (each attempt may also spend up to
+        # PROBE_TIMEOUT_SECONDS), and the line must say which release the stale edge served.
+        clock = [100.0, 104.5]
+        with mock.patch.object(
+            module.time, "monotonic", side_effect=lambda: clock.pop(0) if len(clock) > 1 else clock[0]
+        ):
             _, _, error = self.drive(self.http_error(404), self.stale_marker(), self.marker())
         self.assertIsNone(error)
         self.assertIn(
-            "public dist marker probe succeeded on attempt 3 after 3s of waits; last answer: "
-            "another release of the same dist is still served",
-            stderr.getvalue(),
+            "public dist marker probe succeeded on attempt 3 after 3s of waits (4.5s elapsed); "
+            "last answer: another release of the same dist is still served "
+            "(ms-20261002-ai-provider-fallback-gpu7b)",
+            self.stderr.getvalue(),
         )
 
     def test_stays_quiet_when_the_first_attempt_succeeds(self):
-        with mock.patch.object(module.sys, "stderr", new_callable=io.StringIO) as stderr:
-            _, slept, error = self.drive(self.marker())
+        _, slept, error = self.drive(self.marker())
         self.assertIsNone(error)
         self.assertEqual(slept, [])
-        self.assertEqual(stderr.getvalue(), "")
+        self.assertEqual(self.stderr.getvalue(), "")
+
+    def test_a_broken_stderr_does_not_fail_a_probe_that_already_passed(self):
+        # 2026-10-16 review Nit-1: the success line is a diagnostic. A stderr that cannot be
+        # written must not turn a passed probe into a failed gate.
+        class BrokenStream(io.StringIO):
+            def write(self, _text):
+                raise OSError("broken pipe")
+
+        _, _, error = self.drive(self.http_error(404), self.marker(), stderr=BrokenStream())
+        self.assertIsNone(error)
 
     def test_names_a_404_separately_from_a_connection_failure(self):
         attempts = len(module.PROBE_ATTEMPT_DELAYS) + 1
@@ -281,6 +306,63 @@ class LandingProbePropagationTest(unittest.TestCase):
         self.assertEqual(slept, [])
         self.assertIn("exact release artifact", str(error))
 
+    def test_names_the_release_the_stale_edge_keeps_serving(self):
+        # 2026-10-16 review Minor-2: when the budget runs out, the operator should not have to
+        # fetch the live marker to learn whether it was the previous release or a stranger.
+        attempts = len(module.PROBE_ATTEMPT_DELAYS) + 1
+        _, _, error = self.drive(*[self.stale_marker() for _ in range(attempts)])
+        self.assertIsNotNone(error)
+        self.assertIn("(ms-20261002-ai-provider-fallback-gpu7b)", str(error))
+
+    def test_stops_at_a_same_dist_marker_whose_identity_fields_are_malformed(self):
+        # 2026-10-16 review Minor-1: a same-dist marker reads as a stale edge only if it is a real
+        # marker of some other release. Identity fields no release could carry mean a corrupt
+        # marker: fail at once instead of spending the budget and then blaming propagation.
+        other = "ms-20261002-ai-provider-fallback-gpu7b"
+        for label, release_id, candidate in (
+            ("integer release id", 123, self.CANDIDATE),
+            ("null release id", None, self.CANDIDATE),
+            ("malformed release id", "not-a-release", self.CANDIDATE),
+            ("list candidate hash", other, ["a" * 64]),
+            ("short candidate hash", other, "a" * 63),
+            ("uppercase candidate hash", other, "A" * 64),
+        ):
+            with self.subTest(label):
+                opened, slept, error = self.drive(
+                    self.raw_marker(
+                        {
+                            "candidate_spec_sha256": candidate,
+                            "dist_sha256": self.DIST,
+                            "release_id": release_id,
+                        }
+                    )
+                )
+                self.assertIsNotNone(error)
+                self.assertEqual(opened.call_count, 1)
+                self.assertEqual(slept, [])
+                self.assertIn("exact release artifact", str(error))
+
+    def test_stops_at_a_marker_missing_a_field(self):
+        # 2026-10-16 review Minor-3: only the extra-field case was pinned. The key-set guard also
+        # keeps payload["dist_sha256"] from raising a KeyError that main() would not catch.
+        opened, slept, error = self.drive(
+            self.raw_marker(
+                {"dist_sha256": self.DIST, "release_id": "ms-20261002-ai-provider-fallback-gpu7b"}
+            )
+        )
+        self.assertIsNotNone(error)
+        self.assertEqual(opened.call_count, 1)
+        self.assertEqual(slept, [])
+        self.assertIn("exact release artifact", str(error))
+
+    def test_stops_mid_budget_when_a_stale_marker_turns_into_another_dist(self):
+        # 2026-10-16 review Minor-3: a terminal answer after a retried one still ends the probe.
+        opened, slept, error = self.drive(self.stale_marker(), self.marker(dist="0" * 64))
+        self.assertIsNotNone(error)
+        self.assertEqual(opened.call_count, 2)
+        self.assertEqual(slept, list(module.PROBE_ATTEMPT_DELAYS[:1]))
+        self.assertIn("exact release artifact", str(error))
+
     def test_stops_at_a_marker_with_unexpected_fields(self):
         # Only a well-formed marker of the same dist reads as a stale edge.
         opened, slept, error = self.drive(
@@ -308,9 +390,12 @@ class LandingProbePropagationTest(unittest.TestCase):
                     module._NO_REDIRECT_OPENER,
                     "open",
                     side_effect=[self.http_error(404), ok],
-                ) as opened, mock.patch.object(module.time, "sleep", lambda _s: None):
+                ) as opened, mock.patch.object(module.time, "sleep", lambda _s: None), mock.patch.object(
+                    module.sys, "stderr", new_callable=io.StringIO
+                ) as stderr:
                     probe(self.ORIGIN)
                 self.assertEqual(opened.call_count, 2)
+                self.assertIn("succeeded on attempt 2", stderr.getvalue())
 
     def test_the_retry_budget_is_bounded(self):
         # A probe must not hold a release — or a rollback — open indefinitely.

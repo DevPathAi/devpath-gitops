@@ -428,12 +428,49 @@ class Et13AtomicEvidenceTest(unittest.TestCase):
 
         with self.assertRaisesRegex(
             ValueError,
-            r"\(listed 3, dispatched-success 501, 502, release-complete 501, 502\)",
+            r"\(listed 3, dispatched-success 501, 502, release-complete 501, 502, "
+            r"filtered 503=completed/failure/workflow_dispatch/-/attempt-1\)",
         ):
             self.sealer.select_frontend_evidence_run(
                 [base, {**base, "id": 502}, {**base, "id": 503, "conclusion": "failure"}],
                 expected_head,
             )
+
+    def test_selection_failure_says_why_listed_runs_were_filtered_out(self):
+        # 2026-10-16 review Minor-4: "listed 2, dispatched-success none" could not say which
+        # condition dropped the runs. Their state is now part of the message (bounded and
+        # restricted to safe characters, since the values come from the API).
+        expected_head = self.candidate["frontend"]["source_sha"]
+        base = {
+            "id": 501,
+            "status": "completed",
+            "conclusion": "success",
+            "event": "workflow_dispatch",
+            "head_sha": expected_head,
+            "head_branch": "main",
+            "path": ".github/workflows/et13-evidence.yml",
+            "run_attempt": 1,
+        }
+        with self.assertRaisesRegex(
+            ValueError,
+            r"\(listed 2, dispatched-success none, release-complete none, "
+            r"filtered 501=in_progress/-/workflow_dispatch/main/attempt-1; "
+            r"502=completed/success/push/feat\?x/attempt-1\)",
+        ):
+            self.sealer.select_frontend_evidence_run(
+                [
+                    {**base, "status": "in_progress", "conclusion": None},
+                    {**base, "id": 502, "event": "push", "head_branch": "feat x"},
+                ],
+                expected_head,
+            )
+
+        many = [{**base, "id": 600 + index, "conclusion": "failure"} for index in range(12)]
+        with self.assertRaises(ValueError) as caught:
+            self.sealer.select_frontend_evidence_run(many, expected_head)
+        message = str(caught.exception)
+        self.assertRegex(message, r"609=completed/failure/workflow_dispatch/main/attempt-1; \+2 more\)$")
+        self.assertNotIn("610=", message)
 
     def test_selection_failure_names_the_release_artifact_a_run_lacks(self):
         expected_head = self.candidate["frontend"]["source_sha"]
@@ -480,6 +517,41 @@ class Et13AtomicEvidenceTest(unittest.TestCase):
                 ValueError,
                 r"exactly one atomic manual producer run is required "
                 r"\(listed 0, dispatched-success none, release-complete none\)",
+            ):
+                self.sealer._discover_manual_evidence(
+                    {},
+                    self.candidate["release_id"],
+                    self.candidate_sha,
+                    self.candidate,
+                )
+
+    def test_manual_selection_failure_names_a_lacking_artifact_and_a_rerun_it_filtered(self):
+        # 2026-10-16 review Minor-3/4: the manual path only pinned the empty listing. A re-run
+        # (attempt 2) is filtered by design, and a run missing its catalog artifact is not
+        # release-complete - both must be visible in the message.
+        expected_head = self.candidate["frontend"]["source_sha"]
+        run = {
+            "id": 601,
+            "status": "completed",
+            "conclusion": "success",
+            "event": "workflow_dispatch",
+            "head_sha": expected_head,
+            "head_branch": "main",
+            "path": self.sealer.PRODUCER_WORKFLOWS["manual-nvda"],
+            "run_attempt": 1,
+        }
+        lacked = list(self.sealer.MANUAL_CATALOG_CONTRACTS)[0]
+        with mock.patch.object(
+            self.sealer,
+            "list_manual_evidence_runs",
+            return_value=[run, {**run, "id": 602, "run_attempt": 2}],
+        ), mock.patch.object(self.sealer, "_list_named_artifacts", return_value=[]):
+            with self.assertRaisesRegex(
+                ValueError,
+                r"exactly one atomic manual producer run is required "
+                r"\(listed 2, dispatched-success 601, release-complete none, "
+                rf"601 lacks {lacked}, "
+                r"filtered 602=completed/success/workflow_dispatch/main/attempt-2\)",
             ):
                 self.sealer._discover_manual_evidence(
                     {},
