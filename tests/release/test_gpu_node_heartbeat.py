@@ -104,6 +104,22 @@ class GpuNodeHeartbeatTest(unittest.TestCase):
                 self.assertEqual(node.published, [])
                 self.assertIn("not ready", output)
 
+    def test_stays_silent_before_k3s_is_installed(self):
+        # 2026-10-16 final review I1: the bootstrap now enables this timer before it installs the
+        # agent, so "no k3s binary yet" is the normal first minute of a boot, not a crash.
+        class NoK3s(FakeNode):
+            def run(self, args):
+                if args[:1] == ["k3s"]:
+                    self.commands.append(list(args))
+                    raise FileNotFoundError(2, "No such file or directory", "k3s")
+                return super().run(args)
+
+        node = NoK3s()
+        code, output = self.beat(node)
+        self.assertEqual(code, 1)
+        self.assertEqual(node.published, [])
+        self.assertIn("not ready", output)
+
     def test_stays_silent_while_the_pod_has_no_address(self):
         for inspect in (
             "{}",

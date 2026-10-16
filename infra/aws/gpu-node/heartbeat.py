@@ -37,10 +37,14 @@ def fetch_url(url):
 
 
 def ready_pod_address(run):
-    listed = run([
-        "k3s", "crictl", "pods", "--label", POD_LABEL,
-        "--label", f"io.kubernetes.pod.namespace={POD_NAMESPACE}", "--state", "Ready", "-q",
-    ])
+    try:
+        listed = run([
+            "k3s", "crictl", "pods", "--label", POD_LABEL,
+            "--label", f"io.kubernetes.pod.namespace={POD_NAMESPACE}", "--state", "Ready", "-q",
+        ])
+    except FileNotFoundError:
+        # The bootstrap enables this timer before it installs the agent (2026-10-16 review).
+        raise NotReady("k3s is not installed yet") from None
     pod_ids = listed.stdout.split() if listed.returncode == 0 else []
     if not pod_ids:
         raise NotReady("no Ready ollama-gpu pod on this node")

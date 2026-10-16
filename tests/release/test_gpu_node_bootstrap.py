@@ -44,15 +44,19 @@ class FakeHost:
         self.parameters.update(parameters or {})
         self.install_results = list(install_results)
         self.calls = []
+        self.timeouts = []
         self.seen_at_install = None
         self.slept = []
         self.now = 0.0
 
-    def run(self, args, env=None):
+    def run(self, args, env=None, timeout=None):
         self.calls.append((list(args), dict(env) if env is not None else None))
+        self.timeouts.append(timeout)
         if args[:3] == ["aws", "ssm", "get-parameter"]:
             name = args[args.index("--name") + 1].removeprefix(module.PARAMETER_PREFIX)
             value = self.parameters.get(name)
+            if isinstance(value, list):  # one answer per read, the last one repeats
+                value = value.pop(0) if len(value) > 1 else value[0]
             if value is None:
                 return Result(254, "", "An error occurred (ParameterNotFound) when calling the GetParameter operation: ")
             return value if isinstance(value, Result) else Result(0, value)
@@ -62,8 +66,8 @@ class FakeHost:
                 "token": (self.root / module.TOKEN_FILE).read_text(encoding="ascii"),
                 "model_dir": (self.root / MODEL_DIR.lstrip("/")).is_dir(),
             }
-            code = self.install_results.pop(0) if len(self.install_results) > 1 else self.install_results[0]
-            return Result(code)
+            outcome = self.install_results.pop(0) if len(self.install_results) > 1 else self.install_results[0]
+            return outcome if isinstance(outcome, Result) else Result(outcome)
         return Result(0)
 
     def sleep(self, seconds):
@@ -214,7 +218,58 @@ class GpuNodeBootstrapTest(unittest.TestCase):
         self.assertEqual(sum(host.slept), module.INSTALL_BUDGET_SECONDS)
         self.assertNotIn(TOKEN, output)
         self.assertNotIn(PASSWORD, output)
-        self.assertFalse(any(args[:2] == ["systemctl", "enable"] for args, _ in host.calls))
+        # 2026-10-16 final review I1: the heartbeat timer is already on, so a node fixed by hand
+        # later is seen as recovered; the agent itself was never started.
+        self.assertIn(["systemctl", "enable", "--now", "devpath-gpu-heartbeat.timer"], [a for a, _ in host.calls])
+        self.assertNotIn(["systemctl", "start", "--no-block", "k3s-agent"], [a for a, _ in host.calls])
+
+    def test_retries_a_transient_parameter_read_failure(self):
+        # 2026-10-16 final review I1: cloud-init runs this once per instance and the group's EC2
+        # health check cannot see a failed join, so one throttled read must not end the recovery.
+        throttled = Result(254, "", "An error occurred (ThrottlingException) when calling the GetParameter operation: Rate exceeded")
+        host = FakeHost(self.root, parameters={"agent-token": [throttled, throttled, TOKEN + "\n"]})
+        code, output = self.bootstrap(host)
+        self.assertEqual(code, 0)
+        self.assertEqual(host.slept, [module.INSTALL_RETRY_SECONDS] * 2)
+        self.assertEqual((self.root / module.TOKEN_FILE).read_bytes(), (TOKEN + "\n").encode())
+        self.assertNotIn(TOKEN, output)
+
+    def test_installs_without_starting_and_then_starts_the_agent_without_waiting(self):
+        # 2026-10-16 final review I2: the agent unit is Type=notify with TimeoutStartSec=0, so the
+        # installer's own `systemctl restart` never returns while the join fails (rejected password,
+        # revoked token, server unreachable). Install only; start without blocking; let the heartbeat
+        # judge the join, and keep the agent's errors in its journal.
+        host = FakeHost(self.root)
+        code, _ = self.bootstrap(host)
+        self.assertEqual(code, 0)
+        args, env = host.installs()[0]
+        self.assertEqual(env["INSTALL_K3S_SKIP_START"], "true")
+        calls = [a for a, _ in host.calls]
+        self.assertGreater(
+            calls.index(["systemctl", "start", "--no-block", "k3s-agent"]), calls.index(args)
+        )
+
+    def test_bounds_each_install_attempt(self):
+        # 2026-10-16 final review I2: a download that hangs must count as a failed attempt.
+        host = FakeHost(self.root)
+        self.bootstrap(host)
+        install_index = [i for i, (a, _) in enumerate(host.calls) if a[:1] == ["bash"]][0]
+        self.assertEqual(host.timeouts[install_index], module.INSTALL_ATTEMPT_TIMEOUT_SECONDS)
+
+    def test_shows_why_an_install_attempt_failed_without_the_secrets(self):
+        # 2026-10-16 final review I2: the operator's first look is cloud-init-output.log, which used
+        # to end in "install failed N times" with no reason (a mistyped k3s-version is a 404).
+        failed = Result(22, "[INFO]  Using v9.9.9 as release\n", "curl: (22) The requested URL returned error: 404\n" + TOKEN)
+        host = FakeHost(self.root, install_results=(failed, 0))
+        code, output = self.bootstrap(host)
+        self.assertEqual(code, 0)
+        self.assertIn("404", output)
+        self.assertNotIn(TOKEN, output)
+
+    def test_a_hung_command_comes_back_as_a_failure(self):
+        result = module.run_command([sys.executable, "-c", "import time; time.sleep(5)"], timeout=0.5)
+        self.assertEqual(result.returncode, 124)
+        self.assertIn("timed out", result.stderr)
 
     def test_stops_before_the_install_when_a_required_parameter_cannot_be_read(self):
         denied = Result(
@@ -234,15 +289,18 @@ class GpuNodeBootstrapTest(unittest.TestCase):
         self.assertIn("/devpath/gpu-node/agent-token", output)
         self.assertEqual(host.installs(), [])
 
-    def test_enables_the_heartbeat_timer_after_the_agent_is_installed(self):
+    def test_enables_the_heartbeat_timer_first_and_starts_the_agent_last(self):
+        # 2026-10-16 final review I1: the timer used to come on only after every step succeeded, so
+        # a node repaired by hand kept reporting nothing. The heartbeat is harmless before the join.
         host = FakeHost(self.root)
         self.bootstrap(host)
-        order = [args for args, _ in host.calls if args[0] in ("bash", "systemctl")]
-        self.assertEqual(order[0][0], "bash")
+        order = [args for args, _ in host.calls if args[0] in ("bash", "systemctl", "aws")]
         self.assertEqual(
-            order[1:],
+            order[:2],
             [["systemctl", "daemon-reload"], ["systemctl", "enable", "--now", "devpath-gpu-heartbeat.timer"]],
         )
+        self.assertEqual(order[-2][0], "bash")
+        self.assertEqual(order[-1], ["systemctl", "start", "--no-block", "k3s-agent"])
 
     def test_running_twice_leaves_the_same_files(self):
         self.bootstrap(FakeHost(self.root))
