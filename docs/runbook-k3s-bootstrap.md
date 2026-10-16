@@ -204,7 +204,52 @@ aws rds delete-db-instance --region ap-northeast-2 --db-instance-identifier devp
 - 테인트 격리 확인: GPU 노드에 뜬 파드는 `ollama-gpu` 와 device plugin **둘뿐**이었다.
 - 생성 성능: **66 t/s(순간 97 t/s)** — 운영 CPU 4.2 t/s 대비 약 16배. 12주 한국어 경로 1건이 ai-svc 왕복 포함 **86초**(CPU 는 12분).
 
+### 자동 복구 — 같은 이름으로 돌아오는 노드 (2026-10-07 설계, 전환 기록은 아래)
+
+설계 = documents `docs/superpowers/specs/2026-10-07-gpu-node-auto-recovery-design.md`. 회수되면 ASG 가 대체 인스턴스를 띄우고,
+기동 스크립트가 **같은 노드 이름(`devpath-gpu`)과 같은 노드 비밀번호**로 조인한다. 서버는 같은 Node 가 돌아온 것으로 보므로
+PV 고정이 그대로 맞는다 — 죽은 노드 · 멈춘 파드 · PVC 를 지우지 않는다.
+
+> **상태(2026-10-16)**: 소스(`infra/aws/gpu-node/`)와 Lambda 의 새 기준만 develop 에 있다. 아래 AWS 리소스(파라미터 · 역할 · 기동 템플릿 · ASG · 알람)는
+> **아직 없다** — 계획 Part B(준비)·Part C(전환 · 훈련) 전이다. 그때까지 회수는 아래 「스팟 회수 후 복구」의 수동 절차로 처리한다.
+
+| 리소스 | 이름 |
+|---|---|
+| ASG | `devpath-gpu-node` — 최소 0 · 최대 1 · 희망 1, 스팟만, 서브넷 2a · 2c · 2d, `AZRebalance` 중지 |
+| 기동 템플릿 | `devpath-gpu-node` — AMI · `g6.xlarge` · 120 GiB gp3 · 태그는 「절차」 2 와 같다. 프로파일 `devpath-gpu-node`, IMDSv2 필수(홉 1) |
+| 파라미터 | `/devpath/gpu-node/agent-token` · `node-password`(SecureString) · `model-dir` · `k3s-version`(String) |
+| 소스 | `infra/aws/gpu-node/` — `bootstrap.py` · `heartbeat.py` · 유닛 2개 · `render_user_data.py` |
+| 생존 신호 | `DevPath/GPU` · `OllamaReady` · `Node=devpath-gpu` — 노드가 1분마다, ollama 가 모델 2종을 낼 때만 쓴다 |
+| 알람 | `devpath-gpu-ollama-not-ready` — 15분 신호 없음 → 메일, 복귀 → 메일 |
+
+**끄는 법**: `aws autoscaling set-desired-capacity --auto-scaling-group-name devpath-gpu-node --desired-capacity 0`. 인스턴스가 내려가고 과금이 멈춘다. 다시 켜려면 1.
+
+**값을 바꿀 때**
+
+| 무엇이 바뀌면 | 할 일 |
+|---|---|
+| 서버 k3s 버전 | `/devpath/gpu-node/k3s-version` 을 같은 값으로. 다음 기동부터 적용된다 |
+| `ollama-gpu-models` PVC 를 다시 만들었다 | 새 PV 의 `spec.local.path` 를 `/devpath/gpu-node/model-dir` 에 적는다. 지금 노드에는 그 디렉터리가 이미 있다 |
+| ollama 가 내려받는 모델 | `infra/aws/gpu-node/heartbeat.py` 의 `REQUIRED_MODELS` — 안 바꾸면 생존 신호가 끊겨 알람이 난다 |
+| 기동 스크립트 · 유닛 | `py infra/aws/gpu-node/render_user_data.py` 의 출력으로 기동 템플릿의 새 버전을 만든다. ASG 는 `$Latest` 를 쓴다 |
+| 조인 토큰이 샜다 | control-plane 에서 `k3s token delete <id>` → 새 토큰을 만들어 `agent-token` 을 덮어쓴다. 지금 노드는 영향이 없다 |
+
+배포된 user-data 가 저장소와 같은지는 `py infra/aws/gpu-node/render_user_data.py --sha256` 과 기동 템플릿 user-data 의 sha256 을 비교한다.
+
+**증상별**
+
+| 증상 | 원인 | 조치 |
+|---|---|---|
+| 메일 「no instance」 | ASG 가 인스턴스를 못 얻었다 — 대개 세 AZ 모두 스팟 용량 없음 | `describe-scaling-activities` 로 사유를 본다. 기다리거나, 온디맨드로 띄울지 정한다 |
+| 메일 「instance up, ollama not ready」 | 부팅은 됐는데 조인 · 마운트 · 모델 pull 중 하나가 실패 | 노드의 `/var/log/cloud-init-output.log` → `kubectl get node devpath-gpu` → 파드 이벤트 순으로 본다 |
+| agent 로그 `Node password rejected` | `node-password` 파라미터가 서버의 `devpath-gpu.node-password.k3s` 와 다르다 | `kubectl delete node devpath-gpu`(시크릿도 함께 사라진다) 뒤 노드에서 `systemctl restart k3s-agent` — 지금 비밀번호로 새로 등록된다 |
+| 파드 `FailedMount … path … does not exist` | `model-dir` 가 실제 PV 와 다르다 | 위 표의 「PVC 를 다시 만들었다」 줄 + 노드에서 `mkdir -m 0777 <경로>` |
+
+자동화가 꺼져 있거나 실패했을 때의 수동 절차가 아래 「스팟 회수 후 복구」다.
+
 ### 스팟 회수 후 복구 (2026-10-01 실측)
+
+> 자동 복구로 전환(계획 Task 8)한 뒤에는 회수를 위 「자동 복구」가 처리하고, 이 절은 자동화를 껐거나 그것이 실패했을 때 쓴다. 전환 전(2026-10-16 현재)에는 이 절이 기본 절차다.
 
 2026-09-08 에 GPU 스팟 노드(`ip-172-31-52-213`)가 회수됐고 **23일 동안 아무도 알지 못했다.**
 `ollama-gpu` 서비스가 엔드포인트 0개인 채로 남아 학습경로 생성이 잠복 고장 상태였다
