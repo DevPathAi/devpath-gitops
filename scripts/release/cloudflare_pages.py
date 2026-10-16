@@ -14,7 +14,7 @@ from urllib.error import HTTPError
 from urllib.parse import quote, urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from validate_release_manifest import CF_ID, resolve_release_bundle
+from validate_release_manifest import CF_ID, RELEASE_ID, SHA64, resolve_release_bundle
 
 
 API_ROOT = "https://api.cloudflare.com/client/v4"
@@ -327,20 +327,27 @@ def _retry_probe(label: str, attempt) -> None:
     """
     detail = ""
     waited = 0.0
+    started = time.monotonic()
     for number, delay in enumerate((*PROBE_ATTEMPT_DELAYS, None), start=1):
         try:
             attempt()
-            if detail:
-                # The only record of how much of the budget a real edge uses: a probe that passed
-                # after retries used to leave no trace.
-                print(
-                    f"{label} succeeded on attempt {number} after {waited:g}s of waits; "
-                    f"last answer: {detail}",
-                    file=sys.stderr,
-                )
-            return
         except _ProbeNotReady as exc:
             detail = str(exc)
+        else:
+            if detail:
+                # The only record of how much of the budget a real edge uses: a probe that passed
+                # after retries used to leave no trace. The waits alone undercount, since every
+                # attempt may also spend up to PROBE_TIMEOUT_SECONDS.
+                elapsed = time.monotonic() - started
+                try:
+                    print(
+                        f"{label} succeeded on attempt {number} after {waited:g}s of waits "
+                        f"({elapsed:.1f}s elapsed); last answer: {detail}",
+                        file=sys.stderr,
+                    )
+                except OSError:
+                    pass  # a diagnostic that cannot be written must not fail a passed probe
+            return
         if delay is None:
             break
         time.sleep(delay)
@@ -422,10 +429,16 @@ def _is_marker_of_same_dist(payload: object, dist_sha256: str) -> bool:
     # ms-20261003-ai-fallback-retry-budget while production was already correct. A well-formed
     # marker of this very dist can be the previous deployment still answering, so it is retried
     # within the probe budget; it still fails the gate if it never turns into this release's.
+    # Well-formed means identity fields a real release could carry (2026-10-16 review): anything
+    # else is a corrupt marker and fails at once instead of being blamed on propagation.
     return (
         isinstance(payload, dict)
         and set(payload) == MARKER_KEYS
         and payload["dist_sha256"] == dist_sha256
+        and isinstance(payload["release_id"], str)
+        and RELEASE_ID.fullmatch(payload["release_id"]) is not None
+        and isinstance(payload["candidate_spec_sha256"], str)
+        and SHA64.fullmatch(payload["candidate_spec_sha256"]) is not None
     )
 
 
@@ -490,7 +503,10 @@ def _probe_marker(
             validate_public_marker(payload, release_id, candidate_hash, dist_sha256)
         except ValueError:
             if _is_marker_of_same_dist(payload, dist_sha256):
-                raise _ProbeNotReady("another release of the same dist is still served") from None
+                # The release id has passed RELEASE_ID, so it is bounded and safe to log.
+                raise _ProbeNotReady(
+                    f"another release of the same dist is still served ({payload['release_id']})"
+                ) from None
             raise
 
     _retry_probe("public dist marker probe", attempt)
