@@ -222,7 +222,19 @@ PV 고정이 그대로 맞는다 — 죽은 노드 · 멈춘 파드 · PVC 를 �
 | 생존 신호 | `DevPath/GPU` · `OllamaReady` · `Node=devpath-gpu` — 노드가 1분마다, ollama 가 모델 2종을 낼 때만 쓴다 |
 | 알람 | `devpath-gpu-ollama-not-ready` — 15분 신호 없음 → 메일, 복귀 → 메일 |
 
-**끄는 법**: `aws autoscaling set-desired-capacity --auto-scaling-group-name devpath-gpu-node --desired-capacity 0`. 인스턴스가 내려가고 과금이 멈춘다. 다시 켜려면 1.
+**끄는 법**: 감시는 생존 신호만 본다. 그래서 일부러 끌 때 감시를 함께 끄지 않으면 알람이 울리고, 6시간마다 「no instance」 메일이 원인을 잘못 짚은 채 온다.
+
+```bash
+aws cloudwatch disable-alarm-actions --alarm-names devpath-gpu-ollama-not-ready
+aws events disable-rule --name devpath-gpu-node-absence-watch
+aws autoscaling set-desired-capacity --auto-scaling-group-name devpath-gpu-node --desired-capacity 0
+```
+
+인스턴스가 내려가고 과금이 멈춘다. 다시 켤 때는 역순으로 한다. 희망 대수를 1 로 올리고, 생존 신호가 들어오는 것을 확인한 다음 `enable-rule` · `enable-alarm-actions` 를 실행한다. 순서가 바뀌면 거짓 알람이 난다.
+
+**손으로 띄워야 할 때**: 희망 대수를 1 로 되돌리는 것이 가장 쉽다. ASG 를 쓸 수 없으면 기동 템플릿으로 띄운다.
+`aws ec2 run-instances --launch-template LaunchTemplateName=devpath-gpu-node,Version='$Latest' --instance-market-options MarketType=spot --subnet-id <2a·2c·2d 중 하나>`
+user-data 가 기동 스크립트와 생존 신호를 깔아 준다. 아래 「스팟 회수 후 복구」의 옛 절차(기동 템플릿 없이 띄우기)로 띄운 노드에는 생존 신호가 없다. 그러면 ollama 가 정상이어도 알람이 울린 채로 남는다.
 
 **값을 바꿀 때**
 
@@ -232,7 +244,7 @@ PV 고정이 그대로 맞는다 — 죽은 노드 · 멈춘 파드 · PVC 를 �
 | `ollama-gpu-models` PVC 를 다시 만들었다 | 새 PV 의 `spec.local.path` 를 `/devpath/gpu-node/model-dir` 에 적는다. 지금 노드에는 그 디렉터리가 이미 있다 |
 | ollama 가 내려받는 모델 | `infra/aws/gpu-node/heartbeat.py` 의 `REQUIRED_MODELS` — 안 바꾸면 생존 신호가 끊겨 알람이 난다 |
 | 기동 스크립트 · 유닛 | `py infra/aws/gpu-node/render_user_data.py` 의 출력으로 기동 템플릿의 새 버전을 만든다. ASG 는 `$Latest` 를 쓴다 |
-| 조인 토큰이 샜다 | control-plane 에서 `k3s token delete <id>` → 새 토큰을 만들어 `agent-token` 을 덮어쓴다. 지금 노드는 영향이 없다 |
+| 조인 토큰이 샜다 | control-plane 에서 `k3s token delete <id>` 를 실행하고, 새 토큰을 만들어 `agent-token` 에 덮어쓴다. 지금 노드의 `/etc/rancher/k3s/agent-token` 도 새 값으로 바꾼다. 기동 스크립트를 다시 돌려도 된다. 폐기한 토큰으로 이미 조인한 agent 가 다시 시작할 수 있는지는 실측하지 않았다 — 그대로 두면 다음 재시작 때 노드가 끊길 수 있다 |
 
 배포된 user-data 가 저장소와 같은지는 `py infra/aws/gpu-node/render_user_data.py --sha256` 과 기동 템플릿 user-data 의 sha256 을 비교한다.
 
@@ -244,6 +256,8 @@ PV 고정이 그대로 맞는다 — 죽은 노드 · 멈춘 파드 · PVC 를 �
 | 메일 「instance up, ollama not ready」 | 부팅은 됐는데 조인 · 마운트 · 모델 pull 중 하나가 실패 | 노드의 `/var/log/cloud-init-output.log` → `kubectl get node devpath-gpu` → 파드 이벤트 순으로 본다 |
 | agent 로그 `Node password rejected` | `node-password` 파라미터가 서버의 `devpath-gpu.node-password.k3s` 와 다르다 | `kubectl delete node devpath-gpu`(시크릿도 함께 사라진다) 뒤 노드에서 `systemctl restart k3s-agent` — 지금 비밀번호로 새로 등록된다 |
 | 파드 `FailedMount … path … does not exist` | `model-dir` 가 실제 PV 와 다르다 | 위 표의 「PVC 를 다시 만들었다」 줄 + 노드에서 `mkdir -m 0777 <경로>` |
+| cloud-init 로그의 끝이 `gpu-node bootstrap failed: … gave up after …` | 기동 스크립트가 30분 예산 안에 파라미터를 못 읽었거나 agent 를 못 내려받았다. 바로 위 줄들에 이유(오류 코드 · 설치 출력 끝부분)가 있다 | 원인을 고친 뒤 노드에서 `sudo /usr/bin/python3 /usr/local/lib/devpath-gpu/bootstrap.py` 를 다시 돌린다(다시 돌려도 같은 결과다). 아니면 인스턴스를 종료한다 — ASG 가 새로 띄운다. 생존 신호 타이머는 처음부터 켜져 있다 |
+| 알람이 울리는데 `kubectl exec … ollama list` 에 두 모델이 보인다 | 생존 신호 자체가 동작하지 않는다 | 노드에서 `systemctl status devpath-gpu-heartbeat.timer` · `journalctl -u devpath-gpu-heartbeat` 를 본다 |
 
 자동화가 꺼져 있거나 실패했을 때의 수동 절차가 아래 「스팟 회수 후 복구」다.
 
@@ -364,6 +378,11 @@ GPU 노드 SSH 는 공인 IP 로 직접 붙는다. control-plane 경유(ProxyCom
 | 스팟 ASG(capacity 1)로 자동 재기동 | 토큰을 SSM SecureString + 인스턴스 프로파일로 옮겨야 한다 | 런북 3번(「user-data 에 토큰을 넣지 않는다」)의 재설계가 필요 |
 
 ### 미복구 반복 통지 — EventBridge 일정 → Lambda → SNS (2026-10-06 구축·검증)
+
+> ⚠ **develop 의 `handler.py` 는 이미 생존 신호 기준이다**(2026-10-16, 위 「자동 복구」). 지금 배포된 것은 그 전 버전이다 —
+> 소스 `ce768a8` 의 `handler.py`, CodeSha256 `pkHhRBf8zgZTUA7Hy5/X+yJu9oYwvLWBaPEBv47Z6f4=`(2026-10-06 배포).
+> **자동 복구로 전환하기 전에는 develop 판을 배포하지 않는다.** 지금 노드에는 생존 신호가 없어서, 배포하면 6시간마다 「instance up, ollama not ready」 메일이 온다.
+> 아래의 판정 · 배포 절차는 배포된 옛 버전을 설명한다.
 
 규칙 ②는 회수를 한 번만 알린다. 그 메일을 놓치면 다시 조용해진다. 이 층은 GPU 인스턴스가 없는 동안 6시간마다 같은 토픽으로 알린다.
 
