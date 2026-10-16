@@ -6,4 +6,4 @@ resources:
 images:
 - name: ghcr.io/devpathai/devpath-lcs-svc
   newName: ghcr.io/devpathai/devpath-lcs-svc
-  digest: sha256:9f05123077dc6962be6e657caa247777bb761921ba1065eb564f27e73497698d
+  digest: sha256:99140b39ca78e73385ac33c1d6d3c9e78949e6f0bb257429bfc91e3ac5e6673d
