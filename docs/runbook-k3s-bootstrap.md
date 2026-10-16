@@ -165,7 +165,7 @@ aws rds delete-db-instance --region ap-northeast-2 --db-instance-identifier devp
 | 인스턴스 | g6.xlarge (NVIDIA **L4 23034 MiB**), ap-northeast-2d — 기존 노드와 같은 AZ |
 | AMI | `ami-09d3bdf0648512f52` = Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04). 드라이버 **595.91.07** 과 `nvidia-container-runtime` 이 이미 들어 있다 |
 | 단가(서울) | 온디맨드 **$0.9896/h** · 스팟 **약 $0.2824/h**(2d 실측) |
-| 쿼터 | 온디맨드 `L-DB2E81BA` = 4 vCPU 승인. **스팟은 `L-3819A6DF` 로 별개**(기본 0, 2026-10-01 4 vCPU 승인 = g6.xlarge 한 대) |
+| 쿼터 | 온디맨드 `L-DB2E81BA` = 4 vCPU 승인. **스팟은 `L-3819A6DF` 로 별개**(기본 0 → 4 vCPU: 2026-08-17 요청, 2026-10-01 확인 → **8 vCPU: 2026-10-16 20:01Z 승인**(KST 10-17 05:01) = g6.xlarge 두 대 — 대체가 옛 인스턴스 종료를 기다리지 않는다) |
 | 루트 볼륨 | **120 GiB gp3** (`/dev/sda1`) — AMI 기본값 75 GiB 를 그대로 쓰지 않는다(아래 「루트 볼륨」, 2026-10-06 결정) |
 | 노드 이름 | **`devpath-gpu`**(2026-10-16 자동 복구 전환부터 고정) — 회수돼도 같은 이름 · 같은 Node 로 돌아온다. 인스턴스 ID 와 `ip-…` 호스트명은 기동마다 바뀌므로 ASG 에서 읽는다(아래 「자동 복구」) |
 
@@ -263,8 +263,8 @@ user-data 가 기동 스크립트와 생존 신호를 깔아 준다. 아래 「�
 | 파드 `FailedMount … path … does not exist` | `model-dir` 가 실제 PV 와 다르다 | 위 표의 「PVC 를 다시 만들었다」 줄 + 노드에서 `mkdir -m 0777 <경로>` |
 | cloud-init 로그의 끝이 `gpu-node bootstrap failed: … gave up after …` | 기동 스크립트가 30분 예산 안에 파라미터를 못 읽었거나 agent 를 못 내려받았다. 바로 위 줄들에 이유(오류 코드 · 설치 출력 끝부분)가 있다 | 원인을 고친 뒤 노드에서 `sudo /usr/bin/python3 /usr/local/lib/devpath-gpu/bootstrap.py` 를 다시 돌린다(다시 돌려도 같은 결과다). 아니면 인스턴스를 종료한다 — ASG 가 새로 띄운다. 생존 신호 타이머는 처음부터 켜져 있다 |
 | 알람이 울리는데 `kubectl exec … ollama list` 에 두 모델이 보인다 | 생존 신호 자체가 동작하지 않는다 | 노드에서 `systemctl status devpath-gpu-heartbeat.timer` · `journalctl -u devpath-gpu-heartbeat` 를 본다 |
-| ASG 활동에 `MaxSpotInstanceCountExceeded` 가 이어진다 | 스팟 쿼터 4 vCPU 에는 g6.xlarge 가 한 대만 들어간다. 옛 인스턴스가 `terminated` 가 될 때까지 대체가 못 뜬다 | 기다린다 — ASG 가 1 · 2 · 4 · 8분 간격으로 다시 시도한다. 그래서 대체 기동이 옛 인스턴스 종료보다 수 분 늦을 수 있다. 종료 직후의 시도도 거절될 수 있다(아래 실측: 종료 23초 뒤 시도 거절 → 다음 재시도까지 8분) |
-| 대체 노드 첫 기동에 `k3s-agent` 가 몇 번 재시작한다 · 이벤트 `Starting kubelet` 이 8초마다 | Node 오브젝트에 옛 인스턴스의 IP(`alpha.kubernetes.io/provided-node-ip` · InternalIP)가 남아, network policy controller 가 `failed to find interface with specified node ip` 로 agent 를 내린다 | 둔다 — 재시작하는 사이 IP 가 새 값으로 바뀌고 안정된다(실측 7회 · 약 65초). 몇 분이 지나도 계속되면 `journalctl -u k3s-agent` 의 `Shutdown request received` 줄을 본다 |
+| ASG 활동에 `MaxSpotInstanceCountExceeded` 가 이어진다 | 스팟 쿼터가 4 vCPU 면 g6.xlarge 가 한 대만 들어가 옛 인스턴스가 `terminated` 가 될 때까지 대체가 못 뜬다. 2026-10-16 UTC 에 8 vCPU 로 올린 뒤로는 대체가 바로 뜬다(재훈련 t0 + 7초) — 지금 보이면 쿼터가 다시 4 이하인지, 다른 G 스팟 인스턴스가 떠 있는지부터 본다 | 기다린다 — ASG 가 1 · 2 · 4 · 8분 간격으로 다시 시도한다. 그래서 대체 기동이 옛 인스턴스 종료보다 수 분 늦을 수 있다. 종료 직후의 시도도 거절될 수 있다(아래 실측: 종료 23초 뒤 시도 거절 → 다음 재시도까지 8분) |
+| 대체 노드 첫 기동에 `k3s-agent` 가 몇 번 재시작한다 · 이벤트 `Starting kubelet` 이 8초마다 | Node 오브젝트에 옛 인스턴스의 IP(`alpha.kubernetes.io/provided-node-ip` · InternalIP)가 남아, network policy controller 가 `failed to find interface with specified node ip` 로 agent 를 내린다 | 둔다 — 재시작하는 사이 IP 가 새 값으로 바뀌고 안정된다(실측 7회 · 약 65초, 재훈련 3회 · 약 30초). 몇 분이 지나도 계속되면 `journalctl -u k3s-agent` 의 `Shutdown request received` 줄을 본다 |
 
 **전환과 훈련(실측, 2026-10-16 UTC)** — 계획 Part C. 원장(git 밖) = 워크스페이스 `D:/workspace/dpa/.release-artifacts/gpu-auto-recovery-part-a/progress.md`.
 
@@ -284,14 +284,20 @@ user-data 가 기동 스크립트와 생존 신호를 깔아 준다. 아래 「�
 | `devpath-gpu` Ready · agent 안정 | 15:54:19 · 15:55:09 | **같은 UID**, InternalIP `172.31.34.2` → `172.31.43.242`. agent 7회 재시작(위 증상 표) |
 | 모델 2종 · 파드 Running · 생존 신호 재개 | 15:57:14 · 15:57 | **t0 + 19분 41초 — 목표 10분(G1)을 넘겼다**(15초 샘플 — 직전 15:56:57 은 모델 1종) |
 | ai-svc 폴백 복귀 | 16:08:39 | 새 노드로 `GET /api/tags` 200 · 래치 3개 닫힘 — 모델 11분 25초 뒤(탐색 15:44:34 · 15:52:34 실패 — 래치 열림 기간이 늘어난 만큼, 아래 「2026-10-06 두 번째 회수와 복구」의 래치 설명) |
+| 회수 메일 본문 교체(위 「회수 탐지」) · 스팟 쿼터 8 vCPU 승인 | 18:07 · 20:01:56 | 사용자 승인 뒤. 쿼터 값 8 은 20:29 조회에서 확인 |
+| 재훈련 — ASG 인스턴스 종료(t0, 사람 손 없음) | 20:29:59 | `i-019d04a17a33e4fb6` · 파드 `…-rt58z`. 실제 메일 본문은 임시 SQS 를 토픽에 구독해 받았다(뒤에 해제) |
+| 대체 기동 | 20:30:06 | **t0 + 7초, 거절 0회** — 옛 인스턴스가 `shutting-down` 인 동안 두 대가 겹쳤다(종료 완료 20:36:42). `i-0bd740ebcc387f40a`(2c) |
+| `devpath-gpu` Ready · agent 안정 | 20:31:56 · 20:32:05 | **같은 UID**, InternalIP `172.31.43.242` → `172.31.39.146`(20:32:11). agent 3회 재시작 |
+| 모델 2종 · 생존 신호 재개 | 20:34:03 · 20:34 | **t0 + 4분 4초 — G1 통과**. 노드가 5분 안에 돌아와 테인트 축출이 취소됐고(`Cancelling deletion`), 옛 파드가 제자리에서 다시 떴다(재시작 1 · 이미지 pull 49초) |
+| ai-svc 폴백 복귀 | 20:37:39 | 래치 3개 닫힘(탐색 20:30:11 · 20:31:17 · 20:33:17 실패) — t0 + 7분 40초 |
 
 - 훈련에서 사람은 아무것도 지우지 않았다. 옛 파드는 노드가 `Unknown` 이 되고 약 5분 뒤(15:43:20) 테인트 축출(`TaintManagerEviction`)로 새 파드에 자리를 넘겼고, `Failed` · `UnexpectedAdmissionError` 파드는 남지 않았다.
 - **G1 을 넘긴 원인은 용량이다**: 스팟 쿼터 4 vCPU 라 옛 인스턴스가 끝날 때까지(6분 43초) 대체가 못 뜨고, 종료 23초 뒤의 시도도 거절돼 다음 재시도까지 8분을 더 기다렸다(ASG 재시도 간격 1 · 2 · 4 · 8분). 기동부터 모델까지는 4분 33초였다.
-  쿼터를 8 vCPU 로 올리면 대체가 바로 뜬다(미실측 — 다음 훈련에서 잰다).
+  쿼터를 8 vCPU 로 올린 재훈련에서는 대체가 t0 + 7초에 떴고 모델까지 4분 4초였다 — **G1 통과**. 빈 칸이 4분이라 알람은 울리지 않았고, 메일은 규칙 ② 2통(새 본문)이었다.
 - 알람이 15분이 아니라 약 26분 뒤에 울리는 것은 CloudWatch 기본 평가(슬라이딩 창)가 3/3 알람에 데이터 포인트 5개(25분)를 읽고, 그 안의 실제 값을 누락보다 먼저 쓰기 때문이다
   (AWS 문서 「Configuring how CloudWatch alarms treat missing data」). 그래서 훈련처럼 20분 끊겼다 돌아오면 알람은 울리지 않는다. 규칙 ③ 이 그 사이(끊긴 지 15분 넘게)에 돌지 않으면 회수 통지(규칙 ②)만 온다(훈련 실측).
-- 이날 토픽 메일은 7통이다(규칙 ② 4통 · `ALARM` · 반복 통지 · `OK`). SNS 지표로 전부 전달 · 실패 0.
-- 지금 값: 기동 템플릿 v1 · user-data sha256 `d6f500be…cb89` · Lambda CodeSha256 `BNjsV5IRzIofy/iHmZpvgNOAOqf8HHOq3qmkoZ/1w4k=` · 인스턴스는 ASG 에서 읽는다(2026-10-16 15:52 이후 `i-019d04a17a33e4fb6`).
+- 이날 토픽 메일은 9통이다(규칙 ② 6통 · `ALARM` · 반복 통지 · `OK`). SNS 지표로 전부 전달 · 실패 0(재훈련 2통은 임시 SQS 구독과 함께 전달 4건).
+- 지금 값: 기동 템플릿 v1 · user-data sha256 `d6f500be…cb89` · Lambda CodeSha256 `BNjsV5IRzIofy/iHmZpvgNOAOqf8HHOq3qmkoZ/1w4k=` · 인스턴스는 ASG 에서 읽는다(2026-10-16 20:30 이후 `i-0bd740ebcc387f40a`).
 
 자동화가 꺼져 있거나 실패했을 때의 수동 절차가 아래 「스팟 회수 후 복구」다.
 
@@ -461,7 +467,7 @@ GPU 노드 SSH 는 공인 IP 로 직접 붙는다. control-plane 경유(ProxyCom
 
 | 증상 | 원인 | 해법 |
 |---|---|---|
-| `MaxSpotInstanceCountExceeded` | 승인받은 것은 **온디맨드** G/VT 쿼터. 스팟은 `L-3819A6DF` 로 별개이고 기본 0. 쿼터가 이미 4 인데 ASG 활동에 나오면 옛 인스턴스 종료 대기다(위 「자동 복구」 증상 표) | 쿼터가 0 이면 스팟 쿼터를 따로 증설 요청한다 |
+| `MaxSpotInstanceCountExceeded` | 승인받은 것은 **온디맨드** G/VT 쿼터. 스팟은 `L-3819A6DF` 로 별개이고 기본 0(지금 8). 쿼터가 4 일 때 ASG 활동에 나오면 옛 인스턴스 종료 대기였다(위 「자동 복구」 증상 표) | 쿼터가 0 이면 스팟 쿼터를 따로 증설 요청한다 |
 | 새 노드가 `NotReady` 이거나 조인 실패 | SG 에 클러스터 내부 규칙이 없다(기본 SG 는 22·6443 을 관리 IP 에만 연다) | 위 self-referencing 규칙 3개 |
 | device plugin 파드가 Pending | 노드 테인트에 대한 톨러레이션 없음 | 매니페스트의 톨러레이션 확인 |
 | 서버·에이전트 버전 불일치 | `INSTALL_K3S_VERSION` 미지정 시 최신이 설치된다 | 서버 버전으로 고정 |
