@@ -1,0 +1,178 @@
+{
+  "$schema": "../schema-v1.json",
+  "ai_release_eval": {
+    "baseline_delta_points": -0.333333,
+    "evidence": {
+      "artifact_id": 12019027585,
+      "artifact_name": "ms-20261016-leva-inspection-fixes-ai-eval-run-38830454260-attempt-1",
+      "candidate_spec_sha256": "a0d56c1033acae239605678a9d6af0c45b82832c65d95f90d84018f61871df7c",
+      "event": "workflow_dispatch",
+      "evidence_file": "evidence.json",
+      "head_sha": "cd756fbf8473499a4c7b7ae285c1686c08f525ab",
+      "repository": "DevPathAi/devpath-ai-svc",
+      "run_attempt": 1,
+      "sha256": "fa90c141025d412ab32306415dd1abd9618b374b5ac813404b95f9a3314546ba",
+      "workflow_path": ".github/workflows/mission-spine-release-eval.yml",
+      "workflow_run_id": 38830454260,
+      "workflow_sha256": "6cb2df387f7889618c458146b7e00fc31ead905886217cbd62fc4d549a5b688e"
+    },
+    "hard_invariants_percent": 100.0,
+    "usefulness_percent": 91.666667
+  },
+  "analytics_privacy_approval": {
+    "approved_at": "2026-10-16T01:31:44Z",
+    "evidence": {
+      "artifact_id": 12019411173,
+      "artifact_name": "ms-20261016-leva-inspection-fixes-privacy-approval-run-38830449311-attempt-1",
+      "candidate_spec_sha256": "a0d56c1033acae239605678a9d6af0c45b82832c65d95f90d84018f61871df7c",
+      "event": "workflow_dispatch",
+      "evidence_file": "evidence.json",
+      "head_sha": "5d898ad7f5998d0de63cfc14b39d001b52349369",
+      "repository": "DevPathAi/documents",
+      "run_attempt": 1,
+      "sha256": "13a112501c28bd2b06580acebcf038650d81d300d32eb035247b2c94a5edbc32",
+      "workflow_path": ".github/workflows/mission-spine-privacy-approval.yml",
+      "workflow_run_id": 38830449311,
+      "workflow_sha256": "70cfd446f5989d5cae6661aa60297dfc7bf372069eaeea5d6ebbc5fc0b61edfb"
+    }
+  },
+  "candidate_spec": {
+    "path": "release-manifests/candidates/ms-20261016-leva-inspection-fixes.candidate-spec.json",
+    "sha256": "a0d56c1033acae239605678a9d6af0c45b82832c65d95f90d84018f61871df7c"
+  },
+  "created_at": "2026-10-16T01:44:42Z",
+  "document_type": "release-manifest",
+  "home_dist_artifact": {
+    "artifact_id": 12016788076,
+    "artifact_name": "ms-20261016-leva-inspection-fixes-home-dist-run-38830447423-attempt-1",
+    "candidate_spec_sha256": "a0d56c1033acae239605678a9d6af0c45b82832c65d95f90d84018f61871df7c",
+    "event": "workflow_dispatch",
+    "evidence_file": "evidence.json",
+    "head_sha": "d46c3f6a190bd610417199794f8f99e7f81b9bbd",
+    "payload_file": "dist.tar.gz",
+    "payload_sha256": "725311dd50ddc9fbfb9469e28be8119aa97a40ccc72636bf6dab91ca5b285537",
+    "repository": "DevPathAi/devpath-home-page",
+    "run_attempt": 1,
+    "sha256": "0ca8be13f37525b063df63bac8a0fc7b62708c92826a9ab081c7866179f0af3c",
+    "workflow_path": ".github/workflows/mission-spine-home-dist.yml",
+    "workflow_run_id": 38830447423,
+    "workflow_sha256": "f2c138572583773732d02f0957d00305db0f92793a3a20e9563cfb232e2ec1b7"
+  },
+  "journeys": {
+    "activation": {
+      "artifact_id": 12019586750,
+      "artifact_name": "ms-20261016-leva-inspection-fixes-journey-activation-attempt-1",
+      "candidate_spec_sha256": "a0d56c1033acae239605678a9d6af0c45b82832c65d95f90d84018f61871df7c",
+      "event": "workflow_dispatch",
+      "evidence_file": "evidence.json",
+      "head_sha": "88559c6509e50c2c7059b03fec83bf54c03077fd",
+      "repository": "DevPathAi/devpath-gitops",
+      "run_attempt": 1,
+      "sha256": "e5ce23f2e962e4fec934b54ae72af350be8c5c5203f2183d92267ea38da39457",
+      "workflow_path": ".github/workflows/mission-spine-validate.yml",
+      "workflow_run_id": 38836133732,
+      "workflow_sha256": "196190621847cd779044c824e35e9c08117c785c881b59f1443867bd8ed5a79f"
+    },
+    "contextual_practice": {
+      "artifact_id": 12019197196,
+      "artifact_name": "ms-20261016-leva-inspection-fixes-journey-contextual-practice-attempt-1",
+      "candidate_spec_sha256": "a0d56c1033acae239605678a9d6af0c45b82832c65d95f90d84018f61871df7c",
+      "event": "workflow_dispatch",
+      "evidence_file": "evidence.json",
+      "head_sha": "88559c6509e50c2c7059b03fec83bf54c03077fd",
+      "repository": "DevPathAi/devpath-gitops",
+      "run_attempt": 1,
+      "sha256": "c6a4b2b912dfb0e2bc321f24bc30a645984da4bd47cc9631d207dfe1b3d7087f",
+      "workflow_path": ".github/workflows/mission-spine-validate.yml",
+      "workflow_run_id": 38836133732,
+      "workflow_sha256": "196190621847cd779044c824e35e9c08117c785c881b59f1443867bd8ed5a79f"
+    }
+  },
+  "quality_evidence": {
+    "frontend_automated_a11y": {
+      "artifact_id": 12017242930,
+      "artifact_name": "ms-20261016-leva-inspection-fixes-frontend-automated-a11y-run-38830444293-attempt-1",
+      "candidate_spec_sha256": "a0d56c1033acae239605678a9d6af0c45b82832c65d95f90d84018f61871df7c",
+      "event": "workflow_dispatch",
+      "evidence_file": "evidence.json",
+      "head_sha": "c6356e6062936cbf5a56add1e746a3637b4833eb",
+      "repository": "DevPathAi/devpath-frontend",
+      "run_attempt": 1,
+      "sha256": "9f6a81fb0ab14875d7cf05e113da5e4caba6be08531647cc5233f525aa3cec44",
+      "workflow_path": ".github/workflows/et13-evidence.yml",
+      "workflow_run_id": 38830444293,
+      "workflow_sha256": "71ba5845635677793d97d1b30d01a7ad58fed2e8ca2e2e9cc1a437f89b7d323e"
+    },
+    "frontend_visual": {
+      "artifact_id": 12016794502,
+      "artifact_name": "ms-20261016-leva-inspection-fixes-frontend-visual-run-38830444293-attempt-1",
+      "candidate_spec_sha256": "a0d56c1033acae239605678a9d6af0c45b82832c65d95f90d84018f61871df7c",
+      "event": "workflow_dispatch",
+      "evidence_file": "evidence.json",
+      "head_sha": "c6356e6062936cbf5a56add1e746a3637b4833eb",
+      "repository": "DevPathAi/devpath-frontend",
+      "run_attempt": 1,
+      "sha256": "4c141de88a5b891af7babe2422b80f3810f195a5d9ca7dc3d28fe9fdabe1c1c3",
+      "workflow_path": ".github/workflows/et13-evidence.yml",
+      "workflow_run_id": 38830444293,
+      "workflow_sha256": "71ba5845635677793d97d1b30d01a7ad58fed2e8ca2e2e9cc1a437f89b7d323e"
+    },
+    "home_axe_browser_a11y": {
+      "artifact_id": 12018928220,
+      "artifact_name": "ms-20261016-leva-inspection-fixes-home-visual-a11y-attempt-1",
+      "candidate_spec_sha256": "a0d56c1033acae239605678a9d6af0c45b82832c65d95f90d84018f61871df7c",
+      "event": "workflow_dispatch",
+      "evidence_file": "a11y-evidence.v2.json",
+      "head_sha": "88559c6509e50c2c7059b03fec83bf54c03077fd",
+      "repository": "DevPathAi/devpath-gitops",
+      "run_attempt": 1,
+      "sha256": "de5a49ef08bd1e6af4550b7efcb5b70ec59a2a4ca820e7cf637b20a01cf99644",
+      "workflow_path": ".github/workflows/mission-spine-validate.yml",
+      "workflow_run_id": 38836133732,
+      "workflow_sha256": "196190621847cd779044c824e35e9c08117c785c881b59f1443867bd8ed5a79f"
+    },
+    "home_visual": {
+      "artifact_id": 12018928220,
+      "artifact_name": "ms-20261016-leva-inspection-fixes-home-visual-a11y-attempt-1",
+      "candidate_spec_sha256": "a0d56c1033acae239605678a9d6af0c45b82832c65d95f90d84018f61871df7c",
+      "event": "workflow_dispatch",
+      "evidence_file": "visual-evidence.v2.json",
+      "head_sha": "88559c6509e50c2c7059b03fec83bf54c03077fd",
+      "repository": "DevPathAi/devpath-gitops",
+      "run_attempt": 1,
+      "sha256": "a2e63dd219c0024f43de0f0167bef6620bf4b1611d779911366c74174f87290e",
+      "workflow_path": ".github/workflows/mission-spine-validate.yml",
+      "workflow_run_id": 38836133732,
+      "workflow_sha256": "196190621847cd779044c824e35e9c08117c785c881b59f1443867bd8ed5a79f"
+    },
+    "manual_nvda": {
+      "artifact_id": 12018643843,
+      "artifact_name": "ms-20261016-leva-inspection-fixes-manual-nvda-run-38830446319-attempt-1",
+      "candidate_spec_sha256": "a0d56c1033acae239605678a9d6af0c45b82832c65d95f90d84018f61871df7c",
+      "event": "workflow_dispatch",
+      "evidence_file": "evidence.json",
+      "head_sha": "c6356e6062936cbf5a56add1e746a3637b4833eb",
+      "repository": "DevPathAi/devpath-frontend",
+      "run_attempt": 1,
+      "sha256": "f27905ba073d5872a796006e2ae369f509714030c9cef373450ed810df641224",
+      "workflow_path": ".github/workflows/mission-spine-manual-at-evidence.yml",
+      "workflow_run_id": 38830446319,
+      "workflow_sha256": "1f22ce198545bc7c3c1caa5e6220312e5c198559ef40d6ff5fb694d373b6c0c1"
+    }
+  },
+  "release_id": "ms-20261016-leva-inspection-fixes",
+  "schema_version": 1,
+  "validation_attestation": {
+    "activation_sha256": "e5ce23f2e962e4fec934b54ae72af350be8c5c5203f2183d92267ea38da39457",
+    "candidate_spec_sha256": "a0d56c1033acae239605678a9d6af0c45b82832c65d95f90d84018f61871df7c",
+    "contextual_practice_sha256": "c6a4b2b912dfb0e2bc321f24bc30a645984da4bd47cc9631d207dfe1b3d7087f",
+    "home_source_sha": "d46c3f6a190bd610417199794f8f99e7f81b9bbd",
+    "validator_event": "workflow_dispatch",
+    "validator_head_sha": "88559c6509e50c2c7059b03fec83bf54c03077fd",
+    "validator_repository": "DevPathAi/devpath-gitops",
+    "validator_run_attempt": 1,
+    "validator_run_id": 38836133732,
+    "validator_workflow_path": ".github/workflows/mission-spine-validate.yml",
+    "validator_workflow_sha256": "196190621847cd779044c824e35e9c08117c785c881b59f1443867bd8ed5a79f"
+  }
+}
