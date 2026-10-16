@@ -167,18 +167,24 @@ class LandingProbePropagationTest(unittest.TestCase):
         self.addCleanup(error.close)
         return error
 
-    def marker(self, release_id=None):
+    def marker(self, release_id=None, candidate=None, dist=None, extra=None):
         return FakeResponse(
             json.dumps(
                 {
-                    "candidate_spec_sha256": self.CANDIDATE,
-                    "dist_sha256": self.DIST,
+                    "candidate_spec_sha256": candidate or self.CANDIDATE,
+                    "dist_sha256": dist or self.DIST,
                     "release_id": release_id or self.RELEASE,
+                    **(extra or {}),
                 },
                 separators=(",", ":"),
                 sort_keys=True,
             ).encode()
         )
+
+    def stale_marker(self):
+        # The marker path is keyed by the dist hash alone, so the previous release of an unchanged
+        # Home dist left a well-formed marker at the very same path (2026-10-06).
+        return self.marker(release_id="ms-20261002-ai-provider-fallback-gpu7b", candidate="a" * 64)
 
     def drive(self, *outcomes):
         """Give _probe_marker one outcome per attempt; return (opener, recorded sleeps, error|None)."""
@@ -206,6 +212,26 @@ class LandingProbePropagationTest(unittest.TestCase):
         self.assertIsNone(error)
         self.assertEqual(opened.call_count, 2)
 
+    def test_reports_how_long_propagation_took_when_a_retry_succeeds(self):
+        # A probe that passes after retries used to leave no trace, so the only samples of real
+        # edge propagation were the two first-attempt failures (1.17s on 2026-10-01, 1.35s on
+        # 2026-10-06). The retry budget cannot be judged without knowing how much of it is used.
+        with mock.patch.object(module.sys, "stderr", new_callable=io.StringIO) as stderr:
+            _, _, error = self.drive(self.http_error(404), self.stale_marker(), self.marker())
+        self.assertIsNone(error)
+        self.assertIn(
+            "public dist marker probe succeeded on attempt 3 after 3s of waits; last answer: "
+            "another release of the same dist is still served",
+            stderr.getvalue(),
+        )
+
+    def test_stays_quiet_when_the_first_attempt_succeeds(self):
+        with mock.patch.object(module.sys, "stderr", new_callable=io.StringIO) as stderr:
+            _, slept, error = self.drive(self.marker())
+        self.assertIsNone(error)
+        self.assertEqual(slept, [])
+        self.assertEqual(stderr.getvalue(), "")
+
     def test_names_a_404_separately_from_a_connection_failure(self):
         attempts = len(module.PROBE_ATTEMPT_DELAYS) + 1
 
@@ -228,10 +254,41 @@ class LandingProbePropagationTest(unittest.TestCase):
         self.assertEqual(slept, [])
         self.assertIn("308", str(error))
 
-    def test_stops_at_a_marker_that_binds_another_release(self):
-        opened, _, error = self.drive(self.marker(release_id="ms-19700101-other-r1"))
+    def test_retries_a_stale_marker_left_by_another_release_of_the_same_dist(self):
+        # 2026-10-06: ms-20261003-ai-fallback-retry-budget shipped the same Home dist as the release
+        # before it. 1.35s after "Deployment complete!" an edge still answered 200 with the previous
+        # release's marker, and the gate failed while production was already correct.
+        opened, slept, error = self.drive(
+            self.stale_marker(), self.stale_marker(), self.marker()
+        )
+        self.assertIsNone(error)
+        self.assertEqual(opened.call_count, 3)
+        self.assertEqual(slept, list(module.PROBE_ATTEMPT_DELAYS[:2]))
+
+    def test_gives_up_when_another_release_of_the_same_dist_keeps_answering(self):
+        attempts = len(module.PROBE_ATTEMPT_DELAYS) + 1
+        opened, _, error = self.drive(*[self.stale_marker() for _ in range(attempts)])
+        self.assertIsNotNone(error)
+        self.assertEqual(opened.call_count, attempts)
+        self.assertIn("public dist marker probe failed", str(error))
+        self.assertIn("another release", str(error))
+
+    def test_stops_at_a_marker_that_binds_another_dist(self):
+        # Another dist under this dist's own path cannot be propagation: fail on the first attempt.
+        opened, slept, error = self.drive(self.marker(dist="0" * 64))
         self.assertIsNotNone(error)
         self.assertEqual(opened.call_count, 1)
+        self.assertEqual(slept, [])
+        self.assertIn("exact release artifact", str(error))
+
+    def test_stops_at_a_marker_with_unexpected_fields(self):
+        # Only a well-formed marker of the same dist reads as a stale edge.
+        opened, slept, error = self.drive(
+            self.marker(release_id="ms-20261002-ai-provider-fallback-gpu7b", extra={"note": "x"})
+        )
+        self.assertIsNotNone(error)
+        self.assertEqual(opened.call_count, 1)
+        self.assertEqual(slept, [])
         self.assertIn("exact release artifact", str(error))
 
     def test_page_and_api_probes_retry_on_the_same_policy(self):

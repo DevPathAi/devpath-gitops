@@ -405,6 +405,89 @@ class Et13AtomicEvidenceTest(unittest.TestCase):
         selected = self.sealer.select_frontend_evidence_run(runs, expected_head)
         self.assertEqual((selected["id"], selected["run_attempt"]), (501, 3))
 
+    def test_selection_failure_tells_an_empty_listing_from_a_competing_run(self):
+        # 2026-10-03: seal failed here once although the only producer run had succeeded eight
+        # minutes earlier, and the same code selected that run minutes later. The bare message
+        # could not say whether the listing was empty, an artifact was missing, or a run competed.
+        expected_head = self.candidate["frontend"]["source_sha"]
+        base = {
+            "id": 501,
+            "status": "completed",
+            "conclusion": "success",
+            "event": "workflow_dispatch",
+            "head_sha": expected_head,
+            "path": ".github/workflows/et13-evidence.yml",
+            "run_attempt": 1,
+        }
+        with self.assertRaisesRegex(
+            ValueError,
+            r"exactly one frontend producer run is required "
+            r"\(listed 0, dispatched-success none, release-complete none\)",
+        ):
+            self.sealer.select_frontend_evidence_run([], expected_head)
+
+        with self.assertRaisesRegex(
+            ValueError,
+            r"\(listed 3, dispatched-success 501, 502, release-complete 501, 502\)",
+        ):
+            self.sealer.select_frontend_evidence_run(
+                [base, {**base, "id": 502}, {**base, "id": 503, "conclusion": "failure"}],
+                expected_head,
+            )
+
+    def test_selection_failure_names_the_release_artifact_a_run_lacks(self):
+        expected_head = self.candidate["frontend"]["source_sha"]
+        run = {
+            "id": 501,
+            "status": "completed",
+            "conclusion": "success",
+            "event": "workflow_dispatch",
+            "head_sha": expected_head,
+            "head_branch": "main",
+            "path": ".github/workflows/et13-evidence.yml",
+            "run_attempt": 1,
+        }
+        release_id = self.candidate["release_id"]
+        lacked = list(self.sealer.FRONTEND_CATALOG_CONTRACTS)[-1]
+        lacked_name = self.sealer.quality_artifact_name(lacked, release_id, 1, 501)
+
+        def fake_list_named_artifacts(_env, _repository, artifact_name):
+            if artifact_name == lacked_name:
+                return []
+            return [{"name": artifact_name, "expired": False, "workflow_run": {"id": 501}}]
+
+        with mock.patch.object(
+            self.sealer,
+            "_list_named_artifacts",
+            side_effect=fake_list_named_artifacts,
+        ):
+            with self.assertRaisesRegex(
+                ValueError,
+                r"\(listed 1, dispatched-success 501, release-complete none, "
+                rf"501 lacks {lacked}\)",
+            ):
+                self.sealer.select_frontend_evidence_run(
+                    [run],
+                    expected_head,
+                    env={},
+                    repository=self.candidate["frontend"]["repository"],
+                    release_id=release_id,
+                )
+
+    def test_manual_selection_failure_reports_what_the_listing_held(self):
+        with mock.patch.object(self.sealer, "list_manual_evidence_runs", return_value=[]):
+            with self.assertRaisesRegex(
+                ValueError,
+                r"exactly one atomic manual producer run is required "
+                r"\(listed 0, dispatched-success none, release-complete none\)",
+            ):
+                self.sealer._discover_manual_evidence(
+                    {},
+                    self.candidate["release_id"],
+                    self.candidate_sha,
+                    self.candidate,
+                )
+
     def _write_bundle(self, root, label):
         lane = LANES[label]
         candidate = copy.deepcopy(self.candidate)

@@ -301,6 +301,31 @@ def _discover_external_artifact(
         return reference
 
 
+def _selection_detail(
+    listed: int,
+    dispatched: list[dict[str, Any]],
+    complete: list[dict[str, Any]],
+    lacking: dict[int, str],
+) -> str:
+    """Say what a producer-run selection saw.
+
+    2026-10-03: seal failed with a bare "exactly one frontend producer run is required" although
+    the only producer run had succeeded eight minutes earlier, and the same code selected it
+    minutes later. The message could not tell an empty listing from a missing release artifact
+    from a competing run, so the cause stayed unproven.
+    """
+
+    def ids(selected: list[dict[str, Any]]) -> str:
+        return ", ".join(str(run_id) for run_id in sorted({run["id"] for run in selected})) or "none"
+
+    detail = (
+        f"listed {listed}, dispatched-success {ids(dispatched)}, release-complete {ids(complete)}"
+    )
+    for run_id in sorted(lacking):
+        detail += f", {run_id} lacks {lacking[run_id]}"
+    return f" ({detail})"
+
+
 def select_frontend_evidence_run(
     runs: list[dict[str, Any]],
     expected_head: str,
@@ -325,6 +350,8 @@ def select_frontend_evidence_run(
         and not isinstance(run.get("run_attempt"), bool)
         and run["run_attempt"] > 0
     ]
+    dispatched = eligible
+    lacking: dict[int, str] = {}
     release_context = (env, repository, release_id)
     if any(value is not None for value in release_context):
         if not all(value is not None for value in release_context):
@@ -355,13 +382,17 @@ def select_frontend_evidence_run(
                     )
                 if len(matches) != 1:
                     complete = False
+                    lacking[run["id"]] = label
                     break
             if complete:
                 release_eligible.append(run)
         eligible = release_eligible
     run_ids = {run["id"] for run in eligible}
     if len(run_ids) != 1:
-        raise ValueError("exactly one frontend producer run is required")
+        raise ValueError(
+            "exactly one frontend producer run is required"
+            + _selection_detail(len(runs), dispatched, eligible, lacking)
+        )
     return max(eligible, key=lambda run: run["run_attempt"])
 
 
@@ -562,6 +593,8 @@ def _discover_manual_evidence(
     repository = candidate["frontend"]["repository"]
     expected_head = candidate["frontend"]["source_sha"]
     runs = list_manual_evidence_runs(env, repository, expected_head)
+    dispatched: list[dict[str, Any]] = []
+    lacking: dict[int, str] = {}
     candidates: list[dict[str, Any]] = []
     for run in runs:
         if not (
@@ -578,6 +611,7 @@ def _discover_manual_evidence(
         ):
             continue
         run_id = run["id"]
+        dispatched.append(run)
         complete = True
         for label in MANUAL_CATALOG_CONTRACTS:
             name = quality_artifact_name(label, release_id, 1, run_id)
@@ -592,12 +626,16 @@ def _discover_manual_evidence(
                 raise ValueError(f"{label}: duplicate active artifacts for one producer run")
             if len(matches) != 1:
                 complete = False
+                lacking[run_id] = label
                 break
         if complete:
             candidates.append(run)
     run_ids = {run["id"] for run in candidates}
     if len(run_ids) != 1:
-        raise ValueError("exactly one atomic manual producer run is required")
+        raise ValueError(
+            "exactly one atomic manual producer run is required"
+            + _selection_detail(len(runs), dispatched, candidates, lacking)
+        )
     selected = candidates[0]
     run_id = selected["id"]
     discovered: dict[str, dict[str, Any]] = {}
