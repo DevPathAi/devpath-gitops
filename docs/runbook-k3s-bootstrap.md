@@ -210,8 +210,10 @@ aws rds delete-db-instance --region ap-northeast-2 --db-instance-identifier devp
 기동 스크립트가 **같은 노드 이름(`devpath-gpu`)과 같은 노드 비밀번호**로 조인한다. 서버는 같은 Node 가 돌아온 것으로 보므로
 PV 고정이 그대로 맞는다 — 죽은 노드 · 멈춘 파드 · PVC 를 지우지 않는다.
 
-> **상태(2026-10-16)**: 소스(`infra/aws/gpu-node/`)와 Lambda 의 새 기준만 develop 에 있다. 아래 AWS 리소스(파라미터 · 역할 · 기동 템플릿 · ASG · 알람)는
-> **아직 없다** — 계획 Part B(준비)·Part C(전환 · 훈련) 전이다. 그때까지 회수는 아래 「스팟 회수 후 복구」의 수동 절차로 처리한다.
+> **상태(2026-10-16, 준비 완료 · 전환 전)**: 아래 AWS 리소스를 만들었다 — 파라미터 3개(`k3s-version` · `node-password` · `agent-token`, `model-dir` 는 전환 때) ·
+> 역할 · 프로파일 · 기동 템플릿 `lt-0f28ff0caa50e2ba6` v1(user-data sha256 `d6f500be31b1e41ae37e9333098cf1496c5733b9d603cb4b608b27a59188cb89`, develop `4929bd11` 에서 렌더) ·
+> ASG(**희망 대수 0** — 인스턴스 없음) · 알람(**동작 꺼짐**, 신호가 없어 `ALARM` 상태지만 메일은 가지 않는다). 조인 토큰은 control-plane 의 `k3s token list` 에서 설명 `devpath-gpu-node`(id `pc8qap`).
+> **아직 전환하지 않았다**(계획 Part C) — 지금 GPU 노드는 옛 수동 노드(생존 신호 없음)이고, 반복 통지 Lambda 도 옛 기준이다. 그때까지 회수는 아래 「스팟 회수 후 복구」의 수동 절차로 처리한다.
 
 | 리소스 | 이름 |
 |---|---|
