@@ -152,6 +152,65 @@ aws rds delete-db-instance --region ap-northeast-2 --db-instance-identifier devp
 # SG·키페어는 인스턴스 종료 후: delete-security-group / delete-key-pair
 ```
 
+## 일시 정지 — 지우지 않고 세워 둘 때 (2026-11-27 실측)
+
+2026-11-26 22:26Z(11-27 07:26 KST)에 사용자 지시로 이 순서대로 내렸다. 지운 것은 없다.
+
+```bash
+# 1) GPU — 아래 「자동 복구」의 끄는 법 그대로(감시를 먼저 끈다)
+aws cloudwatch disable-alarm-actions --alarm-names devpath-gpu-ollama-not-ready
+aws events disable-rule --name devpath-gpu-node-absence-watch
+aws autoscaling set-desired-capacity --auto-scaling-group-name devpath-gpu-node --desired-capacity 0
+# 2) k3s 서버 · 3) 데이터베이스
+aws ec2 stop-instances --instance-ids i-09e252854566cc123
+aws rds stop-db-instance --db-instance-identifier devpath-pg
+# 4) 데이터베이스를 7일 넘게 세워 두는 장치를 켠다(아래 「keep the database stopped」)
+aws events enable-rule --name devpath-rds-keep-stopped
+```
+
+- 정지 중에도 과금되는 것: EIP(서버에 붙은 채) · k3s EBS 50 GB · RDS 스토리지 20 GB · 백업.
+- GPU 루트 볼륨(120 GiB)은 인스턴스 종료와 함께 지워진다(실측). 다시 띄우면 모델을 새로 받는다 — 같은 이름 · 같은 PVC 라 손댈 것은 없다.
+- 메일: 규칙 ② 가 정지 · 종료마다 보낸다. 실측 3통(k3s `stopped` · GPU `shutting-down` · `terminated`).
+- 정지 직전 실측으로 `app`·`api` 가 내보내던 인증서는 **2026-10-25 03:53Z 에 만료된 것**이었다. cert-manager Secret 은 이미 갱신돼 2027-02-22 까지 유효했다 — Traefik 이 갱신된 Secret 을 다시 읽지 않은 것이다(정지 전 약 33일 동안 브라우저 접속 불가). 다시 켤 때 확인한다.
+
+**다시 켤 때**(순서가 바뀌면 데이터베이스가 다시 정지되거나 거짓 알람이 난다):
+
+1. `aws events disable-rule --name devpath-rds-keep-stopped` — **가장 먼저.**
+2. `aws rds start-db-instance --db-instance-identifier devpath-pg` → `available` 대기.
+3. `aws ec2 start-instances --instance-ids i-09e252854566cc123` → `sudo kubectl get nodes` · Argo 앱 Synced/Healthy.
+4. 인증서: `echo | openssl s_client -connect 127.0.0.1:443 -servername app.leva.ai.kr | openssl x509 -noout -enddate`(노드에서, `api` 도). 아직 옛 날짜면 `sudo kubectl -n kube-system rollout restart deploy/traefik` — 이 처방은 아직 실측하지 않았다.
+5. GPU: ASG 희망 1 → 생존 신호 `DevPath/GPU` `OllamaReady` 확인 → `enable-rule devpath-gpu-node-absence-watch` → `enable-alarm-actions`.
+
+### 데이터베이스를 계속 세워 두기 (keep the database stopped) — 2026-11-27 구축
+
+RDS 는 7일 연속 정지된 인스턴스를 스스로 켠다(`RDS-EVENT-0154` 「DB instance is being started due to it exceeding the maximum allowed time being stopped」). 이를 늘리는 설정은 없다(AWS 문서 「Stopping an Amazon RDS DB instance temporarily」).
+그래서 규칙이 켜져 있는 동안 한 시간마다 확인해, 다시 정지한다. **규칙이 켜져 있다 = 「계속 세워 둔다」**는 뜻이다.
+
+| 리소스 | 이름 |
+|---|---|
+| 규칙 | `devpath-rds-keep-stopped` — `rate(1 hour)` |
+| Lambda | `devpath-rds-keep-stopped` — python3.13 · arm64 · 256 MB · 타임아웃 30초. 소스 `infra/aws/rds-keep-stopped/handler.py`, 테스트 `tests/release/test_rds_keep_stopped.py` |
+| 실행 역할 | `devpath-rds-keep-stopped` — 인라인 정책 `keep-stopped` 의 문장 5개: `ReadDatabase`·`StopDatabase`(`devpath-pg` 에 대한 `rds:DescribeDBInstances`·`rds:StopDBInstance`) · `ReadServer`(`ec2:DescribeInstances`) · `Notify`(토픽 `devpath-spot-interruption` 에 대한 `sns:Publish`) · `WriteOwnLogs` |
+| 환경 변수 | `DB_IDENTIFIER=devpath-pg` · `K3S_INSTANCE_ID=i-09e252854566cc123` · `TOPIC_ARN` — `UpdateFunctionConfiguration` 은 변수를 통째로 바꾸므로 셋을 다 준다 |
+| 로그 | `/aws/lambda/devpath-rds-keep-stopped`(보존 30일) |
+
+판정: 데이터베이스가 `available` **이고** k3s 서버가 `pending`·`running` 이 아니면 정지하고 메일을 보낸다(제목 「[DevPath/AWS] RDS devpath-pg started by itself and was stopped again」).
+그 밖에는 아무것도 하지 않는다 — 아직 `starting`·`backing-up` 이면 다음 정각에, 정지가 `InvalidDBInstanceState` 로 거절되면 다음 정각에 다시 본다. 서버 상태를 읽지 못하면 정지하지 않고 오류로 끝난다.
+
+- **왜 RDS 이벤트가 아니라 일정인가**: RDS 가 EventBridge 로 보내는 이벤트는 전달 방식이 「Best effort」다 — 하나를 놓치면 데이터베이스가 켜진 채 남는다. `DescribeEvents` 에는 `EventID` 가 없고 메시지 문장만 있어 기록으로 가르기도 어렵다(2026-11-27 실측).
+- **k3s 서버가 안전장치다**: 규칙을 끄지 않고 다시 켰더라도 서버가 돌고 있으면 데이터베이스를 건드리지 않는다. 다만 위 「다시 켤 때」처럼 데이터베이스를 먼저 켜면 서버가 뜨기 전 정각 실행에 다시 정지될 수 있다 — 그래서 규칙을 가장 먼저 끈다.
+- k3s 서버를 새로 만들면 `K3S_INSTANCE_ID` 를 바꾼다. 안 바꾸면 옛 ID 가 `absent` 로 보여 새 서버가 돌고 있어도 데이터베이스를 정지한다.
+- 7일마다 데이터베이스가 정지 전 짧게 켜진다(기동 수 분 + 다음 정각까지 최대 1시간). 그때마다 이 장치의 메일이 1통 온다.
+
+검증(운영 계정 실측, 2026-11-26 UTC):
+
+- 음성 — 데이터베이스가 정지된 상태에서 호출 `{"db_status": "stopped", "stopped": false}`(22:48:37, 메일 없음).
+- 배선 — 규칙을 만든 직후(22:48:52) 규칙이 함수를 한 번 불렀다(`AWS/Events` `Invocations` 1 · 함수 로그 `START`). 그 뒤는 한 시간 간격이다.
+- 양성 — 7일 뒤 자동 기동을 흉내 내 데이터베이스를 손으로 켰다(22:49:02 `start-db-instance` → 22:51:06 `DB instance started`). 23:00:50 호출 `{"db_status": "available", "server_state": "stopped", "stopped": true}` → 즉시 `stopping`, 메일 1통 전달 · 실패 0(`AWS/SNS`). 이 판정과 정지는 정각 실행과 같은 함수 · 같은 입력이다(함수는 이벤트 내용을 쓰지 않는다).
+
+코드를 바꿀 때는 테스트를 먼저 고치고(`python -m unittest discover -s tests/release -p 'test_rds_keep_stopped.py'`), `handler.py` 하나를 zip 으로 묶어 `UpdateFunctionCode` 한다(위 「미복구 반복 통지」와 같은 임시 S3 버킷 방식).
+2026-11-27 배포분은 `ZipInfo` 의 `date_time` 을 `2026-11-27 00:00:00` 으로 고정(모드 0644, deflate, 파일 하나, 1,447 바이트)해 CodeSha256 `eLw/bG6dlxQko7nlVIIr3NgkD+AMnbZgOEQPXxHYkDo=` 다.
+
 ---
 
 ## GPU 노드 추가 (2026-08-17 실측)
