@@ -271,6 +271,9 @@ RDS 는 7일 연속 정지된 인스턴스를 스스로 켠다(`RDS-EVENT-0154` 
 기동 스크립트가 **같은 노드 이름(`devpath-gpu`)과 같은 노드 비밀번호**로 조인한다. 서버는 같은 Node 가 돌아온 것으로 보므로
 PV 고정이 그대로 맞는다 — 죽은 노드 · 멈춘 파드 · PVC 를 지우지 않는다.
 
+> **2026-11-26 22:26Z(11-27 KST)부터 일시 정지 중**: ASG 희망 0 · GPU 인스턴스 없음 · 알람 동작 꺼짐 · 규칙 ③ 꺼짐 · k3s 서버와 데이터베이스도 정지(데이터베이스는 `devpath-rds-keep-stopped` 가 세워 둔다).
+> 아래 상태 줄은 정지 직전까지의 가동 상태다. 다시 켜는 순서는 위 「일시 정지 — 지우지 않고 세워 둘 때」.
+
 > **상태(2026-10-16 14:51Z 전환 · 가동 중)**: GPU 노드는 ASG 가 띄운 `devpath-gpu` 하나다. 현재 인스턴스 ID 는 회수 · 훈련 때마다 바뀌므로 이 상태 줄에 적지 않는다(기록 시점 값은 「전환과 훈련(실측)」 끝) —
 > `aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names devpath-gpu-node` 에서 읽는다. 파라미터 4개(`k3s-version` · `node-password` · `agent-token` · `model-dir`) ·
 > 역할 · 프로파일 · 기동 템플릿 `lt-0f28ff0caa50e2ba6` v1(user-data sha256 `d6f500be31b1e41ae37e9333098cf1496c5733b9d603cb4b608b27a59188cb89`, develop `4929bd11` 에서 렌더) ·
